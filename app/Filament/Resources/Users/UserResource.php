@@ -37,6 +37,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Utilities\Get;
 use App\Mail\KpiReminderMail;
 use App\Services\WhatsAppService;
 use App\Models\KpiReminderSetting;
@@ -245,7 +246,7 @@ class UserResource extends Resource
                     ->label('Kirim Pengingat KPI')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('warning')
-                    ->visible(fn () => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (User $record): bool => (auth()->user()?->role?->name === 'ADMIN') && ! $record->trashed())
                     ->modalHeading(fn (User $record) => "Kirim Pengingat KPI ke {$record->nama_lengkap}")
                     ->modalSubmitActionLabel('Kirim Pengingat')
                     ->form([
@@ -256,7 +257,21 @@ class UserResource extends Resource
                                 'pembuatan_kpi' => 'Pembuatan KPI (Untuk Atasan)',
                             ])
                             ->default('pengisian_kpi')
+                            ->live()
+                            ->afterStateUpdated(fn (callable $set) => $set('setting_id', null))
                             ->required(),
+                        Select::make('setting_id')
+                            ->label('Aturan Pengingat')
+                            ->options(fn (Get $get): array => KpiReminderSetting::query()
+                                ->where('type', (string) ($get('type') ?: 'pengisian_kpi'))
+                                ->where('is_active', true)
+                                ->orderBy('title')
+                                ->pluck('title', 'id')
+                                ->all())
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->helperText('Pilih aturan aktif yang menentukan template, tenggat, dan saluran pengiriman.'),
                         CheckboxList::make('channels')
                             ->label('Saluran Pengiriman')
                             ->options([
@@ -264,20 +279,41 @@ class UserResource extends Resource
                                 'whatsapp' => 'WhatsApp',
                             ])
                             ->default(['email', 'whatsapp'])
-                            ->required(),
+                            ->required()
+                            ->helperText('Hanya saluran yang aktif pada pengaturan pengingat yang akan digunakan.'),
                         Textarea::make('custom_message')
                             ->label('Pesan Tambahan / Kustom (Opsional)')
                             ->placeholder('Masukkan pesan tambahan jika ada, atau biarkan kosong untuk menggunakan template standar.')
                             ->rows(4),
                     ])
                     ->action(function (User $record, array $data) {
+                        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+
+                        if ($record->trashed()) {
+                            Notification::make()
+                                ->title('Pengingat Tidak Dikirim')
+                                ->body('Pengingat tidak dapat dikirim ke user yang sudah dihapus.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
                         $type = $data['type'];
-                        $channels = $data['channels'] ?? [];
-                        $customMsg = trim($data['custom_message'] ?? '');
+                        $setting = static::resolveActiveReminderSetting(
+                            $type,
+                            (int) ($data['setting_id'] ?? 0),
+                        );
+                        if (! $setting) {
+                            return;
+                        }
 
-                        $setting = KpiReminderSetting::where('type', $type)->where('is_active', true)->first();
+                        $requestedChannels = is_array($data['channels'] ?? null)
+                            ? array_values(array_intersect(['email', 'whatsapp'], $data['channels']))
+                            : [];
+                        $customMsg = trim((string) ($data['custom_message'] ?? ''));
 
-                        $tenggatDay = $setting ? $setting->deadline_day : ($type === 'pembuatan_kpi' ? 5 : 25);
+                        $tenggatDay = (int) $setting->deadline_day;
                         $deadlineDate = Carbon::today()->day(min($tenggatDay, Carbon::today()->daysInMonth));
                         $tenggatLabel = $deadlineDate->format('d M Y');
                         $periodeLabel = Carbon::now()->isoFormat('MMMM YYYY');
@@ -290,20 +326,24 @@ class UserResource extends Resource
                             '{link}' => $link,
                         ];
 
-                        $sentCount = 0;
-                        $failedCount = 0;
+                        $sentChannels = [];
+                        $failedChannels = [];
+                        $skippedChannels = [];
 
-                        if (in_array('email', $channels, true)) {
-                            if (empty($record->email)) {
-                                Notification::make()
-                                    ->title('Email tidak tersedia')
-                                    ->body("User {$record->nama_lengkap} belum memiliki alamat email.")
-                                    ->warning()
-                                    ->send();
+                        if (in_array('email', $requestedChannels, true)) {
+                            if (! $setting->send_email) {
+                                $skippedChannels[] = 'Email (dinonaktifkan pada pengaturan)';
+                            } elseif (empty($record->email)) {
+                                $skippedChannels[] = 'Email (alamat tidak tersedia)';
                             } else {
                                 try {
-                                    $subject = $setting ? strtr($setting->email_subject, $placeholders) : "Pengingat KPI - {$periodeLabel}";
-                                    $bodyTemplate = $setting ? $setting->email_body : KpiReminderSetting::getDefaultEmailTemplate($type);
+                                    $subjectTemplate = filled($setting->email_subject)
+                                        ? (string) $setting->email_subject
+                                        : 'Pengingat KPI - {periode}';
+                                    $subject = strtr($subjectTemplate, $placeholders);
+                                    $bodyTemplate = filled($setting->email_body)
+                                        ? (string) $setting->email_body
+                                        : KpiReminderSetting::getDefaultEmailTemplate($type);
                                     $body = strtr($bodyTemplate, $placeholders);
                                     if ($customMsg !== '') {
                                         $body .= "\n\nPesan Tambahan:\n" . $customMsg;
@@ -311,70 +351,74 @@ class UserResource extends Resource
 
                                     Mail::to($record->email)->send(new KpiReminderMail($subject, $body));
 
-                                    if ($setting) {
-                                        KpiReminderLog::create([
-                                            'kpi_reminder_setting_id' => $setting->id,
-                                            'user_id' => $record->id,
-                                            'channel' => 'email',
-                                            'recipient' => $record->email,
-                                            'status' => 'sent',
-                                            'sent_at' => Carbon::now(),
-                                        ]);
-                                    }
-                                    $sentCount++;
-                                } catch (\Throwable $e) {
-                                    $failedCount++;
+                                    $sentChannels[] = 'Email';
+                                    static::writeManualReminderLog(
+                                        $setting,
+                                        $record,
+                                        'email',
+                                        $record->email,
+                                        'sent',
+                                    );
+                                } catch (\Throwable $exception) {
+                                    $failedChannels[] = 'Email';
+                                    static::writeManualReminderLog(
+                                        $setting,
+                                        $record,
+                                        'email',
+                                        $record->email,
+                                        'failed',
+                                        $exception->getMessage(),
+                                    );
                                 }
                             }
                         }
 
-                        if (in_array('whatsapp', $channels, true)) {
-                            if (empty($record->no_hp)) {
-                                Notification::make()
-                                    ->title('No. HP tidak tersedia')
-                                    ->body("User {$record->nama_lengkap} belum memiliki No. HP.")
-                                    ->warning()
-                                    ->send();
+                        if (in_array('whatsapp', $requestedChannels, true)) {
+                            if (! $setting->send_whatsapp) {
+                                $skippedChannels[] = 'WhatsApp (dinonaktifkan pada pengaturan)';
+                            } elseif (empty($record->no_hp)) {
+                                $skippedChannels[] = 'WhatsApp (No. HP tidak tersedia)';
                             } else {
-                                $waTemplate = $setting ? $setting->whatsapp_template : KpiReminderSetting::getDefaultWhatsappTemplate($type);
+                                $waTemplate = filled($setting->whatsapp_template)
+                                    ? (string) $setting->whatsapp_template
+                                    : KpiReminderSetting::getDefaultWhatsappTemplate($type);
                                 $waMessage = strtr($waTemplate, $placeholders);
                                 if ($customMsg !== '') {
                                     $waMessage .= "\n\n*Pesan Tambahan:*\n" . $customMsg;
                                 }
 
-                                $res = WhatsAppService::send($record->no_hp, $waMessage);
-
-                                if ($setting) {
-                                    KpiReminderLog::create([
-                                        'kpi_reminder_setting_id' => $setting->id,
-                                        'user_id' => $record->id,
-                                        'channel' => 'whatsapp',
-                                        'recipient' => $record->no_hp,
-                                        'status' => $res['success'] ? 'sent' : 'failed',
-                                        'error_message' => $res['success'] ? null : $res['message'],
-                                        'sent_at' => Carbon::now(),
-                                    ]);
+                                try {
+                                    $result = WhatsAppService::send($record->no_hp, $waMessage);
+                                } catch (\Throwable $exception) {
+                                    $result = [
+                                        'success' => false,
+                                        'message' => $exception->getMessage(),
+                                    ];
                                 }
 
-                                if ($res['success']) {
-                                    $sentCount++;
+                                if ($result['success']) {
+                                    $sentChannels[] = 'WhatsApp';
                                 } else {
-                                    $failedCount++;
+                                    $failedChannels[] = 'WhatsApp';
                                 }
+
+                                static::writeManualReminderLog(
+                                    $setting,
+                                    $record,
+                                    'whatsapp',
+                                    $record->no_hp,
+                                    $result['success'] ? 'sent' : 'failed',
+                                    $result['success'] ? null : ($result['message'] ?? 'Pengiriman WhatsApp gagal.'),
+                                );
                             }
                         }
 
-                        if ($sentCount > 0) {
-                            Notification::make()
-                                ->title("Pengingat Berhasil Terkirim ke {$record->nama_lengkap}")
-                                ->success()
-                                ->send();
-                        } elseif ($failedCount > 0) {
-                            Notification::make()
-                                ->title("Gagal Mengirim Pengingat")
-                                ->danger()
-                                ->send();
-                        }
+                        static::notifyManualReminderResult(
+                            $record,
+                            $sentChannels,
+                            $failedChannels,
+                            $skippedChannels,
+                        );
                     }),
                 EditAction::make(),
                 DeleteAction::make(),
@@ -388,6 +432,107 @@ class UserResource extends Resource
                     ForceDeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    protected static function resolveActiveReminderSetting(
+        string $type,
+        int $settingId,
+    ): ?KpiReminderSetting
+    {
+        $setting = KpiReminderSetting::query()
+            ->whereKey($settingId)
+            ->where('type', $type)
+            ->where('is_active', true)
+            ->first();
+
+        if ($setting) {
+            return $setting;
+        }
+
+        $typeLabel = $type === 'pembuatan_kpi' ? 'Pembuatan KPI' : 'Pengisian KPI';
+
+        Notification::make()
+            ->title('Aturan Pengingat Tidak Valid')
+            ->body("Aturan {$typeLabel} yang dipilih sudah tidak aktif atau tidak tersedia. Pilih ulang aturan pengingat.")
+            ->danger()
+            ->send();
+
+        return null;
+    }
+
+    protected static function writeManualReminderLog(
+        KpiReminderSetting $setting,
+        User $user,
+        string $channel,
+        string $recipient,
+        string $status,
+        ?string $errorMessage = null,
+    ): void {
+        try {
+            KpiReminderLog::create([
+                'kpi_reminder_setting_id' => $setting->id,
+                'user_id' => $user->id,
+                'channel' => $channel,
+                'recipient' => $recipient,
+                'status' => $status,
+                'error_message' => $errorMessage,
+                'sent_at' => Carbon::now(),
+            ]);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    protected static function notifyManualReminderResult(
+        User $user,
+        array $sentChannels,
+        array $failedChannels,
+        array $skippedChannels,
+    ): void {
+        $sentLabel = implode(', ', $sentChannels);
+        $problemLabels = [
+            ...array_map(fn (string $channel): string => "{$channel} gagal", $failedChannels),
+            ...$skippedChannels,
+        ];
+        $problemLabel = implode(', ', $problemLabels);
+
+        if (($sentChannels !== []) && ($problemLabels !== [])) {
+            Notification::make()
+                ->title("Pengingat Terkirim Sebagian ke {$user->nama_lengkap}")
+                ->body("Berhasil: {$sentLabel}. Tidak terkirim: {$problemLabel}.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if ($sentChannels !== []) {
+            Notification::make()
+                ->title("Pengingat Berhasil Terkirim ke {$user->nama_lengkap}")
+                ->body("Saluran: {$sentLabel}.")
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        if ($failedChannels !== []) {
+            Notification::make()
+                ->title("Gagal Mengirim Pengingat ke {$user->nama_lengkap}")
+                ->body("Tidak terkirim: {$problemLabel}.")
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title('Pengingat Tidak Dikirim')
+            ->body($problemLabel !== ''
+                ? "Tidak ada saluran yang dapat digunakan: {$problemLabel}."
+                : 'Pilih setidaknya satu saluran pengiriman.')
+            ->warning()
+            ->send();
     }
 
     public static function getRelations(): array

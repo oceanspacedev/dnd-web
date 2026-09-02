@@ -4,12 +4,16 @@ namespace App\Console\Commands;
 
 use App\Mail\KpiReminderMail;
 use App\Models\Kpi;
+use App\Models\KpiDetail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
 use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -33,33 +37,43 @@ class SendKpiRemindersCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle()
+    public function handle(): int
     {
         $this->info('Memulai pengecekan dan pengiriman pengingat KPI...');
 
         $settingId = $this->option('setting-id');
-        $isDryRun = $this->option('dry-run');
+        $isDryRun = (bool) $this->option('dry-run');
+        $failureCount = 0;
 
         $query = KpiReminderSetting::where('is_active', true);
-        if ($settingId) {
+        if ($settingId !== null) {
             $query->where('id', $settingId);
         }
 
         $settings = $query->get();
 
         if ($settings->isEmpty()) {
+            if ($settingId !== null) {
+                $this->error('Aturan pengingat yang diminta tidak ditemukan atau sedang tidak aktif.');
+
+                return self::FAILURE;
+            }
+
             $this->warn('Tidak ada pengaturan pengingat KPI yang aktif.');
-            return 0;
+
+            return self::SUCCESS;
         }
 
-        $today = Carbon::today();
-        $currentMonthPeriod = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $periodeLabel = Carbon::now()->isoFormat('MMMM YYYY');
+        $now = Carbon::now();
+        $today = $now->copy()->startOfDay();
+        $periodStart = $now->copy()->startOfMonth();
+        $periodEnd = $periodStart->copy()->addMonth();
+        $periodeLabel = $now->isoFormat('MMMM YYYY');
 
         foreach ($settings as $setting) {
             $this->info("Memproses Aturan: [{$setting->title}] (Tipe: {$setting->type})");
 
-            $deadlineDate = Carbon::today()->day(min($setting->deadline_day, $today->daysInMonth));
+            $deadlineDate = $today->copy()->day(min($setting->deadline_day, $today->daysInMonth));
             $daysDiff = $today->diffInDays($deadlineDate, false); // Positive if before deadline, 0 if deadline, negative if past deadline
 
             $shouldTrigger = false;
@@ -75,14 +89,14 @@ class SendKpiRemindersCommand extends Command
                 $shouldTrigger = true;
             }
 
-            if (! $shouldTrigger && ! $settingId) {
+            if (! $shouldTrigger && $settingId === null) {
                 $this->info("Hari ini (Tgl {$today->day}) bukan jadwal pengingat untuk tenggat Tgl {$setting->deadline_day}. Dilewati.");
                 continue;
             }
 
             // Identify target users
-            $targetUsers = $this->identifyTargetUsers($setting, $currentMonthPeriod);
-            $this->info("Ditemukan " . count($targetUsers) . " user target yang belum menyelesaikan KPI.");
+            $targetUsers = $this->identifyTargetUsers($setting, $periodStart, $periodEnd);
+            $this->info('Ditemukan '.count($targetUsers).' user target yang belum menyelesaikan KPI.');
 
             foreach ($targetUsers as $user) {
                 $tenggatLabel = $deadlineDate->format('d M Y');
@@ -97,31 +111,55 @@ class SendKpiRemindersCommand extends Command
                 ];
 
                 // 1. Send Email if enabled
-                if ($setting->send_email && ! empty($user->email)) {
-                    $this->processEmailReminder($setting, $user, $placeholders, $isDryRun);
+                if ($setting->send_email) {
+                    if (empty($user->email)) {
+                        $failureCount++;
+                        $this->recordUnavailableRecipient($setting, $user, 'email', $isDryRun);
+                    } elseif (! $this->processEmailReminder($setting, $user, $placeholders, $isDryRun)) {
+                        $failureCount++;
+                    }
                 }
 
                 // 2. Send WhatsApp if enabled
-                if ($setting->send_whatsapp && ! empty($user->no_hp)) {
-                    $this->processWhatsAppReminder($setting, $user, $placeholders, $isDryRun);
+                if ($setting->send_whatsapp) {
+                    if (empty($user->no_hp)) {
+                        $failureCount++;
+                        $this->recordUnavailableRecipient($setting, $user, 'whatsapp', $isDryRun);
+                    } elseif (! $this->processWhatsAppReminder($setting, $user, $placeholders, $isDryRun)) {
+                        $failureCount++;
+                    }
                 }
             }
         }
 
+        if ($failureCount > 0) {
+            $this->error("Selesai dengan {$failureCount} pengiriman gagal.");
+
+            return self::FAILURE;
+        }
+
         $this->info('Selesai memproses seluruh pengingat KPI.');
-        return 0;
+
+        return self::SUCCESS;
     }
 
     /**
      * Identify users who have not completed KPI creation or filling.
      */
-    protected function identifyTargetUsers(KpiReminderSetting $setting, string $currentMonthPeriod): array
+    protected function identifyTargetUsers(
+        KpiReminderSetting $setting,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+    ): array
     {
         $targetUsers = [];
 
         if ($setting->type === 'pembuatan_kpi') {
             // Target: Superiors/Approvers who haven't created KPIs for their subordinates
-            $superiors = User::whereHas('approval')->distinct()->get();
+            $superiors = User::whereIn(
+                'id',
+                User::query()->whereNotNull('approval_id')->select('approval_id'),
+            )->get();
 
             foreach ($superiors as $superior) {
                 $subordinateIds = User::where('approval_id', $superior->id)->pluck('id');
@@ -131,7 +169,8 @@ class SendKpiRemindersCommand extends Command
 
                 // Check how many subordinates have KPI records created for this month
                 $createdCount = Kpi::whereIn('user_id', $subordinateIds)
-                    ->whereDate('date', '>=', $currentMonthPeriod)
+                    ->where('date', '>=', $periodStart)
+                    ->where('date', '<', $periodEnd)
                     ->distinct('user_id')
                     ->count('user_id');
 
@@ -140,13 +179,32 @@ class SendKpiRemindersCommand extends Command
                 }
             }
         } else {
-            // Target: Employees who have KPIs assigned but haven't filled value_actual
-            $usersWithPendingKpis = User::whereHas('kpi', function ($query) use ($currentMonthPeriod) {
-                $query->whereDate('date', '>=', $currentMonthPeriod)
-                    ->whereHas('kpi_detail', function ($q) {
-                        $q->whereNull('value_actual');
-                    });
-            })->get();
+            // Target: Employees who have incomplete KPI details for the current month.
+            $pendingKpiIds = KpiDetail::query()
+                ->select('kpi_id')
+                ->where('is_extra_task', false)
+                ->where(function ($detailQuery) {
+                    $detailQuery
+                        ->where(function ($resultQuery) {
+                            $resultQuery->where('count_type', 'RESULT')
+                                ->whereNull('value_actual');
+                        })
+                        ->orWhere(function ($nonResultQuery) {
+                            $nonResultQuery->where('count_type', 'NON')
+                                ->where(function ($completionQuery) {
+                                    $completionQuery->whereNull('value_result')
+                                        ->orWhere('value_result', '<', 1);
+                                });
+                        });
+                });
+
+            $pendingUserIds = Kpi::query()
+                ->select('user_id')
+                ->where('date', '>=', $periodStart)
+                ->where('date', '<', $periodEnd)
+                ->whereIn('id', $pendingKpiIds);
+
+            $usersWithPendingKpis = User::whereIn('id', $pendingUserIds)->get();
 
             foreach ($usersWithPendingKpis as $emp) {
                 $targetUsers[] = $emp;
@@ -159,94 +217,197 @@ class SendKpiRemindersCommand extends Command
     /**
      * Process Email reminder sending with log deduplication.
      */
-    protected function processEmailReminder(KpiReminderSetting $setting, User $user, array $placeholders, bool $isDryRun)
+    protected function processEmailReminder(
+        KpiReminderSetting $setting,
+        User $user,
+        array $placeholders,
+        bool $isDryRun,
+    ): bool
     {
-        $alreadySentToday = KpiReminderLog::where('kpi_reminder_setting_id', $setting->id)
-            ->where('user_id', $user->id)
-            ->where('channel', 'email')
-            ->whereDate('sent_at', Carbon::today())
-            ->exists();
+        $lock = $this->createReminderLock($setting, $user, 'email');
 
-        if ($alreadySentToday) {
-            return;
-        }
+        if (! $lock->get()) {
+            $this->line(" [EMAIL SKIPPED] Pengingat untuk {$user->email} sedang diproses.");
 
-        $subject = strtr($setting->email_subject ?: 'Pengingat KPI - DnD System', $placeholders);
-        $body = strtr($setting->email_body ?: KpiReminderSetting::getDefaultEmailTemplate($setting->type), $placeholders);
-
-        if ($isDryRun) {
-            $this->line(" [DRY-RUN EMAIL] Ke: {$user->email} | Subjek: {$subject}");
-            return;
+            return true;
         }
 
         try {
-            Mail::to($user->email)->send(new KpiReminderMail($subject, $body));
+            $alreadySentToday = KpiReminderLog::where('kpi_reminder_setting_id', $setting->id)
+                ->where('user_id', $user->id)
+                ->where('channel', 'email')
+                ->where('status', 'sent')
+                ->whereDate('sent_at', Carbon::today())
+                ->exists();
 
-            KpiReminderLog::create([
-                'kpi_reminder_setting_id' => $setting->id,
-                'user_id' => $user->id,
-                'channel' => 'email',
-                'recipient' => $user->email,
-                'status' => 'sent',
-                'sent_at' => Carbon::now(),
-            ]);
+            if ($alreadySentToday) {
+                return true;
+            }
 
-            $this->info(" [EMAIL SENT] Terkirim ke {$user->email}");
-        } catch (Throwable $e) {
-            Log::error("Gagal mengirim email pengingat KPI ke {$user->email}: " . $e->getMessage());
+            $subject = strtr($setting->email_subject ?: 'Pengingat KPI - DnD System', $placeholders);
+            $body = strtr($setting->email_body ?: KpiReminderSetting::getDefaultEmailTemplate($setting->type), $placeholders);
 
-            KpiReminderLog::create([
-                'kpi_reminder_setting_id' => $setting->id,
-                'user_id' => $user->id,
-                'channel' => 'email',
-                'recipient' => $user->email,
-                'status' => 'failed',
-                'error_message' => $e->getMessage(),
-                'sent_at' => Carbon::now(),
-            ]);
+            if ($isDryRun) {
+                $this->line(" [DRY-RUN EMAIL] Ke: {$user->email} | Subjek: {$subject}");
 
-            $this->error(" [EMAIL FAILED] Gagal ke {$user->email}: {$e->getMessage()}");
+                return true;
+            }
+
+            try {
+                Mail::to($user->email)->send(new KpiReminderMail($subject, $body));
+
+                KpiReminderLog::create([
+                    'kpi_reminder_setting_id' => $setting->id,
+                    'user_id' => $user->id,
+                    'channel' => 'email',
+                    'recipient' => $user->email,
+                    'status' => 'sent',
+                    'sent_at' => Carbon::now(),
+                ]);
+
+                $this->info(" [EMAIL SENT] Terkirim ke {$user->email}");
+
+                return true;
+            } catch (Throwable $e) {
+                Log::error("Gagal mengirim email pengingat KPI ke {$user->email}: ".$e->getMessage());
+
+                KpiReminderLog::create([
+                    'kpi_reminder_setting_id' => $setting->id,
+                    'user_id' => $user->id,
+                    'channel' => 'email',
+                    'recipient' => $user->email,
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'sent_at' => Carbon::now(),
+                ]);
+
+                $this->error(" [EMAIL FAILED] Gagal ke {$user->email}: {$e->getMessage()}");
+
+                return false;
+            }
+        } finally {
+            $lock->release();
         }
     }
 
     /**
      * Process WhatsApp reminder sending with log deduplication.
      */
-    protected function processWhatsAppReminder(KpiReminderSetting $setting, User $user, array $placeholders, bool $isDryRun)
+    protected function processWhatsAppReminder(
+        KpiReminderSetting $setting,
+        User $user,
+        array $placeholders,
+        bool $isDryRun,
+    ): bool
     {
-        $alreadySentToday = KpiReminderLog::where('kpi_reminder_setting_id', $setting->id)
-            ->where('user_id', $user->id)
-            ->where('channel', 'whatsapp')
-            ->whereDate('sent_at', Carbon::today())
-            ->exists();
+        $lock = $this->createReminderLock($setting, $user, 'whatsapp');
 
-        if ($alreadySentToday) {
-            return;
+        if (! $lock->get()) {
+            $this->line(" [WA SKIPPED] Pengingat untuk {$user->no_hp} sedang diproses.");
+
+            return true;
         }
 
-        $message = strtr($setting->whatsapp_template ?: KpiReminderSetting::getDefaultWhatsappTemplate($setting->type), $placeholders);
+        try {
+            $alreadySentToday = KpiReminderLog::where('kpi_reminder_setting_id', $setting->id)
+                ->where('user_id', $user->id)
+                ->where('channel', 'whatsapp')
+                ->where('status', 'sent')
+                ->whereDate('sent_at', Carbon::today())
+                ->exists();
+
+            if ($alreadySentToday) {
+                return true;
+            }
+
+            $message = strtr($setting->whatsapp_template ?: KpiReminderSetting::getDefaultWhatsappTemplate($setting->type), $placeholders);
+
+            if ($isDryRun) {
+                $this->line(" [DRY-RUN WA] Ke: {$user->no_hp} | Pesan: {$message}");
+
+                return true;
+            }
+
+            $normalizedPhone = WhatsAppService::normalizePhoneNumber((string) $user->no_hp)
+                ?? trim((string) $user->no_hp);
+            $idempotencyKey = 'kpi-rem-'.substr(hash(
+                'sha256',
+                "{$setting->id}:{$user->id}:whatsapp:".Carbon::today()->toDateString().":{$normalizedPhone}:{$message}",
+            ), 0, 32);
+            $result = WhatsAppService::send($user->no_hp, $message, $idempotencyKey);
+
+            KpiReminderLog::create([
+                'kpi_reminder_setting_id' => $setting->id,
+                'user_id' => $user->id,
+                'channel' => 'whatsapp',
+                'recipient' => $user->no_hp,
+                'status' => $result['success'] ? 'sent' : 'failed',
+                'error_message' => $result['success'] ? null : $result['message'],
+                'sent_at' => Carbon::now(),
+            ]);
+
+            if ($result['success']) {
+                $this->info(" [WA SENT] Terkirim ke {$user->no_hp}");
+
+                return true;
+            }
+
+            $this->error(" [WA FAILED] Gagal ke {$user->no_hp}: {$result['message']}");
+
+            return false;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function reminderLockKey(KpiReminderSetting $setting, User $user, string $channel): string
+    {
+        return "kpi-reminder:{$setting->id}:{$user->id}:{$channel}:".Carbon::today()->toDateString();
+    }
+
+    private function createReminderLock(
+        KpiReminderSetting $setting,
+        User $user,
+        string $channel,
+    ): Lock {
+        $storeName = (string) config('kpi-reminders.cache_store', 'kpi_reminders');
+        $store = Cache::store($storeName)->getStore();
+
+        if (! $store instanceof LockProvider) {
+            throw new \RuntimeException("Cache store [{$storeName}] tidak mendukung atomic lock.");
+        }
+
+        return $store->lock($this->reminderLockKey($setting, $user, $channel), 600);
+    }
+
+    private function recordUnavailableRecipient(
+        KpiReminderSetting $setting,
+        User $user,
+        string $channel,
+        bool $isDryRun,
+    ): void {
+        $errorMessage = $channel === 'email'
+            ? 'Alamat email user belum tersedia.'
+            : 'Nomor WhatsApp user belum tersedia.';
+
+        $this->warn(" [".strtoupper($channel)." FAILED] {$errorMessage} User ID: {$user->id}");
 
         if ($isDryRun) {
-            $this->line(" [DRY-RUN WA] Ke: {$user->no_hp} | Pesan: {$message}");
             return;
         }
 
-        $result = WhatsAppService::send($user->no_hp, $message);
-
-        KpiReminderLog::create([
-            'kpi_reminder_setting_id' => $setting->id,
-            'user_id' => $user->id,
-            'channel' => 'whatsapp',
-            'recipient' => $user->no_hp,
-            'status' => $result['success'] ? 'sent' : 'failed',
-            'error_message' => $result['success'] ? null : $result['message'],
-            'sent_at' => Carbon::now(),
-        ]);
-
-        if ($result['success']) {
-            $this->info(" [WA SENT] Terkirim ke {$user->no_hp}");
-        } else {
-            $this->error(" [WA FAILED] Gagal ke {$user->no_hp}: {$result['message']}");
+        try {
+            KpiReminderLog::create([
+                'kpi_reminder_setting_id' => $setting->id,
+                'user_id' => $user->id,
+                'channel' => $channel,
+                'recipient' => '-',
+                'status' => 'failed',
+                'error_message' => $errorMessage,
+                'sent_at' => Carbon::now(),
+            ]);
+        } catch (Throwable $exception) {
+            Log::error('Gagal mencatat penerima pengingat KPI yang tidak tersedia: '.$exception->getMessage());
         }
     }
 }

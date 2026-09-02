@@ -49,6 +49,14 @@ return [
             'lock_connection' => null,
         ],
 
+        'kpi_reminders' => [
+            'driver' => 'database',
+            'table' => 'kpi_reminder_cache',
+            'lock_table' => 'kpi_reminder_cache_locks',
+            'connection' => null,
+            'lock_connection' => null,
+        ],
+
         'file' => [
             'driver' => 'file',
             'path' => storage_path('framework/cache/data'),

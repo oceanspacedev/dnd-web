@@ -30,4 +30,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'whatsapp' => [
+        'api_url' => env('WA_API_URL', 'https://waghub.mekayastudio.com/api/v1/messages'),
+        'api_key' => env('WA_API_KEY'),
+        'connect_timeout' => (int) env('WA_CONNECT_TIMEOUT', 5),
+        'timeout' => (int) env('WA_API_TIMEOUT', 15),
+    ],
+
 ];

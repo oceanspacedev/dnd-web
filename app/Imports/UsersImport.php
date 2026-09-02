@@ -41,8 +41,26 @@ class UsersImport implements ToModel, WithHeadingRow
             // Flexible field extraction supporting alternate column names
             $namaLengkap = trim((string) $this->getValue($row, ['nama_lengkap', 'nama', 'name']));
             $employeeId  = trim((string) $this->getValue($row, ['id_karyawan', 'employee_id']));
-            $noHp        = trim((string) $this->getValue($row, ['no_hp', 'hp', 'phone', 'no_telepon', 'telepon']));
-            $email       = trim((string) $this->getValue($row, ['email', 'email_address']));
+            $noHpKeys    = ['no_hp', 'hp', 'phone', 'no_telepon', 'telepon'];
+            $emailKeys   = ['email', 'email_address'];
+            $hasNoHp     = $this->hasAnyColumn($row, $noHpKeys);
+            $hasEmail    = $this->hasAnyColumn($row, $emailKeys);
+            $noHp        = $hasNoHp
+                ? $this->normalizeContactAliases(
+                    $row,
+                    $noHpKeys,
+                    fn (mixed $value): ?string => $this->normalizePhoneNumber($value),
+                    'No. HP',
+                )
+                : null;
+            $email       = $hasEmail
+                ? $this->normalizeContactAliases(
+                    $row,
+                    $emailKeys,
+                    fn (mixed $value): ?string => $this->normalizeEmail($value),
+                    'Email',
+                )
+                : null;
             $rawUsername = (string) $this->getValue($row, ['username']);
             $roleInput   = trim((string) $this->getValue($row, ['role', 'role_name']));
             $areaInput   = trim((string) $this->getValue($row, ['area', 'area_name']));
@@ -95,7 +113,7 @@ class UsersImport implements ToModel, WithHeadingRow
                 }
             }
             if (!$area) {
-                throw new Exception('Area "' . ($areaInput ?: '-') . '" tidak ditemukan');
+                throw new Exception('Area "-" tidak ditemukan');
             }
 
             // Divisi lookup & auto-creation if missing
@@ -115,7 +133,7 @@ class UsersImport implements ToModel, WithHeadingRow
                 }
             }
             if (!$divisi) {
-                throw new Exception('Divisi "' . ($divisiInput ?: '-') . '" tidak ditemukan');
+                throw new Exception('Divisi "-" tidak ditemukan');
             }
 
             // Approval lookup (case-insensitive on nama_lengkap or employee_id)
@@ -145,10 +163,10 @@ class UsersImport implements ToModel, WithHeadingRow
                 if ($namaLengkap !== '') {
                     $updateData['nama_lengkap'] = strtoupper($namaLengkap);
                 }
-                if ($noHp !== '') {
+                if ($hasNoHp) {
                     $updateData['no_hp'] = $noHp;
                 }
-                if ($email !== '') {
+                if ($hasEmail) {
                     $updateData['email'] = $email;
                 }
 
@@ -165,8 +183,8 @@ class UsersImport implements ToModel, WithHeadingRow
                     'nama_lengkap' => strtoupper($namaLengkap),
                     'username' => $username,
                     'employee_id' => $employeeId,
-                    'no_hp' => $noHp ?: null,
-                    'email' => $email ?: null,
+                    'no_hp' => $noHp,
+                    'email' => $email,
                     'role_id' => $role->id,
                     'area_id' => $area->id,
                     'divisi_id' => $divisi->id,
@@ -182,10 +200,10 @@ class UsersImport implements ToModel, WithHeadingRow
             }
 
             $this->successCounter++;
-        } catch (Exception $e) {
-            $this->errors[] = 'Baris ' . $currentRowNum . ': ' . $e->getMessage();
         } catch (QueryException $e) {
             $this->errors[] = 'SQL Error baris ' . $currentRowNum . ': ' . $e->getMessage();
+        } catch (Exception $e) {
+            $this->errors[] = 'Baris ' . $currentRowNum . ': ' . $e->getMessage();
         }
 
         return null;
@@ -202,6 +220,140 @@ class UsersImport implements ToModel, WithHeadingRow
             }
         }
         return '';
+    }
+
+    /**
+     * Determine whether the spreadsheet explicitly included any supported
+     * heading, including a heading whose cell value is blank.
+     */
+    protected function hasAnyColumn(array $row, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve aliases without allowing a blank alias to hide a populated one.
+     * Multiple populated aliases must normalize to the same value.
+     */
+    protected function normalizeContactAliases(
+        array $row,
+        array $keys,
+        callable $normalizer,
+        string $label,
+    ): ?string {
+        $normalizedValues = [];
+
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $row)) {
+                continue;
+            }
+
+            $value = $row[$key];
+            if ($value === null || (is_string($value) && trim($value) === '')) {
+                continue;
+            }
+
+            $normalized = $normalizer($value);
+            if ($normalized !== null) {
+                $normalizedValues[$normalized] = true;
+            }
+        }
+
+        if (count($normalizedValues) > 1) {
+            throw new Exception("{$label} memiliki beberapa nilai yang berbeda pada kolom alias");
+        }
+
+        return array_key_first($normalizedValues);
+    }
+
+    /**
+     * Normalize Indonesian WhatsApp numbers to the domestic 08... format.
+     */
+    protected function normalizePhoneNumber(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value) || (!is_scalar($value) && !$value instanceof \Stringable)) {
+            throw new Exception('No. HP tidak valid');
+        }
+
+        if (is_float($value)) {
+            if (!is_finite($value) || floor($value) !== $value) {
+                throw new Exception('No. HP tidak valid');
+            }
+
+            $phone = sprintf('%.0f', $value);
+        } else {
+            $phone = trim((string) $value);
+        }
+
+        if ($phone === '') {
+            return null;
+        }
+
+        // Spreadsheet applications can expose long numeric cells in
+        // scientific notation even when they contain a phone number.
+        if (preg_match('/^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$/', $phone) === 1) {
+            $numericPhone = (float) $phone;
+            if (!is_finite($numericPhone) || floor($numericPhone) !== $numericPhone) {
+                throw new Exception('No. HP tidak valid');
+            }
+
+            $phone = sprintf('%.0f', $numericPhone);
+        }
+
+        if (preg_match('/^\+?[0-9\s().-]+$/', $phone) !== 1) {
+            throw new Exception('No. HP hanya boleh berisi angka dan pemisah umum');
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone);
+
+        if (str_starts_with($digits, '0062')) {
+            $digits = '0' . substr($digits, 4);
+        } elseif (str_starts_with($digits, '62')) {
+            $digits = '0' . substr($digits, 2);
+        } elseif (str_starts_with($digits, '8')) {
+            // Numeric spreadsheet cells drop a leading zero. Restore it for
+            // Indonesian mobile numbers.
+            $digits = '0' . $digits;
+        }
+
+        if (preg_match('/^08\d{8,12}$/', $digits) !== 1) {
+            throw new Exception('No. HP harus berupa nomor WhatsApp Indonesia yang valid, contoh 081234567890');
+        }
+
+        return $digits;
+    }
+
+    protected function normalizeEmail(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value) || (!is_scalar($value) && !$value instanceof \Stringable)) {
+            throw new Exception('Email tidak valid');
+        }
+
+        $email = strtolower(trim((string) $value));
+
+        if ($email === '') {
+            return null;
+        }
+
+        if (strlen($email) > 255 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw new Exception('Format email tidak valid');
+        }
+
+        return $email;
     }
 
     /**

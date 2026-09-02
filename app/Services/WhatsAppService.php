@@ -4,6 +4,8 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Throwable;
 
 class WhatsAppService
 {
@@ -26,29 +28,39 @@ class WhatsAppService
      *    "client_reference": "..."
      *  }
      *
-     * @param string $phoneNumber
-     * @param string $message
      * @return array ['success' => bool, 'message' => string]
      */
-    public static function send(string $phoneNumber, string $message): array
+    public static function send(string $phoneNumber, string $message, ?string $idempotencyKey = null): array
     {
-        // Sanitize phone number (strip whitespace, dashes, plus signs)
-        $phone = preg_replace('/[^0-9]/', '', $phoneNumber);
+        $phone = static::normalizePhoneNumber($phoneNumber);
 
-        if (empty($phone)) {
+        if ($phone === null) {
             return [
                 'success' => false,
-                'message' => 'Nomor HP tidak valid.',
+                'message' => 'Nomor WhatsApp Indonesia tidak valid.',
             ];
         }
 
-        // Standardize format: if starts with 628, convert to 08...
-        if (str_starts_with($phone, '628')) {
-            $phone = '08' . substr($phone, 2);
+        $apiUrl = trim((string) config('services.whatsapp.api_url'));
+        $apiKey = trim((string) config('services.whatsapp.api_key'));
+
+        if ($apiKey === '') {
+            Log::error('WhatsApp API key belum dikonfigurasi.');
+
+            return [
+                'success' => false,
+                'message' => 'WA_API_KEY belum dikonfigurasi.',
+            ];
         }
 
-        $apiUrl = config('services.whatsapp.api_url', env('WA_API_URL', 'https://waghub.mekayastudio.com/api/v1/messages'));
-        $apiKey = config('services.whatsapp.api_key', env('WA_API_KEY'));
+        if ($apiUrl === '') {
+            Log::error('WhatsApp API URL belum dikonfigurasi.');
+
+            return [
+                'success' => false,
+                'message' => 'WA_API_URL belum dikonfigurasi.',
+            ];
+        }
 
         // Ensure endpoint path is correctly targeted to /api/v1/messages
         $apiUrl = rtrim($apiUrl, '/');
@@ -56,37 +68,32 @@ class WhatsAppService
             $apiUrl .= '/api/v1/messages';
         }
 
-        if (empty($apiKey)) {
-            Log::info("WhatsApp Simulated Send to {$phone}: {$message}");
-            return [
-                'success' => true,
-                'message' => 'Simulasi pengiriman WA berhasil (WA_API_KEY di .env belum diisi).',
-            ];
-        }
-
-        $idempotencyKey = 'kpi-rem-' . uniqid() . '-' . time();
-        $clientRef = 'kpi-ref-' . time();
+        $idempotencyKey ??= 'wa-'.Str::uuid()->toString();
+        $clientRef = 'kpi-ref-'.substr(hash('sha256', $idempotencyKey), 0, 32);
 
         try {
             $response = Http::withHeaders([
                 'Accept' => 'application/json',
-                'Authorization' => 'Bearer ' . $apiKey,
+                'Authorization' => 'Bearer '.$apiKey,
                 'Idempotency-Key' => $idempotencyKey,
                 'Content-Type' => 'application/json',
-            ])->post($apiUrl, [
-                'recipient' => [
-                    'type' => 'phone',
-                    'value' => $phone,
-                ],
-                'message' => [
-                    'type' => 'text',
-                    'text' => $message,
-                ],
-                'purpose' => 'notification',
-                'mode' => 'sync',
-                'route_key' => 'default',
-                'client_reference' => $clientRef,
-            ]);
+            ])
+                ->connectTimeout((int) config('services.whatsapp.connect_timeout', 5))
+                ->timeout((int) config('services.whatsapp.timeout', 15))
+                ->post($apiUrl, [
+                    'recipient' => [
+                        'type' => 'phone',
+                        'value' => $phone,
+                    ],
+                    'message' => [
+                        'type' => 'text',
+                        'text' => $message,
+                    ],
+                    'purpose' => 'notification',
+                    'mode' => 'sync',
+                    'route_key' => 'default',
+                    'client_reference' => $clientRef,
+                ]);
 
             if ($response->successful()) {
                 return [
@@ -95,17 +102,38 @@ class WhatsAppService
                 ];
             }
 
-            Log::error("WagHub Gateway Error ({$response->status()}): " . $response->body());
+            Log::error("WagHub Gateway Error ({$response->status()}): ".$response->body());
+
             return [
                 'success' => false,
-                'message' => 'Gagal mengirim WA: HTTP ' . $response->status() . ' - ' . $response->body(),
+                'message' => 'Gagal mengirim WA: HTTP '.$response->status().' - '.$response->body(),
             ];
-        } catch (\Exception $e) {
-            Log::error("WhatsApp Service Exception: " . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error('WhatsApp Service Exception: '.$e->getMessage());
+
             return [
                 'success' => false,
-                'message' => 'Exception: ' . $e->getMessage(),
+                'message' => 'Exception: '.$e->getMessage(),
             ];
         }
+    }
+
+    public static function normalizePhoneNumber(string $phoneNumber): ?string
+    {
+        $phone = preg_replace('/\D+/', '', $phoneNumber);
+
+        if ($phone === null || $phone === '') {
+            return null;
+        }
+
+        if (str_starts_with($phone, '0062')) {
+            $phone = '0'.substr($phone, 4);
+        } elseif (str_starts_with($phone, '62')) {
+            $phone = '0'.substr($phone, 2);
+        } elseif (str_starts_with($phone, '8')) {
+            $phone = '0'.$phone;
+        }
+
+        return preg_match('/^08\d{8,12}$/', $phone) === 1 ? $phone : null;
     }
 }

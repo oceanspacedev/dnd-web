@@ -13,14 +13,17 @@ return new class extends Migration
      */
     public function up()
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'no_hp')) {
+        if (!Schema::hasColumn('users', 'no_hp')) {
+            Schema::table('users', function (Blueprint $table) {
                 $table->string('no_hp')->after('username')->nullable();
-            }
-            if (!Schema::hasColumn('users', 'email')) {
+            });
+        }
+
+        if (!Schema::hasColumn('users', 'email')) {
+            Schema::table('users', function (Blueprint $table) {
                 $table->string('email')->after('no_hp')->nullable();
-            }
-        });
+            });
+        }
     }
 
     /**
@@ -30,8 +33,8 @@ return new class extends Migration
      */
     public function down()
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['no_hp', 'email']);
-        });
+        // These data-bearing columns may have existed before this migration.
+        // Retain them on rollback because the migration cannot safely know
+        // whether it originally created each column.
     }
 };

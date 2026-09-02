@@ -186,17 +186,57 @@ class KpiReminderSettingResource extends Resource
                     ->label('Uji Kirim (Test)')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
+                    ->disabled(fn (KpiReminderSetting $record): bool => ! $record->is_active)
+                    ->tooltip(fn (KpiReminderSetting $record): ?string => $record->is_active
+                        ? null
+                        : 'Aktifkan aturan sebelum menjalankan uji kirim.')
                     ->requiresConfirmation()
                     ->modalHeading('Jalankan Pengingat KPI Sekarang?')
                     ->modalDescription('Proses ini akan mengecek user yang belum membuat/mengisi KPI dan memicu pengiriman pengingat saat ini.')
                     ->action(function (KpiReminderSetting $record) {
-                        Artisan::call('kpi:send-reminders', [
-                            '--setting-id' => $record->id,
-                        ]);
+                        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+
+                        $activeRecord = $record->fresh();
+
+                        if (! $activeRecord?->is_active) {
+                            Notification::make()
+                                ->title('Aturan Pengingat Tidak Aktif')
+                                ->body('Aktifkan aturan terlebih dahulu sebelum menjalankan uji kirim.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        try {
+                            $exitCode = Artisan::call('kpi:send-reminders', [
+                                '--setting-id' => $activeRecord->id,
+                            ]);
+                        } catch (\Throwable $exception) {
+                            report($exception);
+
+                            Notification::make()
+                                ->title('Proses Pengingat KPI Gagal')
+                                ->body('Perintah pengingat tidak dapat dijalankan. Periksa log aplikasi untuk detailnya.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        if ($exitCode !== 0) {
+                            Notification::make()
+                                ->title('Proses Pengingat KPI Gagal')
+                                ->body("Perintah pengingat berhenti dengan kode {$exitCode}.")
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
 
                         Notification::make()
                             ->title('Proses Pengingat KPI Selesai')
-                            ->body('Pengingat telah diproses. Hasil telah dicatat di log pengiriman.')
+                            ->body('Aturan aktif telah diproses. Periksa log pengiriman untuk hasil per penerima.')
                             ->success()
                             ->send();
                     }),
