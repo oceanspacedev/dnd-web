@@ -20,6 +20,10 @@ class UserExporter extends Exporter
                 ->label('username'),
             ExportColumn::make('employee_id')
                 ->label('id_karyawan'),
+            ExportColumn::make('no_hp')
+                ->label('no_hp'),
+            ExportColumn::make('email')
+                ->label('email'),
             ExportColumn::make('role.name')
                 ->label('role'),
             ExportColumn::make('area.name')

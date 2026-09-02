@@ -38,6 +38,14 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\Alignment;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Notifications\Notification;
+use App\Mail\KpiReminderMail;
+use App\Services\WhatsAppService;
+use App\Models\KpiReminderSetting;
+use App\Models\KpiReminderLog;
+use Illuminate\Support\Facades\Mail;
+use Carbon\Carbon;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -604,6 +612,140 @@ class KpiResource extends Resource
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
+                Action::make('send_reminder')
+                    ->label('Kirim Pengingat')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('warning')
+                    ->visible(fn () => auth()->user()?->role?->name === 'ADMIN')
+                    ->modalHeading(fn (Kpi $record) => "Kirim Pengingat Pengisian KPI ke " . ($record->user?->nama_lengkap ?? 'Karyawan'))
+                    ->modalSubmitActionLabel('Kirim Pengingat')
+                    ->form([
+                        CheckboxList::make('channels')
+                            ->label('Saluran Pengiriman')
+                            ->options([
+                                'email' => 'Email',
+                                'whatsapp' => 'WhatsApp',
+                            ])
+                            ->default(['email', 'whatsapp'])
+                            ->required(),
+                        Textarea::make('custom_message')
+                            ->label('Pesan Tambahan / Kustom (Opsional)')
+                            ->placeholder('Masukkan pesan tambahan jika ada, atau biarkan kosong untuk menggunakan template standar.')
+                            ->rows(4),
+                    ])
+                    ->action(function (Kpi $record, array $data) {
+                        $user = $record->user;
+                        if (!$user) {
+                            Notification::make()
+                                ->title('User tidak ditemukan')
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
+                        $channels = $data['channels'] ?? [];
+                        $customMsg = trim($data['custom_message'] ?? '');
+                        $setting = KpiReminderSetting::where('type', 'pengisian_kpi')->where('is_active', true)->first();
+
+                        $tenggatDay = $setting ? $setting->deadline_day : 25;
+                        $deadlineDate = Carbon::today()->day(min($tenggatDay, Carbon::today()->daysInMonth));
+                        $tenggatLabel = $deadlineDate->format('d M Y');
+                        $periodeLabel = Carbon::parse($record->date)->isoFormat('MMMM YYYY');
+                        $link = config('app.url', 'http://localhost') . '/admin/kpis';
+
+                        $placeholders = [
+                            '{nama}' => $user->nama_lengkap,
+                            '{tenggat}' => $tenggatLabel,
+                            '{periode}' => $periodeLabel,
+                            '{link}' => $link,
+                        ];
+
+                        $sentCount = 0;
+                        $failedCount = 0;
+
+                        if (in_array('email', $channels, true)) {
+                            if (empty($user->email)) {
+                                Notification::make()
+                                    ->title('Email tidak tersedia')
+                                    ->body("User {$user->nama_lengkap} belum memiliki alamat email.")
+                                    ->warning()
+                                    ->send();
+                            } else {
+                                try {
+                                    $subject = $setting ? strtr($setting->email_subject, $placeholders) : "Pengingat Pengisian KPI - {$periodeLabel}";
+                                    $bodyTemplate = $setting ? $setting->email_body : KpiReminderSetting::getDefaultEmailTemplate('pengisian_kpi');
+                                    $body = strtr($bodyTemplate, $placeholders);
+                                    if ($customMsg !== '') {
+                                        $body .= "\n\nPesan Tambahan:\n" . $customMsg;
+                                    }
+
+                                    Mail::to($user->email)->send(new KpiReminderMail($subject, $body));
+
+                                    if ($setting) {
+                                        KpiReminderLog::create([
+                                            'kpi_reminder_setting_id' => $setting->id,
+                                            'user_id' => $user->id,
+                                            'channel' => 'email',
+                                            'recipient' => $user->email,
+                                            'status' => 'sent',
+                                            'sent_at' => Carbon::now(),
+                                        ]);
+                                    }
+                                    $sentCount++;
+                                } catch (\Throwable $e) {
+                                    $failedCount++;
+                                }
+                            }
+                        }
+
+                        if (in_array('whatsapp', $channels, true)) {
+                            if (empty($user->no_hp)) {
+                                Notification::make()
+                                    ->title('No. HP tidak tersedia')
+                                    ->body("User {$user->nama_lengkap} belum memiliki No. HP.")
+                                    ->warning()
+                                    ->send();
+                            } else {
+                                $waTemplate = $setting ? $setting->whatsapp_template : KpiReminderSetting::getDefaultWhatsappTemplate('pengisian_kpi');
+                                $waMessage = strtr($waTemplate, $placeholders);
+                                if ($customMsg !== '') {
+                                    $waMessage .= "\n\n*Pesan Tambahan:*\n" . $customMsg;
+                                }
+
+                                $res = WhatsAppService::send($user->no_hp, $waMessage);
+
+                                if ($setting) {
+                                    KpiReminderLog::create([
+                                        'kpi_reminder_setting_id' => $setting->id,
+                                        'user_id' => $user->id,
+                                        'channel' => 'whatsapp',
+                                        'recipient' => $user->no_hp,
+                                        'status' => $res['success'] ? 'sent' : 'failed',
+                                        'error_message' => $res['success'] ? null : $res['message'],
+                                        'sent_at' => Carbon::now(),
+                                    ]);
+                                }
+
+                                if ($res['success']) {
+                                    $sentCount++;
+                                } else {
+                                    $failedCount++;
+                                }
+                            }
+                        }
+
+                        if ($sentCount > 0) {
+                            Notification::make()
+                                ->title("Pengingat Berhasil Terkirim ke {$user->nama_lengkap}")
+                                ->success()
+                                ->send();
+                        } elseif ($failedCount > 0) {
+                            Notification::make()
+                                ->title("Gagal Mengirim Pengingat")
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

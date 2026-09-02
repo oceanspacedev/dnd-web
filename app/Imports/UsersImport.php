@@ -41,6 +41,8 @@ class UsersImport implements ToModel, WithHeadingRow
             // Flexible field extraction supporting alternate column names
             $namaLengkap = trim((string) $this->getValue($row, ['nama_lengkap', 'nama', 'name']));
             $employeeId  = trim((string) $this->getValue($row, ['id_karyawan', 'employee_id']));
+            $noHp        = trim((string) $this->getValue($row, ['no_hp', 'hp', 'phone', 'no_telepon', 'telepon']));
+            $email       = trim((string) $this->getValue($row, ['email', 'email_address']));
             $rawUsername = (string) $this->getValue($row, ['username']);
             $roleInput   = trim((string) $this->getValue($row, ['role', 'role_name']));
             $areaInput   = trim((string) $this->getValue($row, ['area', 'area_name']));
@@ -143,6 +145,12 @@ class UsersImport implements ToModel, WithHeadingRow
                 if ($namaLengkap !== '') {
                     $updateData['nama_lengkap'] = strtoupper($namaLengkap);
                 }
+                if ($noHp !== '') {
+                    $updateData['no_hp'] = $noHp;
+                }
+                if ($email !== '') {
+                    $updateData['email'] = $email;
+                }
 
                 $user->update($updateData);
             } else {
@@ -157,6 +165,8 @@ class UsersImport implements ToModel, WithHeadingRow
                     'nama_lengkap' => strtoupper($namaLengkap),
                     'username' => $username,
                     'employee_id' => $employeeId,
+                    'no_hp' => $noHp ?: null,
+                    'email' => $email ?: null,
                     'role_id' => $role->id,
                     'area_id' => $area->id,
                     'divisi_id' => $divisi->id,

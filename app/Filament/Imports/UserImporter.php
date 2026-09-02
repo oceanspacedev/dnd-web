@@ -16,6 +16,10 @@ class UserImporter extends Importer
         return [
             ImportColumn::make('employee_id')
                 ->rules(['max:255']),
+            ImportColumn::make('no_hp')
+                ->rules(['max:255']),
+            ImportColumn::make('email')
+                ->rules(['email', 'max:255']),
             ImportColumn::make('nama_lengkap')
                 ->requiredMapping()
                 ->rules(['required', 'max:255']),
