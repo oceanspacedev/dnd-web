@@ -20,6 +20,7 @@ use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
+use App\Services\UserJsonImportService;
 
 class ListUsers extends ListRecords
 {
@@ -59,6 +60,25 @@ class ListUsers extends ListRecords
                     ->modalWidth('md')
                     ->modalHeading('Import User')
                     ->modalSubmitActionLabel('Import'),
+                Action::make('import_json')
+                    ->label('Import JSON (Talenta)')
+                    ->icon('heroicon-s-code-bracket')
+                    ->color('gray')
+                    ->schema([
+                        FileUpload::make('file')
+                            ->label('Upload File JSON (Talenta):')
+                            ->acceptedFileTypes([
+                                'application/json',
+                                'text/json',
+                                'text/plain',
+                            ]),
+                    ])
+                    ->action(function (array $data) {
+                        return $this->processJsonImport($data);
+                    })
+                    ->modalWidth('md')
+                    ->modalHeading('Import User dari File JSON')
+                    ->modalSubmitActionLabel('Import JSON'),
             ])
                 ->label('Import/Export')
                 ->icon('heroicon-m-ellipsis-vertical')
@@ -157,6 +177,79 @@ class ListUsers extends ListRecords
 
             Notification::make()
                 ->title('Error during import: ' . $e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    public function processJsonImport(array $data)
+    {
+        try {
+            set_time_limit(300);
+
+            if (!isset($data['file']) || empty($data['file'])) {
+                Notification::make()
+                    ->title('Error: Tidak ada file JSON yang diunggah')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $rawFile = is_array($data['file']) && count($data['file']) > 0 ? $data['file'][0] : $data['file'];
+
+            if ($rawFile instanceof \Illuminate\Http\UploadedFile) {
+                $fullPath = $rawFile->getRealPath();
+            } elseif (is_string($rawFile)) {
+                if (Storage::disk('public')->exists($rawFile)) {
+                    $fullPath = Storage::disk('public')->path($rawFile);
+                } elseif (Storage::disk('local')->exists($rawFile)) {
+                    $fullPath = Storage::disk('local')->path($rawFile);
+                } elseif (file_exists($rawFile)) {
+                    $fullPath = $rawFile;
+                } else {
+                    $fullPath = storage_path('app/public/' . $rawFile);
+                }
+            } else {
+                $fullPath = (string) $rawFile;
+            }
+
+            $res = UserJsonImportService::importFromFile($fullPath);
+
+            if (!$res['success']) {
+                Notification::make()
+                    ->title('Import JSON Gagal')
+                    ->body($res['message'])
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $successCount = $res['success_count'];
+            $errorCount = $res['error_count'];
+            $errors = $res['errors'];
+
+            if ($errorCount > 0) {
+                $preview = array_slice($errors, 0, 5);
+                $bodyText = "Berhasil: {$successCount} karyawan | Gagal: {$errorCount} karyawan\n\nDetail error:\n- " . implode("\n- ", $preview);
+
+                Notification::make()
+                    ->title("Import JSON Selesai dengan {$errorCount} Catatan")
+                    ->body($bodyText)
+                    ->warning()
+                    ->persistent()
+                    ->send();
+            } else {
+                Notification::make()
+                    ->title('Import User (JSON) Berhasil')
+                    ->body("Seluruh {$successCount} data karyawan berhasil di-import/diperbarui dari file JSON.")
+                    ->success()
+                    ->send();
+            }
+        } catch (Throwable $e) {
+            Log::error('JSON Import Error: ' . $e->getMessage());
+            Log::error($e->getTraceAsString());
+            Notification::make()
+                ->title('Error saat import JSON: ' . $e->getMessage())
                 ->danger()
                 ->send();
         }
