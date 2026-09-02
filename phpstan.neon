@@ -1,0 +1,21 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/nesbot/carbon/extension.neon
+
+parameters:
+    paths:
+        - app/Models/
+        - app/Http/Controllers/
+        - app/Imports/
+        - app/Exports/
+
+    # Level 10 is the highest level
+    level: 1
+    checkMissingVarTagTypehint: false
+    inferPrivatePropertyTypeFromConstructor: true
+    reportUnmatchedIgnoredErrors: true
+    ignoreErrors:
+        - '#PHPDoc tag @var#'
+        - '#PHPDoc type#'
+        - '#property\\.phpDocType#'
+        - '#return.phpDocType#'

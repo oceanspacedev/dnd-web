@@ -1,0 +1,24 @@
+{
+  "resources/css/app.css": {
+    "file": "assets/app-Sgy0Nefe.css",
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-l0sNRNKZ.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true
+  },
+  "vendor/kungfufafa/mekaya-theme/resources/css/theme.css": {
+    "file": "assets/theme-Dm46NpXA.css",
+    "src": "vendor/kungfufafa/mekaya-theme/resources/css/theme.css",
+    "isEntry": true
+  },
+  "vendor/kungfufafa/mekaya-theme/resources/js/mekaya.js": {
+    "file": "assets/mekaya-DQS1Aond.js",
+    "name": "mekaya",
+    "src": "vendor/kungfufafa/mekaya-theme/resources/js/mekaya.js",
+    "isEntry": true
+  }
+}

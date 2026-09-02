@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+    <rect width="512" height="512" rx="108" fill="#9333EA"/>
+    <defs>
+        <!-- Mask potongan celah horizontal agar DnD memiliki efek susunan balok horizontal (slats) 
+             yang 100% senada/sekeluarga dengan Logo H (Oranye) dan Logo S (Biru) -->
+        <mask id="slates">
+            <rect width="512" height="512" fill="#FFFFFF"/>
+            <rect x="50" y="172" width="412" height="14" fill="#000000"/>
+            <rect x="50" y="248" width="412" height="14" fill="#000000"/>
+            <rect x="50" y="324" width="412" height="14" fill="#000000"/>
+        </mask>
+    </defs>
+    <g fill="#FFFFFF" fill-rule="evenodd" mask="url(#slates)">
+        <!-- Left D (DO) -->
+        <path d="M 70 112 L 216 88 L 216 400 L 70 424 Z M 118 152 V 360 H 172 V 152 Z"/>
+        <!-- Middle n (AND) -->
+        <path d="M 230 214 H 282 V 360 H 264 V 252 H 248 V 360 H 230 Z"/>
+        <!-- Right D (DONE) -->
+        <path d="M 296 112 L 442 88 L 442 400 L 296 424 Z M 344 152 V 360 H 398 V 152 Z"/>
+    </g>
+</svg>
