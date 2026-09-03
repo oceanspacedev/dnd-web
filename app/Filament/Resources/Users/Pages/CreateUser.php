@@ -13,7 +13,13 @@ class CreateUser extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data['approval_id'] = Auth::id();
+        $role = !empty($data['role_id']) ? \App\Models\Role::find($data['role_id']) : null;
+        if ($role && ! $role->requires_approval) {
+            $data['approval_id'] = null;
+        } else {
+            $data['approval_id'] = $data['approval_id'] ?? Auth::id();
+        }
+
         $data['dr'] = $data['dr'] ?? false;
         $data['wn'] = $data['wn'] ?? false;
         $data['wr'] = $data['wr'] ?? false;

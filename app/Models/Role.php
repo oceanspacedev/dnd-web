@@ -16,6 +16,10 @@ class Role extends Model
     protected $hidden = [
         'created_at',
         'updated_at',
+    ];
+
+    protected $casts = [
+        'requires_approval' => 'boolean',
     ];   
     
     public function user()

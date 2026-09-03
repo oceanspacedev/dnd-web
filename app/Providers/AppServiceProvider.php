@@ -70,5 +70,30 @@ class AppServiceProvider extends ServiceProvider
                 }
             });
         }
+
+        // Fix for PHP < 8.4 where \Dom\HTMLDocument does not exist (Filament notifications & HTML sanitization)
+        if (! class_exists(\Dom\HTMLDocument::class) && interface_exists(\Symfony\Component\HtmlSanitizer\HtmlSanitizerInterface::class)) {
+            $this->app->scoped(\Symfony\Component\HtmlSanitizer\HtmlSanitizerInterface::class, function () {
+                return new class implements \Symfony\Component\HtmlSanitizer\HtmlSanitizerInterface {
+                    public function sanitize(string $input): string
+                    {
+                        return strip_tags($input, '<p><br><b><strong><i><em><u><a><ul><ol><li><span><div><h1><h2><h3><h4><h5><h6><table><thead><tbody><tr><th><td><img>');
+                    }
+
+                    public function sanitizeFor(string $element, string $input): string
+                    {
+                        return $this->sanitize($input);
+                    }
+                };
+            });
+
+            \Illuminate\Support\Str::macro('sanitizeHtml', function (string $html): string {
+                return strip_tags($html, '<p><br><b><strong><i><em><u><a><ul><ol><li><span><div><h1><h2><h3><h4><h5><h6><table><thead><tbody><tr><th><td><img>');
+            });
+
+            \Illuminate\Support\Stringable::macro('sanitizeHtml', function (): \Illuminate\Support\Stringable {
+                return new \Illuminate\Support\Stringable(\Illuminate\Support\Str::sanitizeHtml($this->value));
+            });
+        }
     }
 }

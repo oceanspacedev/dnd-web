@@ -3633,6 +3633,283 @@
                 "description": "Mengirim pesan notifikasi uji coba ke nomor WhatsApp atau email tertentu untuk memvalidasi gateway."
             },
             "response": []
+        },
+        {
+            "name": "91. Jurnal - Get Today Journal (Cek Status Hari Ini)",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/journals/today",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals",
+                        "today"
+                    ]
+                },
+                "description": "Mengecek apakah karyawan yang login sudah mengisi jurnal harian untuk hari ini atau belum."
+            },
+            "response": []
+        },
+        {
+            "name": "92. Jurnal - List Work Journals (Riwayat Jurnal)",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/journals?per_page=15",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals"
+                    ],
+                    "query": [
+                        {
+                            "key": "per_page",
+                            "value": "15"
+                        }
+                    ]
+                },
+                "description": "Mengambil daftar riwayat jurnal kerja karyawan terpaginasi (filter user_id, date, month, search)."
+            },
+            "response": []
+        },
+        {
+            "name": "93. Jurnal - Get Team Journals (Pantauan Atasan)",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/journals/team?date=2026-09-03&per_page=15",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals",
+                        "team"
+                    ],
+                    "query": [
+                        {
+                            "key": "date",
+                            "value": "2026-09-03"
+                        },
+                        {
+                            "key": "per_page",
+                            "value": "15"
+                        }
+                    ]
+                },
+                "description": "Khusus Atasan: Melihat daftar jurnal harian yang diisi oleh seluruh bawahan langsung / anggota timnya."
+            },
+            "response": []
+        },
+        {
+            "name": "94. Jurnal - Get Work Journal Detail",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/journals/1",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals",
+                        "1"
+                    ]
+                },
+                "description": "Mengambil detail lengkap satu entri jurnal harian."
+            },
+            "response": []
+        },
+        {
+            "name": "95. Jurnal - Create Work Journal (Simpan Jurnal Baru)",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"date\": \"2026-09-03\",\n    \"activity\": \"1. Rapat evaluasi operasional cabang pagi.\\n2. Verifikasi 15 dokumen faktur tagihan supplier.\\n3. Menyelesaikan update data inventaris gudang.\",\n    \"notes\": \"Semua pekerjaan selesai tanpa kendala.\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/journals",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals"
+                    ]
+                },
+                "description": "Menyimpan entri jurnal harian baru."
+            },
+            "response": []
+        },
+        {
+            "name": "96. Jurnal - Update Work Journal",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "PUT",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"activity\": \"1. Rapat evaluasi operasional cabang pagi.\\n2. Verifikasi 15 dokumen faktur tagihan supplier.\\n3. Menyelesaikan update data inventaris gudang.\\n4. Briefing evaluasi target sore bersama tim.\",\n    \"notes\": \"Revisi tambahan aktivitas briefing sore.\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/journals/1",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals",
+                        "1"
+                    ]
+                },
+                "description": "Memperbarui data isi jurnal harian."
+            },
+            "response": []
+        },
+        {
+            "name": "97. Jurnal - Delete Work Journal",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/journals/1",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "journals",
+                        "1"
+                    ]
+                },
+                "description": "Menghapus data jurnal harian."
+            },
+            "response": []
         }
     ]
 }

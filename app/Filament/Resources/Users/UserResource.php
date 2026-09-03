@@ -102,7 +102,14 @@ class UserResource extends Resource
                             ->searchable()
                             ->relationship('role', 'name')
                             ->label('Jabatan')
-                            ->required(),
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(function ($state, callable $set) {
+                                $role = $state ? \App\Models\Role::find($state) : null;
+                                if (! $role || ! $role->requires_approval) {
+                                    $set('approval_id', null);
+                                }
+                            }),
                         Select::make('position_id')
                             ->preload()
                             ->searchable()
@@ -115,6 +122,22 @@ class UserResource extends Resource
                         Select::make('approval_id')
                             ->preload()
                             ->searchable()
+                            ->visible(function (callable $get) {
+                                $roleId = $get('role_id');
+                                if (! $roleId) {
+                                    return false;
+                                }
+                                $role = \App\Models\Role::find($roleId);
+                                return (bool) ($role?->requires_approval);
+                            })
+                            ->required(function (callable $get) {
+                                $roleId = $get('role_id');
+                                if (! $roleId) {
+                                    return false;
+                                }
+                                $role = \App\Models\Role::find($roleId);
+                                return (bool) ($role?->requires_approval);
+                            })
                             ->options(function (?User $record) {
                                 if (! $record) {
                                     $currentUser = auth()->user();

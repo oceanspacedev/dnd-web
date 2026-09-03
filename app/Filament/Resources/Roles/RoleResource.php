@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Roles;
 
 use Filament\Schemas\Schema;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteAction;
@@ -33,8 +35,14 @@ class RoleResource extends Resource
         return $schema
             ->components([
                 TextInput::make('name')
+                    ->label('Nama Role')
                     ->required()
                     ->maxLength(255),
+
+                Toggle::make('requires_approval')
+                    ->label('Wajib Approval')
+                    ->helperText('Aktifkan jika pengguna dengan role ini memerlukan persetujuan (approval) atasan.')
+                    ->default(false),
             ])
             ->columns(1);
     }
@@ -44,7 +52,15 @@ class RoleResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('name')
-                    ->searchable(),
+                    ->label('Nama Role')
+                    ->searchable()
+                    ->sortable(),
+
+                IconColumn::make('requires_approval')
+                    ->label('Wajib Approval')
+                    ->boolean()
+                    ->sortable(),
+
                 TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()

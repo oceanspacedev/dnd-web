@@ -108,6 +108,11 @@ class User extends Authenticatable implements FilamentUser, HasName
         return $this->belongsTo(Position::class);
     }
 
+    public function workJournals()
+    {
+        return $this->hasMany(WorkJournal::class);
+    }
+
 
     public function attendance()
     {

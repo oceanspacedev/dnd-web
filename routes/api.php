@@ -209,5 +209,16 @@ Route::prefix('v1')->group(function () {
             Route::delete('settings/{id}', [\App\Http\Controllers\Api\V1\ReminderController::class, 'destroySetting']);
             Route::post('settings/{id}/toggle', [\App\Http\Controllers\Api\V1\ReminderController::class, 'toggleSetting']);
         });
+
+        // Modul 10: Jurnal Harian (Work Journals)
+        Route::prefix('journals')->group(function () {
+            Route::get('today', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'today']);
+            Route::get('team', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'team']);
+            Route::get('/', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'store']);
+            Route::get('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'show']);
+            Route::put('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'update']);
+            Route::delete('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'destroy']);
+        });
     });
 });
