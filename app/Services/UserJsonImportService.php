@@ -7,348 +7,745 @@ use App\Models\Divisi;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 class UserJsonImportService
 {
+    /** @var array<int, string> */
+    private const EMAIL_KEYS = ['email', 'email_address'];
+
+    /** @var array<int, string> */
+    private const PHONE_KEYS = ['mobile_phone', 'no_hp', 'phone', 'phone_number', 'no_telepon'];
+
+    /** @var array<int, string> */
+    private const INITIAL_PASSWORD_KEYS = ['initial_password', 'password'];
+
+    /** @var array<int, string> */
+    private const TEMPLATE_FIELDS = [
+        'role_id',
+        'area_id',
+        'divisi_id',
+        'position_id',
+        'approval_id',
+        'd',
+        'dr',
+        'wn',
+        'wr',
+        'mn',
+        'mr',
+    ];
+
     /**
-     * Import users from a JSON file path or string payload.
+     * Import users from a JSON file.
      *
-     * @param string $jsonFilePath
-     * @return array
+     * Existing users are contact-only synchronizations. New users inherit a
+     * unanimous DND profile from active local peers instead of allowing the
+     * external JSON to define roles, approval, or KPI capabilities.
      */
     public static function importFromFile(string $jsonFilePath): array
     {
-        if (!file_exists($jsonFilePath)) {
-            return [
-                'success' => false,
-                'message' => 'File JSON tidak ditemukan di server.',
-                'success_count' => 0,
-                'error_count' => 1,
-                'errors' => ['File tidak ditemukan di path: ' . $jsonFilePath],
-            ];
+        if (! is_file($jsonFilePath) || ! is_readable($jsonFilePath)) {
+            return static::failedResult(
+                'File JSON tidak ditemukan atau tidak dapat dibaca di server.',
+                ['File JSON tidak ditemukan atau tidak dapat dibaca.'],
+            );
         }
 
         $content = file_get_contents($jsonFilePath);
+        if ($content === false) {
+            return static::failedResult(
+                'File JSON gagal dibaca.',
+                ['File JSON gagal dibaca.'],
+            );
+        }
+
         return static::importFromContent($content);
     }
 
     /**
      * Import users from raw JSON content.
-     *
-     * @param string $content
-     * @return array
      */
     public static function importFromContent(string $content): array
     {
-        // 1. Strip UTF-8 / UTF-16 BOM & invisible control characters
-        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
-        $content = preg_replace('/^\xFE\xFF|^\xFF\xFE/', '', $content);
+        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content) ?? $content;
+        $content = preg_replace('/^\xFE\xFF|^\xFF\xFE/', '', $content) ?? $content;
         $content = trim($content);
 
         if ($content === '') {
-            return [
-                'success' => false,
-                'message' => 'File JSON kosong (0 byte).',
-                'success_count' => 0,
-                'error_count' => 1,
-                'errors' => ['File JSON kosong.'],
-            ];
+            return static::failedResult('File JSON kosong (0 byte).', ['File JSON kosong.']);
         }
 
-        // Detect non-JSON error content (e.g. "404: Not Found" or HTML error pages)
-        if (str_contains(strtolower($content), '404: not found') || str_contains(strtolower($content), '404 not found')) {
-            Log::error('UserJsonImport Uploaded file contains 404 error text');
-            return [
-                'success' => false,
-                'message' => 'File yang diunggah berisi teks "404: Not Found" (bukan data JSON karyawan). Mohon periksa kembali file ekspor JSON Talenta Anda.',
-                'success_count' => 0,
-                'error_count' => 1,
-                'errors' => ['File berisi teks 404: Not Found.'],
-            ];
-        }
-
-        if (str_starts_with(strtolower($content), '<!doctype html') || str_starts_with(strtolower($content), '<html')) {
-            Log::error('UserJsonImport Uploaded file is HTML');
-            return [
-                'success' => false,
-                'message' => 'File yang diunggah adalah halaman web HTML (bukan file JSON karyawan). Mohon pastikan mengunggah file bertipe .json yang benar.',
-                'success_count' => 0,
-                'error_count' => 1,
-                'errors' => ['File berformat HTML.'],
-            ];
-        }
-
-        // 2. Try JSON decode
         $decoded = json_decode($content, true);
 
-        // 3. Fallback repair for common trailing commas
         if (json_last_error() !== JSON_ERROR_NONE) {
-            $repaired = preg_replace('/,\s*([\]}])/', '$1', $content);
+            $repaired = preg_replace('/,\s*([\]}])/', '$1', $content) ?? $content;
             $decoded = json_decode($repaired, true);
         }
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            $errorMsg = json_last_error_msg();
-            Log::error('UserJsonImport Invalid JSON content sample: ' . substr($content, 0, 200));
+            $errorMessage = json_last_error_msg();
+            Log::error('UserJsonImport received invalid JSON', ['error' => $errorMessage]);
 
-            return [
-                'success' => false,
-                'message' => 'Format JSON tidak valid: ' . $errorMsg . '. Pastikan file bertipe .json yang berisi data karyawan.',
-                'success_count' => 0,
-                'error_count' => 1,
-                'errors' => ['Format JSON tidak valid: ' . $errorMsg],
-            ];
+            return static::failedResult(
+                'Format JSON tidak valid: '.$errorMessage.'.',
+                ['Format JSON tidak valid: '.$errorMessage],
+            );
         }
 
-        // 4. Unwrap standard wrappers (e.g. {"status": "success", "data": {"data": [...]}})
         $rows = static::extractRows($decoded);
-
-        if (empty($rows)) {
-            return [
-                'success' => false,
-                'message' => 'Tidak ada data karyawan ditemukan dalam file JSON.',
-                'success_count' => 0,
-                'error_count' => 0,
-                'errors' => [],
-            ];
+        if ($rows === []) {
+            return static::failedResult(
+                'Tidak ada data karyawan ditemukan dalam file JSON.',
+                ['Tidak ada data karyawan ditemukan.'],
+            );
         }
 
         $successCount = 0;
+        $createdCount = 0;
         $errors = [];
-        $rowNum = 0;
-        $defaultPasswordHash = Hash::make('complete123');
+        $usedPasswordFingerprints = [];
 
-        foreach ($rows as $row) {
-            $rowNum++;
-            if (!is_array($row)) {
+        foreach ($rows as $index => $row) {
+            $rowNumber = $index + 1;
+
+            if (! is_array($row)) {
+                $errors[] = "Baris #{$rowNumber}: Data karyawan harus berupa object JSON.";
+
                 continue;
             }
 
-            $namaLengkap = '';
             try {
-                // Extract fields with smart aliases (supporting Talenta, standard HR JSON, and DB exports)
-                $namaLengkap = trim($row['full_name'] ?? $row['nama_lengkap'] ?? $row['name'] ?? $row['employee_name'] ?? '');
-                if ($namaLengkap === '') {
-                    $namaLengkap = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
+                $passwordFingerprint = DB::transaction(
+                    fn () => static::importRow($row, $usedPasswordFingerprints),
+                );
+                if ($passwordFingerprint !== null) {
+                    $usedPasswordFingerprints[$passwordFingerprint] = true;
+                    $createdCount++;
                 }
-                if ($namaLengkap === '') {
-                    $errors[] = "Baris #{$rowNum}: Nama Lengkap wajib diisi.";
-                    continue;
-                }
-
-                $employeeId = trim((string) ($row['employee_id'] ?? $row['id_employee'] ?? $row['emp_id'] ?? $row['id_karyawan'] ?? $row['nip'] ?? ''));
-                $email = trim((string) ($row['email'] ?? $row['email_address'] ?? ''));
-                $noHp = static::normalizePhoneNumber($row['mobile_phone'] ?? $row['no_hp'] ?? $row['phone'] ?? $row['phone_number'] ?? $row['no_telepon'] ?? '');
-
-                // Username extraction / generation
-                $rawUsername = trim((string) ($row['username'] ?? ''));
-                if ($rawUsername === '') {
-                    if ($employeeId !== '') {
-                        $rawUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $employeeId));
-                    } else {
-                        $rawUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', str_replace(' ', '.', $namaLengkap)));
-                    }
-                }
-                $username = strtolower(preg_replace('/[^a-zA-Z0-9._-]/', '', $rawUsername));
-
-                // Area lookup / create
-                $areaName = strtoupper(trim((string) ($row['organization'] ?? $row['area'] ?? $row['nama_area'] ?? $row['branch'] ?? 'HEAD OFFICE')));
-                $area = Area::whereRaw('LOWER(name) = ?', [strtolower($areaName)])->first()
-                    ?: Area::firstOrCreate(['name' => $areaName]);
-
-                // Divisi lookup / create
-                $divisiName = strtoupper(trim((string) ($row['department'] ?? $row['divisi'] ?? $row['nama_divisi'] ?? $row['branch'] ?? 'GENERAL')));
-                $divisi = Divisi::where('name', $divisiName)->where('area_id', $area->id)->first()
-                    ?: Divisi::firstOrCreate([
-                        'name' => $divisiName,
-                        'area_id' => $area->id,
-                    ]);
-
-                // Role lookup (flexible match against DB roles: STAFF, TEAM LEADER, COORDINATOR, MANAGER, etc.)
-                $roleInput = strtoupper(trim((string) ($row['title'] ?? $row['role'] ?? $row['role_name'] ?? $row['designation'] ?? $row['jabatan'] ?? 'STAFF')));
-                $role = Role::whereRaw('LOWER(name) = ?', [strtolower($roleInput)])
-                    ->orWhereRaw('LOWER(REPLACE(name, " ", "")) = ?', [strtolower(str_replace(' ', '', $roleInput))])
-                    ->first();
-                if (!$role) {
-                    $role = Role::where('name', 'STAFF')->first() ?: Role::firstOrCreate(['name' => $roleInput]);
-                }
-
-                // Position lookup / create
-                $positionName = strtoupper(trim((string) ($row['job'] ?? $row['job_position'] ?? $row['position'] ?? $row['posisi'] ?? $row['title'] ?? 'Staff')));
-                $position = Position::firstOrCreate(['name' => $positionName]);
-
-                // Approval user lookup (optional)
-                $approvalId = null;
-                $approvalTarget = trim((string) ($row['approval_line'] ?? $row['approval'] ?? $row['atasan'] ?? ''));
-                if ($approvalTarget !== '') {
-                    $appUser = User::where('nama_lengkap', $approvalTarget)
-                        ->orWhere('username', strtolower($approvalTarget))
-                        ->orWhere('employee_id', $approvalTarget)
-                        ->first();
-                    if ($appUser) {
-                        $approvalId = $appUser->id;
-                    }
-                }
-
-                // Check existing user to preserve password if updating (check employee_id, username, email)
-                $existingUser = null;
-                if ($employeeId !== '') {
-                    $existingUser = User::withTrashed()->where('employee_id', $employeeId)->first();
-                }
-                if (!$existingUser && $username !== '') {
-                    $existingUser = User::withTrashed()->where('username', $username)->first();
-                }
-                if (!$existingUser && $email !== '') {
-                    $existingUser = User::withTrashed()->where('email', $email)->first();
-                }
-
-                if ($existingUser && $existingUser->trashed()) {
-                    $existingUser->restore();
-                }
-
-                $userData = [
-                    'employee_id' => $employeeId ?: ($existingUser?->employee_id),
-                    'nama_lengkap' => strtoupper($namaLengkap),
-                    'email' => $email ?: ($existingUser?->email),
-                    'no_hp' => $noHp ?: ($existingUser?->no_hp),
-                    'area_id' => $area->id,
-                    'divisi_id' => $divisi->id,
-                    'role_id' => $role->id,
-                    'position_id' => $position->id,
-                    'approval_id' => $approvalId ?: ($existingUser?->approval_id),
-                    'dr' => 0,
-                    'wn' => 0,
-                    'wr' => 0,
-                    'mn' => 0,
-                    'mr' => 0,
-                ];
-
-                if (!$existingUser) {
-                    $userData['username'] = $username;
-                    $userData['password'] = $defaultPasswordHash;
-                    User::create($userData);
-                } else {
-                    $existingUser->update($userData);
-                }
-
                 $successCount++;
-            } catch (\Throwable $e) {
-                Log::error("UserJsonImport Error on row #{$rowNum}: " . $e->getMessage());
-                $errors[] = "Baris #{$rowNum} (" . ($namaLengkap ?: 'Karyawan') . "): " . $e->getMessage();
+            } catch (Throwable $exception) {
+                Log::warning('UserJsonImport row rejected', [
+                    'row' => $rowNumber,
+                    'error' => $exception->getMessage(),
+                ]);
+                $errors[] = "Baris #{$rowNumber}: {$exception->getMessage()}";
             }
         }
 
         return [
             'success' => true,
-            'message' => "Import JSON Selesai. Berhasil: {$successCount} karyawan.",
+            'message' => "Import JSON selesai. Berhasil: {$successCount} karyawan.",
             'success_count' => $successCount,
             'error_count' => count($errors),
             'errors' => $errors,
+            'created_count' => $createdCount,
         ];
     }
 
     /**
-     * Normalize Indonesian phone numbers to domestic format 08...
+     * @param  array<string, mixed>  $row
+     * @param  array<string, true>  $usedPasswordFingerprints
+     * @return string|null SHA-256 fingerprint for a newly created user's password.
      */
-    protected static function normalizePhoneNumber(mixed $value): ?string
+    private static function importRow(array $row, array $usedPasswordFingerprints): ?string
+    {
+        $employeeId = static::firstScalarValue($row, [
+            'employee_id',
+            'id_employee',
+            'emp_id',
+            'id_karyawan',
+            'nip',
+        ]);
+        $explicitUsername = static::normalizeUsername(
+            static::firstScalarValue($row, ['username']),
+        );
+        $fullName = static::extractFullName($row);
+
+        $hasEmail = static::hasAnyKey($row, self::EMAIL_KEYS);
+        $hasPhone = static::hasAnyKey($row, self::PHONE_KEYS);
+        $email = $hasEmail
+            ? static::normalizeAliases(
+                $row,
+                self::EMAIL_KEYS,
+                static::normalizeEmail(...),
+                'Email',
+            )
+            : null;
+        $phone = $hasPhone
+            ? static::normalizeAliases(
+                $row,
+                self::PHONE_KEYS,
+                static::normalizePhoneNumber(...),
+                'No. HP',
+            )
+            : null;
+
+        $existingUser = static::resolveExistingUser($employeeId, $explicitUsername, $fullName);
+
+        if ($existingUser) {
+            $contactData = [];
+
+            if ($hasEmail) {
+                $contactData['email'] = $email;
+            }
+            if ($hasPhone) {
+                $contactData['no_hp'] = $phone;
+            }
+
+            if ($contactData !== []) {
+                $existingUser->update($contactData);
+            }
+
+            return null;
+        }
+
+        if ($employeeId === '') {
+            throw new RuntimeException('Employee ID wajib diisi untuk membuat user baru.');
+        }
+        if ($fullName === '') {
+            throw new RuntimeException('Nama Lengkap wajib diisi untuk membuat user baru.');
+        }
+
+        $initialPassword = static::extractInitialPassword($row);
+        $passwordFingerprint = hash('sha256', $initialPassword);
+        if (isset($usedPasswordFingerprints[$passwordFingerprint])) {
+            throw new RuntimeException('Password awal user baru harus unik dalam satu file import.');
+        }
+
+        $template = static::resolveTemplateUser($row);
+        $username = $explicitUsername !== ''
+            ? $explicitUsername
+            : static::normalizeUsername($fullName);
+
+        if ($username === '') {
+            throw new RuntimeException('Username tidak dapat dibentuk dari data karyawan.');
+        }
+
+        if (static::findUsersByCanonicalUsername($username)->isNotEmpty()) {
+            throw new RuntimeException("Username \"{$username}\" sudah dipakai user lain.");
+        }
+
+        $userData = [
+            'employee_id' => $employeeId,
+            'nama_lengkap' => Str::upper(Str::squish($fullName)),
+            'username' => $username,
+            'password' => Hash::make($initialPassword),
+            'email' => $hasEmail ? $email : null,
+            'no_hp' => $hasPhone ? $phone : null,
+        ];
+
+        foreach (self::TEMPLATE_FIELDS as $field) {
+            $userData[$field] = $template->getAttribute($field);
+        }
+
+        User::create($userData);
+
+        return $passwordFingerprint;
+    }
+
+    private static function resolveExistingUser(
+        string $employeeId,
+        string $explicitUsername,
+        string $fullName,
+    ): ?User {
+        $employeeMatch = $employeeId !== ''
+            ? static::findUniqueUserByEmployeeId($employeeId)
+            : null;
+        $usernameMatch = $explicitUsername !== ''
+            ? static::findUniqueUserByUsername($explicitUsername)
+            : null;
+
+        if ($employeeMatch && $usernameMatch && $employeeMatch->isNot($usernameMatch)) {
+            throw new RuntimeException('Employee ID dan username menunjuk user DND yang berbeda.');
+        }
+
+        $matchedUser = $employeeMatch ?? $usernameMatch;
+        if ($matchedUser) {
+            static::ensureUserIsActive($matchedUser);
+
+            return $matchedUser;
+        }
+
+        if ($fullName === '') {
+            return null;
+        }
+
+        // The imported production database contains legacy active users whose
+        // employee_id is blank. Exact-name fallback is deliberately limited to
+        // that legacy population so a new employee sharing a name is not merged.
+        $nameMatches = static::findLegacyUsersByCanonicalName($fullName, false);
+        if ($nameMatches->count() > 1) {
+            throw new RuntimeException('Nama cocok dengan lebih dari satu user legacy DND.');
+        }
+        if ($nameMatches->count() === 1) {
+            return $nameMatches->first();
+        }
+
+        if (static::findLegacyUsersByCanonicalName($fullName, true)->isNotEmpty()) {
+            throw new RuntimeException('User yang cocok sedang diarsipkan; data tidak diubah.');
+        }
+
+        return null;
+    }
+
+    private static function findUniqueUserByEmployeeId(string $employeeId): ?User
+    {
+        $matches = User::withTrashed()
+            ->whereRaw('TRIM(employee_id) = ?', [$employeeId])
+            ->limit(2)
+            ->get();
+
+        if ($matches->count() > 1) {
+            throw new RuntimeException('Employee ID cocok dengan lebih dari satu user DND.');
+        }
+
+        return $matches->first();
+    }
+
+    private static function findUniqueUserByUsername(string $username): ?User
+    {
+        $matches = static::findUsersByCanonicalUsername($username);
+
+        if ($matches->count() > 1) {
+            throw new RuntimeException('Username cocok dengan lebih dari satu user DND.');
+        }
+
+        return $matches->first();
+    }
+
+    private static function findUsersByCanonicalUsername(string $username)
+    {
+        return User::withTrashed()
+            ->whereRaw(
+                "LOWER(REPLACE(REPLACE(TRIM(username), '.', ''), ' ', '')) = ?",
+                [$username],
+            )
+            ->limit(2)
+            ->get();
+    }
+
+    private static function findLegacyUsersByCanonicalName(string $fullName, bool $onlyTrashed)
+    {
+        $query = $onlyTrashed ? User::onlyTrashed() : User::query();
+        $canonicalName = static::canonicalName($fullName);
+
+        return $query
+            ->where(function (Builder $query): void {
+                $query->whereNull('employee_id')
+                    ->orWhereRaw("TRIM(employee_id) = ''");
+            })
+            ->whereNotNull('nama_lengkap')
+            ->get()
+            ->filter(
+                fn (User $user): bool => static::canonicalName((string) $user->nama_lengkap) === $canonicalName,
+            )
+            ->take(2)
+            ->values();
+    }
+
+    private static function ensureUserIsActive(User $user): void
+    {
+        if ($user->trashed()) {
+            throw new RuntimeException('User yang cocok sedang diarsipkan; data tidak diubah.');
+        }
+    }
+
+    /**
+     * Resolve a local peer whose DND operational profile is unambiguous.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private static function resolveTemplateUser(array $row): User
+    {
+        $positionName = static::firstScalarValue($row, [
+            'job',
+            'job_position',
+            'position',
+            'position_name',
+            'posisi',
+            'title',
+        ]);
+
+        if ($positionName === '') {
+            throw new RuntimeException('Posisi wajib diisi untuk mencari pola user DND.');
+        }
+
+        $areaName = static::firstScalarValue($row, [
+            'organization',
+            'area',
+            'area_name',
+            'nama_area',
+            'branch',
+        ]);
+        $divisionName = static::firstScalarValue($row, [
+            'department',
+            'divisi',
+            'divisi_name',
+            'nama_divisi',
+        ]);
+
+        $positionIds = static::matchingMasterIds(Position::query(), $positionName);
+        $adminRoleIds = Role::query()
+            ->whereRaw('LOWER(TRIM(name)) = ?', ['admin'])
+            ->pluck('id');
+
+        $query = User::query()
+            ->whereIn('position_id', $positionIds)
+            ->whereNotIn('role_id', $adminRoleIds);
+
+        if ($areaName !== '') {
+            $areaIds = static::matchingMasterIds(Area::query(), $areaName);
+            $query->whereIn('area_id', $areaIds);
+        }
+        if ($divisionName !== '') {
+            $divisionIds = static::matchingMasterIds(Divisi::query(), $divisionName);
+            $query->whereIn('divisi_id', $divisionIds);
+        }
+
+        $candidates = $query->orderBy('id')->get();
+
+        if ($candidates->isEmpty()) {
+            throw new RuntimeException('Tidak ada user aktif dengan pola posisi/area/divisi yang sama.');
+        }
+
+        $profiles = $candidates->groupBy(static::templateFingerprint(...));
+        if ($profiles->count() !== 1) {
+            throw new RuntimeException('Pola DND untuk posisi/area/divisi ini ambigu; perlu review manual.');
+        }
+
+        $template = $candidates->first();
+        if ($template->approval_id !== null
+            && ! User::query()->whereKey($template->approval_id)->exists()) {
+            throw new RuntimeException('Pola DND memiliki approval yang tidak aktif; perlu review manual.');
+        }
+
+        return $template;
+    }
+
+    /**
+     * Match master names with the same whitespace normalization used for the
+     * incoming JSON. The restored DND data contains a few names with repeated
+     * internal spaces, so LOWER(TRIM(name)) alone is not symmetrical.
+     *
+     * @return array<int, int|string>
+     */
+    private static function matchingMasterIds(Builder $query, string $name): array
+    {
+        $canonicalName = static::canonicalName($name);
+
+        return $query
+            ->get(['id', 'name'])
+            ->filter(
+                fn ($record): bool => static::canonicalName((string) $record->getAttribute('name')) === $canonicalName,
+            )
+            ->pluck('id')
+            ->all();
+    }
+
+    private static function templateFingerprint(User $user): string
+    {
+        $profile = [];
+
+        foreach (self::TEMPLATE_FIELDS as $field) {
+            $profile[$field] = $user->getAttribute($field);
+        }
+
+        return json_encode($profile, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array<int, string>  $keys
+     */
+    private static function firstScalarValue(array $row, array $keys): string
+    {
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $row) || $row[$key] === null) {
+                continue;
+            }
+
+            $value = $row[$key];
+            if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
+                throw new RuntimeException("Field {$key} tidak valid.");
+            }
+
+            $value = trim((string) $value);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private static function extractFullName(array $row): string
+    {
+        $fullName = static::firstScalarValue($row, [
+            'full_name',
+            'nama_lengkap',
+            'name',
+            'employee_name',
+        ]);
+
+        if ($fullName !== '') {
+            return Str::squish($fullName);
+        }
+
+        $firstName = static::firstScalarValue($row, ['first_name']);
+        $lastName = static::firstScalarValue($row, ['last_name']);
+
+        return Str::squish($firstName.' '.$lastName);
+    }
+
+    private static function normalizeUsername(string $username): string
+    {
+        return Str::lower(str_replace('.', '', preg_replace('/\s+/', '', $username) ?? $username));
+    }
+
+    private static function canonicalName(string $name): string
+    {
+        return Str::lower(Str::squish($name));
+    }
+
+    /**
+     * Read a credential only for a new user. Existing-user rows return before
+     * this method, so an external JSON password can never rotate an account.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private static function extractInitialPassword(array $row): string
+    {
+        $passwords = [];
+
+        foreach (self::INITIAL_PASSWORD_KEYS as $key) {
+            if (! array_key_exists($key, $row) || $row[$key] === null) {
+                continue;
+            }
+
+            $value = $row[$key];
+            if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
+                throw new RuntimeException("Field {$key} tidak valid.");
+            }
+
+            $password = (string) $value;
+            if ($password === '' || trim($password) === '') {
+                continue;
+            }
+            if ($password !== trim($password)) {
+                throw new RuntimeException('Password awal tidak boleh diawali atau diakhiri spasi.');
+            }
+            if (! in_array($password, $passwords, true)) {
+                $passwords[] = $password;
+            }
+        }
+
+        if ($passwords === []) {
+            throw new RuntimeException('Field initial_password atau password wajib diisi untuk user baru.');
+        }
+        if (count($passwords) > 1) {
+            throw new RuntimeException('Field initial_password dan password berisi nilai berbeda.');
+        }
+
+        $password = $passwords[0];
+        if (mb_strlen($password) < 12 || strlen($password) > 72) {
+            throw new RuntimeException('Password awal minimal 12 karakter dan maksimal 72 byte.');
+        }
+
+        return $password;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array<int, string>  $keys
+     */
+    private static function hasAnyKey(array $row, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array<int, string>  $keys
+     */
+    private static function normalizeAliases(
+        array $row,
+        array $keys,
+        callable $normalizer,
+        string $label,
+    ): ?string {
+        $normalizedValues = [];
+
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $row)) {
+                continue;
+            }
+
+            $value = $row[$key];
+            if ($value === null || (is_string($value) && trim($value) === '')) {
+                continue;
+            }
+
+            $normalized = $normalizer($value);
+            if ($normalized !== null) {
+                $normalizedValues[$normalized] = true;
+            }
+        }
+
+        if (count($normalizedValues) > 1) {
+            throw new RuntimeException("{$label} memiliki beberapa nilai yang berbeda pada field alias.");
+        }
+
+        return array_key_first($normalizedValues);
+    }
+
+    private static function normalizePhoneNumber(mixed $value): ?string
     {
         if ($value === null || $value === '') {
             return null;
         }
 
-        $phone = preg_replace('/\D+/', '', (string) $value);
+        if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
+            throw new RuntimeException('No. HP tidak valid.');
+        }
+
+        if (is_float($value)) {
+            if (! is_finite($value) || floor($value) !== $value) {
+                throw new RuntimeException('No. HP tidak valid.');
+            }
+
+            $phone = sprintf('%.0f', $value);
+        } else {
+            $phone = trim((string) $value);
+        }
+
         if ($phone === '') {
             return null;
         }
 
-        if (str_starts_with($phone, '0062')) {
-            $phone = '0' . substr($phone, 4);
-        } elseif (str_starts_with($phone, '62')) {
-            $phone = '0' . substr($phone, 2);
-        } elseif (str_starts_with($phone, '8')) {
-            $phone = '0' . $phone;
+        if (preg_match('/^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$/', $phone) === 1) {
+            $numericPhone = (float) $phone;
+            if (! is_finite($numericPhone) || floor($numericPhone) !== $numericPhone) {
+                throw new RuntimeException('No. HP tidak valid.');
+            }
+
+            $phone = sprintf('%.0f', $numericPhone);
         }
 
-        return $phone;
+        if (preg_match('/^\+?[0-9\s().-]+$/', $phone) !== 1) {
+            throw new RuntimeException('No. HP hanya boleh berisi angka dan pemisah umum.');
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+
+        if (str_starts_with($digits, '0062')) {
+            $digits = '0'.substr($digits, 4);
+        } elseif (str_starts_with($digits, '62')) {
+            $digits = '0'.substr($digits, 2);
+        } elseif (str_starts_with($digits, '8')) {
+            $digits = '0'.$digits;
+        }
+
+        if (preg_match('/^08\d{8,12}$/', $digits) !== 1) {
+            throw new RuntimeException('No. HP harus berupa nomor WhatsApp Indonesia yang valid.');
+        }
+
+        return $digits;
+    }
+
+    private static function normalizeEmail(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
+            throw new RuntimeException('Email tidak valid.');
+        }
+
+        $email = Str::lower(trim((string) $value));
+
+        if ($email === '') {
+            return null;
+        }
+
+        if (strlen($email) > 255 || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            throw new RuntimeException('Format email tidak valid.');
+        }
+
+        return $email;
     }
 
     /**
-     * Robustly extract a flat list of employee rows from various JSON structures:
-     * - Paginated Talenta API response: { data: { data: [ ... ], _links: ... } }
-     * - Standard wrapped API: { data: [ ... ] } or { employees: [ ... ] } or { users: [ ... ] }
-     * - Bare list of objects: [ { ... }, { ... } ]
-     * - Key-value map of employees: { "0": { ... }, "emp_1": { ... } }
-     * - Single employee object: { "full_name": "...", ... }
+     * Extract a flat list of employee rows from supported JSON wrappers.
      */
     public static function extractRows(mixed $decoded): array
     {
-        if (!is_array($decoded)) {
+        if (! is_array($decoded)) {
             return [];
         }
 
-        // 1. Deeply nested wrappers (e.g. Talenta paginated directory)
         if (isset($decoded['data']) && is_array($decoded['data'])) {
-            if (isset($decoded['data']['data']) && is_array($decoded['data']['data'])) {
-                return array_values($decoded['data']['data']);
+            foreach (['data', 'employees', 'users', 'items'] as $key) {
+                if (isset($decoded['data'][$key]) && is_array($decoded['data'][$key])) {
+                    return array_values($decoded['data'][$key]);
+                }
             }
-            if (isset($decoded['data']['employees']) && is_array($decoded['data']['employees'])) {
-                return array_values($decoded['data']['employees']);
-            }
-            if (isset($decoded['data']['users']) && is_array($decoded['data']['users'])) {
-                return array_values($decoded['data']['users']);
-            }
-            if (isset($decoded['data']['items']) && is_array($decoded['data']['items'])) {
-                return array_values($decoded['data']['items']);
-            }
+
             if (array_is_list($decoded['data'])) {
                 return $decoded['data'];
             }
             if (static::isEmployeeRow($decoded['data'])) {
                 return [$decoded['data']];
             }
-            $first = reset($decoded['data']);
-            if (is_array($first) && static::isEmployeeRow($first)) {
-                return array_values($decoded['data']);
-            }
         }
 
-        // 2. Named wrapper collections
         foreach (['employees', 'users', 'items', 'records', 'results', 'data'] as $key) {
             if (isset($decoded[$key]) && is_array($decoded[$key])) {
                 return array_values($decoded[$key]);
             }
         }
 
-        // 3. Top-level list
         if (array_is_list($decoded)) {
             return $decoded;
         }
 
-        // 4. Single employee object
         if (static::isEmployeeRow($decoded)) {
             return [$decoded];
         }
 
-        // 5. Map of employee objects
         $first = reset($decoded);
         if (is_array($first) && static::isEmployeeRow($first)) {
             return array_values($decoded);
         }
 
-        return array_values($decoded);
+        return [];
     }
 
     /**
-     * Check whether an array represents an individual employee object.
+     * @param  array<string, mixed>  $data
      */
-    protected static function isEmployeeRow(array $data): bool
+    private static function isEmployeeRow(array $data): bool
     {
         $candidateKeys = [
             'full_name', 'nama_lengkap', 'name', 'employee_name', 'first_name', 'last_name',
-            'employee_id', 'id_employee', 'emp_id', 'id_karyawan', 'nip',
-            'email', 'mobile_phone', 'no_hp', 'phone', 'job', 'position', 'posisi',
+            'employee_id', 'id_employee', 'emp_id', 'id_karyawan', 'nip', 'username',
+            'email', 'email_address', 'mobile_phone', 'no_hp', 'phone', 'phone_number',
+            'job', 'job_position', 'position', 'position_name', 'posisi', 'title',
         ];
 
         foreach ($candidateKeys as $key) {
@@ -358,5 +755,20 @@ class UserJsonImportService
         }
 
         return false;
+    }
+
+    /**
+     * @param  array<int, string>  $errors
+     */
+    private static function failedResult(string $message, array $errors): array
+    {
+        return [
+            'success' => false,
+            'message' => $message,
+            'success_count' => 0,
+            'error_count' => count($errors),
+            'errors' => $errors,
+            'created_count' => 0,
+        ];
     }
 }

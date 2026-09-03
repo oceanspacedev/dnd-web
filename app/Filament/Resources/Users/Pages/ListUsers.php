@@ -18,9 +18,11 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Services\UserJsonImportService;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class ListUsers extends ListRecords
 {
@@ -67,15 +69,22 @@ class ListUsers extends ListRecords
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File JSON (Talenta):')
+                            ->required()
                             ->acceptedFileTypes([
                                 'application/json',
                                 'text/json',
                                 'text/plain',
-                            ]),
+                            ])
+                            ->maxSize(12 * 1024)
+                            ->disk('local')
+                            ->visibility('private')
+                            ->storeFiles(false)
+                            ->helperText('Setiap user baru wajib memiliki field initial_password/password yang unik (minimal 12 karakter, maksimal 72 byte). Field ini diabaikan untuk user existing.'),
                     ])
                     ->action(function (array $data) {
                         return $this->processJsonImport($data);
                     })
+                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
                     ->modalWidth('md')
                     ->modalHeading('Import User dari File JSON')
                     ->modalSubmitActionLabel('Import JSON'),
@@ -184,6 +193,8 @@ class ListUsers extends ListRecords
 
     public function processJsonImport(array $data)
     {
+        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+
         try {
             set_time_limit(300);
 
@@ -197,23 +208,35 @@ class ListUsers extends ListRecords
 
             $rawFile = is_array($data['file']) && count($data['file']) > 0 ? $data['file'][0] : $data['file'];
 
-            if ($rawFile instanceof \Illuminate\Http\UploadedFile) {
-                $fullPath = $rawFile->getRealPath();
-            } elseif (is_string($rawFile)) {
-                if (Storage::disk('public')->exists($rawFile)) {
-                    $fullPath = Storage::disk('public')->path($rawFile);
-                } elseif (Storage::disk('local')->exists($rawFile)) {
-                    $fullPath = Storage::disk('local')->path($rawFile);
-                } elseif (file_exists($rawFile)) {
-                    $fullPath = $rawFile;
-                } else {
-                    $fullPath = storage_path('app/public/' . $rawFile);
-                }
-            } else {
-                $fullPath = (string) $rawFile;
+            if (! $rawFile instanceof UploadedFile || ! $rawFile->isValid()) {
+                Notification::make()
+                    ->title('Import JSON Gagal')
+                    ->body('File upload tidak valid. Silakan unggah ulang file JSON.')
+                    ->danger()
+                    ->send();
+                return;
             }
 
-            $res = UserJsonImportService::importFromFile($fullPath);
+            if ($rawFile->getSize() > 12 * 1024 * 1024) {
+                Notification::make()
+                    ->title('Import JSON Gagal')
+                    ->body('Ukuran file JSON maksimal 12 MB.')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $content = $rawFile->get();
+            if (! is_string($content)) {
+                Notification::make()
+                    ->title('Import JSON Gagal')
+                    ->body('File JSON tidak dapat dibaca. Silakan unggah ulang file.')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $res = UserJsonImportService::importFromContent($content);
 
             if (!$res['success']) {
                 Notification::make()
@@ -227,10 +250,11 @@ class ListUsers extends ListRecords
             $successCount = $res['success_count'];
             $errorCount = $res['error_count'];
             $errors = $res['errors'];
+            $createdCount = $res['created_count'];
 
             if ($errorCount > 0) {
                 $preview = array_slice($errors, 0, 5);
-                $bodyText = "Berhasil: {$successCount} karyawan | Gagal: {$errorCount} karyawan\n\nDetail error:\n- " . implode("\n- ", $preview);
+                $bodyText = "Berhasil: {$successCount} karyawan (user baru: {$createdCount}) | Gagal: {$errorCount} karyawan\n\nDetail error:\n- " . implode("\n- ", $preview);
 
                 Notification::make()
                     ->title("Import JSON Selesai dengan {$errorCount} Catatan")
@@ -241,7 +265,7 @@ class ListUsers extends ListRecords
             } else {
                 Notification::make()
                     ->title('Import User (JSON) Berhasil')
-                    ->body("Seluruh {$successCount} data karyawan berhasil di-import/diperbarui dari file JSON.")
+                    ->body("Seluruh {$successCount} data karyawan berhasil di-import/diperbarui dari file JSON. User baru: {$createdCount}.")
                     ->success()
                     ->send();
             }
@@ -249,9 +273,20 @@ class ListUsers extends ListRecords
             Log::error('JSON Import Error: ' . $e->getMessage());
             Log::error($e->getTraceAsString());
             Notification::make()
-                ->title('Error saat import JSON: ' . $e->getMessage())
+                ->title('Error saat import JSON')
+                ->body('File tidak dapat diproses. Periksa format file lalu coba kembali.')
                 ->danger()
                 ->send();
+        } finally {
+            if (isset($rawFile) && $rawFile instanceof TemporaryUploadedFile) {
+                try {
+                    $rawFile->delete();
+                } catch (Throwable $cleanupError) {
+                    Log::warning('JSON import temporary file cleanup failed', [
+                        'error' => $cleanupError->getMessage(),
+                    ]);
+                }
+            }
         }
     }
 
