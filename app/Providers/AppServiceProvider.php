@@ -55,5 +55,20 @@ class AppServiceProvider extends ServiceProvider
             'filament-panels',
             resource_path('views/vendor/filament-panels'),
         );
+
+        // Attach security requirements directly to operations for Stoplight Elements UI
+        if (class_exists(\Dedoc\Scramble\Scramble::class)) {
+            \Dedoc\Scramble\Scramble::afterOpenApiGenerated(function (\Dedoc\Scramble\Support\Generator\OpenApi $openApi) {
+                foreach ($openApi->paths as $pathItem) {
+                    foreach ($pathItem->operations as $operation) {
+                        if ($operation->security !== []) {
+                            $operation->security = [
+                                new \Dedoc\Scramble\Support\Generator\SecurityRequirement('http'),
+                            ];
+                        }
+                    }
+                }
+            });
+        }
     }
 }

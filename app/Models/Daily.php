@@ -50,4 +50,9 @@ class Daily extends Model
     {
         return $this->belongsTo(User::class, 'add_id')->withTrashed();
     }
+
+    public function dailyLog()
+    {
+        return $this->hasMany(DailyLog::class, 'task_id');
+    }
 }
