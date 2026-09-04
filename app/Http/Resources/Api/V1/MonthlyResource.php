@@ -2,10 +2,12 @@
 
 namespace App\Http\Resources\Api\V1;
 
-use Carbon\Carbon;
+use App\Models\Monthly;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Date;
 
+/** @mixin Monthly */
 class MonthlyResource extends JsonResource
 {
     /**
@@ -16,7 +18,7 @@ class MonthlyResource extends JsonResource
     public function toArray(Request $request): array
     {
         $rawDate = $this->getRawOriginal('date');
-        $formattedDate = $rawDate ? Carbon::parse($rawDate)->format('Y-m-d') : null;
+        $formattedDate = $rawDate ? Date::parse($rawDate)->format('Y-m-d') : null;
 
         return [
             'id' => $this->id,

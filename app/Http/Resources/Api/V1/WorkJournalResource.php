@@ -2,10 +2,12 @@
 
 namespace App\Http\Resources\Api\V1;
 
-use Carbon\Carbon;
+use App\Models\WorkJournal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Date;
 
+/** @mixin WorkJournal */
 class WorkJournalResource extends JsonResource
 {
     /**
@@ -25,7 +27,7 @@ class WorkJournalResource extends JsonResource
                 'area' => $this->user->area?->name,
                 'position' => $this->user->position?->name,
             ]),
-            'date' => $this->date ? Carbon::parse($this->date)->format('Y-m-d') : null,
+            'date' => $this->date ? Date::parse($this->date)->format('Y-m-d') : null,
             'activity' => $this->activity,
             'notes' => $this->notes,
             'created_at' => $this->created_at?->toIso8601String(),

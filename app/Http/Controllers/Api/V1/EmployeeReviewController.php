@@ -12,9 +12,9 @@ use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
 use App\Services\KpiScoringService;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 
 /**
  * @tags Review & Evaluasi Karyawan (Review & Evaluation)
@@ -39,7 +39,7 @@ class EmployeeReviewController extends Controller
         if ($search = $request->query('search')) {
             $query->whereHas('user', function ($q) use ($search) {
                 $q->where('nama_lengkap', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%");
+                    ->orWhere('username', 'like', "%{$search}%");
             });
         }
 
@@ -66,7 +66,7 @@ class EmployeeReviewController extends Controller
     {
         $review = EmployeeReview::with('user')->find($id);
 
-        if (!$review) {
+        if (! $review) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data review karyawan tidak ditemukan.',
@@ -116,7 +116,7 @@ class EmployeeReviewController extends Controller
     {
         $review = EmployeeReview::find($id);
 
-        if (!$review) {
+        if (! $review) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data review karyawan tidak ditemukan.',
@@ -141,7 +141,7 @@ class EmployeeReviewController extends Controller
     {
         $review = EmployeeReview::find($id);
 
-        if (!$review) {
+        if (! $review) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data review karyawan tidak ditemukan.',
@@ -163,7 +163,7 @@ class EmployeeReviewController extends Controller
     {
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
@@ -188,14 +188,14 @@ class EmployeeReviewController extends Controller
     {
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
 
-        $periode = $request->query('periode', Carbon::now()->format('Y-m'));
+        $periode = $request->query('periode', Date::now()->format('Y-m'));
         $parts = explode('-', $periode);
         $year = (int) ($parts[0] ?? date('Y'));
         $month = isset($parts[1]) ? (int) $parts[1] : null;

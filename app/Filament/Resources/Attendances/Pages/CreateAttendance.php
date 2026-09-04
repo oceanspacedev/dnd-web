@@ -3,11 +3,10 @@
 namespace App\Filament\Resources\Attendances\Pages;
 
 use App\Filament\Resources\Attendances\AttendanceResource;
-use Filament\Actions;
-use Filament\Resources\Pages\CreateRecord;
-use Filament\Notifications\Notification;
 use App\Models\Attendance;
 use App\Services\ApprovalScopeService;
+use Filament\Notifications\Notification;
+use Filament\Resources\Pages\CreateRecord;
 
 class CreateAttendance extends CreateRecord
 {
@@ -30,6 +29,7 @@ class CreateAttendance extends CreateRecord
                     ->send();
 
                 $this->halt();
+
                 return;
             }
         }

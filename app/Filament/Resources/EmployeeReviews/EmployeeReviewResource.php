@@ -2,40 +2,35 @@
 
 namespace App\Filament\Resources\EmployeeReviews;
 
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Actions\EditAction;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use App\Filament\Resources\EmployeeReviews\Pages\ListEmployeeReviews;
 use App\Filament\Resources\EmployeeReviews\Pages\CreateEmployeeReview;
 use App\Filament\Resources\EmployeeReviews\Pages\EditEmployeeReview;
-use App\Filament\Resources\EmployeeReviews\Pages;
-use App\Filament\Resources\EmployeeReviews\RelationManagers;
+use App\Filament\Resources\EmployeeReviews\Pages\ListEmployeeReviews;
 use App\Models\EmployeeReview;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Forms;
-use Filament\Forms\Components\DatePicker;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
-use Filament\Tables;
+use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class EmployeeReviewResource extends Resource
 {
     protected static ?string $model = EmployeeReview::class;
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-star';
-    protected static ?string $navigationLabel = 'Penilaian';
-    protected static ?int $navigationSort = 2;
 
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-star';
+
+    protected static ?string $navigationLabel = 'Penilaian';
+
+    protected static ?int $navigationSort = 2;
 
     public static function form(Schema $schema): Schema
     {
@@ -70,7 +65,7 @@ class EmployeeReviewResource extends Resource
                             ->label('Periode')
                             ->required()
                             ->maxLength(7)
-                            ->default(fn() => now()->format('Y-m'))
+                            ->default(fn () => now()->format('Y-m'))
                             ->regex('/^\d{4}-\d{2}$/')
                             ->validationMessages([
                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
@@ -120,7 +115,6 @@ class EmployeeReviewResource extends Resource
                     ])->columns(4),
             ]);
     }
-
 
     public static function table(Table $table): Table
     {
@@ -182,7 +176,7 @@ class EmployeeReviewResource extends Resource
                         return EmployeeReview::distinct('periode')
                             ->pluck('periode', 'periode')
                             ->toArray();
-                    })
+                    }),
             ])
             ->recordActions([
                 EditAction::make(),

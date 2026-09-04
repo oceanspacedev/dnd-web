@@ -35,10 +35,10 @@ class WorkJournalExporter extends Exporter
 
     public static function getCompletedNotificationBody(Export $export): string
     {
-        $body = 'Ekspor jurnal harian selesai dan ' . number_format($export->successful_rows) . ' data berhasil diekspor.';
+        $body = 'Ekspor jurnal harian selesai dan '.number_format($export->successful_rows).' data berhasil diekspor.';
 
         if ($failedRowsCount = $export->getFailedRowsCount()) {
-            $body .= ' ' . number_format($failedRowsCount) . ' data gagal diekspor.';
+            $body .= ' '.number_format($failedRowsCount).' data gagal diekspor.';
         }
 
         return $body;

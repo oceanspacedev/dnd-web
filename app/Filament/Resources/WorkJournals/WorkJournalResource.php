@@ -2,25 +2,22 @@
 
 namespace App\Filament\Resources\WorkJournals;
 
+use App\Filament\Exports\WorkJournalExporter;
 use App\Filament\Resources\WorkJournals\Pages\ManageWorkJournals;
 use App\Models\User;
 use App\Models\WorkJournal;
 use App\Services\ApprovalScopeService;
-use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportBulkAction;
 use Filament\Actions\ViewAction;
-use App\Filament\Exports\WorkJournalExporter;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Radio;
-use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -32,10 +29,14 @@ class WorkJournalResource extends Resource
 {
     protected static ?string $model = WorkJournal::class;
 
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-book-open';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-book-open';
+
     protected static ?string $navigationLabel = 'Jurnal Harian';
+
     protected static ?string $modelLabel = 'Jurnal Harian';
+
     protected static ?string $pluralModelLabel = 'Jurnal Harian';
+
     protected static ?int $navigationSort = 1;
 
     public static function canAccessAllJournals(?User $user = null): bool
@@ -68,7 +69,7 @@ class WorkJournalResource extends Resource
     {
         return $schema
             ->components([
-                \Filament\Forms\Components\Hidden::make('user_id')
+                Hidden::make('user_id')
                     ->default(fn () => auth()->id())
                     ->dehydrated(),
 
@@ -96,7 +97,7 @@ class WorkJournalResource extends Resource
                             }
 
                             if ($query->exists()) {
-                                $fail('Anda sudah mengisi jurnal untuk tanggal ini (' . $value . '). Silakan edit jurnal yang sudah ada.');
+                                $fail('Anda sudah mengisi jurnal untuk tanggal ini ('.$value.'). Silakan edit jurnal yang sudah ada.');
                             }
                         },
                     ])
@@ -172,13 +173,14 @@ class WorkJournalResource extends Resource
                             if (! static::canAccessAllJournals($user)) {
                                 $managed = static::getManagedUserIds($user);
                                 $managed[] = $user->id;
+
                                 return $query->whereIn('id', array_unique($managed));
                             }
 
                             return $query;
                         }
                     )
-                    ->visible(fn () => static::canAccessAllJournals(auth()->user()) || !empty(static::getManagedUserIds(auth()->user()))),
+                    ->visible(fn () => static::canAccessAllJournals(auth()->user()) || ! empty(static::getManagedUserIds(auth()->user()))),
 
                 Filter::make('date')
                     ->form([

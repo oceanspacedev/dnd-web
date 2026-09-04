@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Ai\Agents\WorkJournalSummaryAgent;
 use App\Models\User;
 use App\Models\WorkJournal;
-use Carbon\Carbon;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Date;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WorkJournalReportService
@@ -25,7 +25,7 @@ class WorkJournalReportService
         if ($journals->isEmpty()) {
             Notification::make()
                 ->title('Tidak Ada Data Jurnal')
-                ->body('Karyawan ' . $user->nama_lengkap . ' belum memiliki entri jurnal pada rentang tanggal ' . $dateFrom . ' s/d ' . $dateUntil . '.')
+                ->body('Karyawan '.$user->nama_lengkap.' belum memiliki entri jurnal pada rentang tanggal '.$dateFrom.' s/d '.$dateUntil.'.')
                 ->warning()
                 ->send();
 
@@ -36,13 +36,13 @@ class WorkJournalReportService
         $aiSummary = $this->generateAiSummary($user, $journals, $dateFrom, $dateUntil);
 
         // 2. Generate and download document based on format
-        $fileName = 'Rekap_Jurnal_' . str($user->nama_lengkap)->slug('_') . '_' . $dateFrom . '_sd_' . $dateUntil;
+        $fileName = 'Rekap_Jurnal_'.str($user->nama_lengkap)->slug('_').'_'.$dateFrom.'_sd_'.$dateUntil;
 
         if ($format === 'docs') {
-            return $this->downloadWordDocument($user, $journals, $aiSummary, $dateFrom, $dateUntil, $fileName . '.doc');
+            return $this->downloadWordDocument($user, $journals, $aiSummary, $dateFrom, $dateUntil, $fileName.'.doc');
         }
 
-        return $this->downloadPdfDocument($user, $journals, $aiSummary, $dateFrom, $dateUntil, $fileName . '.html');
+        return $this->downloadPdfDocument($user, $journals, $aiSummary, $dateFrom, $dateUntil, $fileName.'.html');
     }
 
     /**
@@ -56,27 +56,28 @@ class WorkJournalReportService
         // Prepare context prompt
         $prompt = "Berikut adalah data jurnal harian karyawan:\n";
         $prompt .= "Nama: {$user->nama_lengkap}\n";
-        $prompt .= "Divisi: " . ($user->divisi?->name ?? '-') . "\n";
-        $prompt .= "Posisi: " . ($user->position?->name ?? '-') . "\n";
-        $prompt .= "Periode: " . Carbon::parse($dateFrom)->translatedFormat('d F Y') . " s/d " . Carbon::parse($dateUntil)->translatedFormat('d F Y') . "\n\n";
+        $prompt .= 'Divisi: '.($user->divisi?->name ?? '-')."\n";
+        $prompt .= 'Posisi: '.($user->position?->name ?? '-')."\n";
+        $prompt .= 'Periode: '.Date::parse($dateFrom)->translatedFormat('d F Y').' s/d '.Date::parse($dateUntil)->translatedFormat('d F Y')."\n\n";
         $prompt .= "Daftar Pekerjaan Harian:\n";
 
         foreach ($journals as $index => $j) {
             $num = $index + 1;
-            $date = Carbon::parse($j->date)->translatedFormat('l, d F Y');
+            $date = Date::parse($j->date)->translatedFormat('l, d F Y');
             $prompt .= "{$num}. Tanggal: {$date}\n";
             $prompt .= "   Aktivitas: {$j->activity}\n";
-            if (!empty($j->notes)) {
+            if (! empty($j->notes)) {
                 $prompt .= "   Catatan/Kendala: {$j->notes}\n";
             }
             $prompt .= "\n";
         }
 
         // Call Laravel Ai Agent if API key is configured
-        if (!empty($apiKey)) {
+        if (! empty($apiKey)) {
             try {
-                $agent = new WorkJournalSummaryAgent();
+                $agent = new WorkJournalSummaryAgent;
                 $response = $agent->prompt($prompt);
+
                 return (string) $response;
             } catch (\Throwable $e) {
                 // Log and fallback to local analytical engine
@@ -100,12 +101,12 @@ class WorkJournalReportService
             $acts = explode("\n", $j->activity);
             foreach ($acts as $act) {
                 $trimmed = trim($act, " \t\n\r\0\x0B-1234567890.");
-                if (!empty($trimmed)) {
+                if (! empty($trimmed)) {
                     $activities[] = $trimmed;
                 }
             }
-            if (!empty($j->notes)) {
-                $issues[] = Carbon::parse($j->date)->translatedFormat('d M') . ': ' . trim($j->notes);
+            if (! empty($j->notes)) {
+                $issues[] = Date::parse($j->date)->translatedFormat('d M').': '.trim($j->notes);
             }
         }
 
@@ -114,13 +115,13 @@ class WorkJournalReportService
 
         $summary = "Pekerjaan utama yang dikerjakan selama periode ini:\n";
         foreach ($topActs as $act) {
-            $summary .= "• " . ucfirst($act) . "\n";
+            $summary .= '• '.ucfirst($act)."\n";
         }
 
-        if (!empty($issues)) {
+        if (! empty($issues)) {
             $summary .= "\nCatatan & Kendala:\n";
             foreach (array_slice($issues, 0, 5) as $issue) {
-                $summary .= "• " . $issue . "\n";
+                $summary .= '• '.$issue."\n";
             }
         }
 
@@ -138,7 +139,7 @@ class WorkJournalReportService
             echo $html;
         }, $fileName, [
             'Content-Type' => 'application/msword; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
+            'Content-Disposition' => 'attachment; filename="'.$fileName.'"',
             'Cache-Control' => 'no-cache, must-revalidate',
         ]);
     }
@@ -154,7 +155,7 @@ class WorkJournalReportService
             echo $html;
         }, $fileName, [
             'Content-Type' => 'text/html; charset=utf-8',
-            'Content-Disposition' => 'inline; filename="' . $fileName . '"',
+            'Content-Disposition' => 'inline; filename="'.$fileName.'"',
             'Cache-Control' => 'no-cache, must-revalidate',
         ]);
     }
@@ -164,17 +165,17 @@ class WorkJournalReportService
      */
     protected function buildReportHtml(User $user, $journals, string $aiSummary, string $dateFrom, string $dateUntil, bool $isWord = false): string
     {
-        $formattedDateFrom = Carbon::parse($dateFrom)->translatedFormat('d F Y');
-        $formattedDateUntil = Carbon::parse($dateUntil)->translatedFormat('d F Y');
+        $formattedDateFrom = Date::parse($dateFrom)->translatedFormat('d F Y');
+        $formattedDateUntil = Date::parse($dateUntil)->translatedFormat('d F Y');
 
         $printScript = $isWord ? '' : '<script>window.onload = function() { window.print(); };</script>';
 
         $rowsHtml = '';
         foreach ($journals as $index => $j) {
             $num = $index + 1;
-            $date = Carbon::parse($j->date)->translatedFormat('d/m/Y');
+            $date = Date::parse($j->date)->translatedFormat('d/m/Y');
             $activity = nl2br(e($j->activity));
-            $notes = !empty($j->notes) ? e($j->notes) : '-';
+            $notes = ! empty($j->notes) ? e($j->notes) : '-';
 
             $rowsHtml .= "
                 <tr>

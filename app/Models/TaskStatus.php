@@ -16,7 +16,7 @@ class TaskStatus extends Model
     ];
 
     protected $fillable = [
-        'task_status'
+        'task_status',
     ];
 
     protected $hidden = [

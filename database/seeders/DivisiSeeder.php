@@ -9,10 +9,8 @@ class DivisiSeeder extends Seeder
 {
     /**
      * Run the database seeds.
-     *
-     * @return void
      */
-    public function run()
+    public function run(): void
     {
         Divisi::insert([
             [
@@ -82,7 +80,7 @@ class DivisiSeeder extends Seeder
             [
                 'name' => '-',
                 'area_id' => 9,
-            ]
+            ],
         ]);
     }
 }

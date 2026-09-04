@@ -2,24 +2,22 @@
 
 namespace App\Filament\Resources\Cutpoints;
 
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Grid;
-use Filament\Forms\Components\TextInput;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\Filter;
-use Filament\Actions\EditAction;
-use Filament\Actions\DeleteAction;
 use App\Filament\Resources\Cutpoints\Pages\ManageCutpoints;
-use App\Filament\Resources\Cutpoints\Pages;
 use App\Models\Cutpoint;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Forms;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
 use Filament\Tables;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -27,7 +25,7 @@ class CutpointResource extends Resource
 {
     protected static ?string $model = Cutpoint::class;
 
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-scissors';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-scissors';
 
     public static function canAccessAllCutpoints(?User $user = null): bool
     {
@@ -226,11 +224,11 @@ class CutpointResource extends Resource
                     ->modalWidth('md'),
                 DeleteAction::make(),
             ]);
-            // ->bulkActions([
-            //     Tables\Actions\BulkActionGroup::make([
-            //         Tables\Actions\DeleteBulkAction::make(),
-            //     ]),
-            // ]);
+        // ->bulkActions([
+        //     Tables\Actions\BulkActionGroup::make([
+        //         Tables\Actions\DeleteBulkAction::make(),
+        //     ]),
+        // ]);
     }
 
     public static function getPages(): array

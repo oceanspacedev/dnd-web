@@ -14,13 +14,11 @@ class TaskCategory extends Model
     ];
 
     protected $fillable = [
-        'task_category'
+        'task_category',
     ];
 
     protected $hidden = [
         'created_at',
         'updated_at',
     ];
-
-    
 }

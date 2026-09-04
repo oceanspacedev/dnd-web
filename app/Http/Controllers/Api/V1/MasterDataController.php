@@ -56,7 +56,7 @@ class MasterDataController extends Controller
     {
         $area = Area::with('divisi')->find($id);
 
-        if (!$area) {
+        if (! $area) {
             return response()->json([
                 'success' => false,
                 'message' => 'Area tidak ditemukan.',
@@ -100,7 +100,7 @@ class MasterDataController extends Controller
     {
         $area = Area::find($id);
 
-        if (!$area) {
+        if (! $area) {
             return response()->json([
                 'success' => false,
                 'message' => 'Area tidak ditemukan.',
@@ -132,7 +132,7 @@ class MasterDataController extends Controller
     {
         $area = Area::find($id);
 
-        if (!$area) {
+        if (! $area) {
             return response()->json([
                 'success' => false,
                 'message' => 'Area tidak ditemukan.',
@@ -185,7 +185,7 @@ class MasterDataController extends Controller
     {
         $divisi = Divisi::with('area')->find($id);
 
-        if (!$divisi) {
+        if (! $divisi) {
             return response()->json([
                 'success' => false,
                 'message' => 'Divisi tidak ditemukan.',
@@ -234,7 +234,7 @@ class MasterDataController extends Controller
     {
         $divisi = Divisi::find($id);
 
-        if (!$divisi) {
+        if (! $divisi) {
             return response()->json([
                 'success' => false,
                 'message' => 'Divisi tidak ditemukan.',
@@ -267,7 +267,7 @@ class MasterDataController extends Controller
     {
         $divisi = Divisi::find($id);
 
-        if (!$divisi) {
+        if (! $divisi) {
             return response()->json([
                 'success' => false,
                 'message' => 'Divisi tidak ditemukan.',
@@ -316,7 +316,7 @@ class MasterDataController extends Controller
     {
         $position = Position::find($id);
 
-        if (!$position) {
+        if (! $position) {
             return response()->json([
                 'success' => false,
                 'message' => 'Posisi tidak ditemukan.',
@@ -360,7 +360,7 @@ class MasterDataController extends Controller
     {
         $position = Position::find($id);
 
-        if (!$position) {
+        if (! $position) {
             return response()->json([
                 'success' => false,
                 'message' => 'Posisi tidak ditemukan.',
@@ -389,7 +389,7 @@ class MasterDataController extends Controller
     {
         $position = Position::find($id);
 
-        if (!$position) {
+        if (! $position) {
             return response()->json([
                 'success' => false,
                 'message' => 'Posisi tidak ditemukan.',
@@ -432,7 +432,7 @@ class MasterDataController extends Controller
     {
         $role = Role::find($id);
 
-        if (!$role) {
+        if (! $role) {
             return response()->json([
                 'success' => false,
                 'message' => 'Role tidak ditemukan.',

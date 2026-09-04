@@ -15,7 +15,7 @@ class UsersImportContactNormalizationAzkaTest extends TestCase
     {
         parent::setUp();
 
-        $this->importer = new ContactNormalizationUsersImport();
+        $this->importer = new ContactNormalizationUsersImport;
     }
 
     public function test_it_normalizes_common_indonesian_phone_formats(): void
@@ -104,7 +104,7 @@ class UsersImportContactNormalizationAzkaTest extends TestCase
 
     public function test_official_user_template_includes_contact_columns(): void
     {
-        $headings = (new TemplateExport())->headings();
+        $headings = (new TemplateExport)->headings();
 
         $this->assertContains('no_hp', $headings);
         $this->assertContains('email', $headings);

@@ -278,30 +278,27 @@ flowchart TB
 
 | Komponen | Teknologi |
 |---|---|
-| Backend | PHP >=8.4.1 dan <8.5, Laravel 12 |
+| Backend | PHP >=8.3, Laravel 12 |
 | Admin UI | Filament 4, Livewire 3, Mekaya Theme |
-| Frontend build | Vite 6, Tailwind CSS 4, Axios |
+| Frontend build | Vite 7, Tailwind CSS 4, Axios |
 | Database utama | MySQL/MariaDB |
 | API auth | Laravel Sanctum 4 |
 | API docs | Dedoc Scramble / OpenAPI |
-| Import/export | Laravel Excel dan PhpSpreadsheet |
+| Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
-
-Walaupun `composer.json` masih mendeklarasikan PHP `^8.2`, dependency pada lock file membutuhkan minimal PHP 8.4.1 dan dipasang untuk PHP 8.4.25. Gunakan **PHP 8.4.25** atau PHP 8.4.x minimal 8.4.1. Jangan gunakan PHP 8.5 karena versi PhpSpreadsheet yang terkunci belum kompatibel.
 
 ## Persiapan development
 
 ### Prasyarat
 
 - Git.
-- PHP 8.4.x minimal 8.4.1; PHP 8.4.25 direkomendasikan agar sesuai lock file.
+- PHP 8.3 atau lebih baru.
 - Composer 2.
 - Node.js 24 LTS direkomendasikan; Node.js 22 LTS masih didukung. Jangan memakai Node.js 20 yang sudah EOL.
 - MySQL 8+ atau MariaDB yang kompatibel.
-- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `pdo_mysql`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`.
-- Database dump development yang sudah disanitasi dari tim untuk onboarding saat ini.
+- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `pdo_mysql`, `pdo_sqlite` (untuk test), `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`.
 
 SMTP, WhatsApp gateway, dan OpenAI bersifat opsional untuk development dasar.
 
@@ -318,7 +315,7 @@ php artisan key:generate
 npm ci
 ```
 
-Jangan menjalankan `composer update` hanya untuk setup. Dependency Mekaya memakai constraint `@dev`, sedangkan `composer.lock` mengunci commit yang sudah diuji oleh proyek.
+Jangan menjalankan `composer update` hanya untuk setup; gunakan versi dependency yang dikunci oleh `composer.lock`.
 
 ### Konfigurasi database
 
@@ -338,37 +335,19 @@ DB_USERNAME=root
 DB_PASSWORD=
 ```
 
-#### Jalur onboarding yang didukung saat ini
+#### Fresh onboarding
 
-Fresh migration masih memiliki blocker kompatibilitas pada migration legacy. Untuk onboarding sekarang:
-
-1. Minta database dump development yang sudah disanitasi dari maintainer. Dump harus menyertakan tabel `migrations` yang konsisten dan menandai migration legacy sebagai sudah dijalankan; catat tanggal snapshot serta commit/tag acuannya.
-2. Restore dump ke database lokal `dnd`.
-3. Pastikan `.env` menunjuk hanya ke database lokal tersebut.
-4. Periksa ledger dengan `php artisan migrate:status`. Hentikan proses bila migration task category legacy masih berstatus `Pending`.
-5. Jalankan migration yang belum diterapkan.
+Pastikan `.env` menunjuk ke database development yang kosong, lalu jalankan:
 
 ```bash
-mysql -u root -p dnd < /path/to/dnd-development.sql
-php artisan migrate:status
-php artisan migrate
+php artisan migrate --seed
 php artisan storage:link
 ```
 
 > [!WARNING]
 > Jangan menjalankan `php artisan migrate:fresh`, `migrate:refresh`, atau `db:wipe` pada database yang berisi data. Perintah tersebut menghapus tabel/data.
 
-#### Status fresh install
-
-`php artisan migrate --seed` pada database benar-benar baru saat ini berhenti di `2023_06_03_111111_create_task_categories_table.php`. Nama class di dalam migration (`CreateTaskCategoryTable`) tidak sesuai dengan nama class yang diturunkan Laravel 12 dari nama file (`CreateTaskCategoriesTable`).
-
-Sebelum fresh onboarding dapat dinyatakan didukung, migration tersebut perlu diperbaiki menjadi anonymous migration atau diselaraskan nama class-nya, kemudian seluruh migration dan seeder perlu diuji ulang. Setelah blocker diperbaiki, command bootstrap yang diharapkan adalah:
-
-```bash
-php artisan migrate --seed
-```
-
-Seeder membuat data contoh development, termasuk login lokal `admin` / `complete123`. Ganti password itu segera. Seeder belum idempotent, sehingga hanya boleh dijalankan pada database development kosong dan tidak boleh dijalankan berulang atau di production.
+Seluruh migration dan seeder mendukung bootstrap database baru. Seeder membuat data contoh development, termasuk login lokal `admin` / `complete123`. Ganti password itu segera. Seeder belum idempotent, sehingga hanya boleh dijalankan pada database development kosong dan tidak boleh dijalankan berulang atau di production.
 
 ## Konfigurasi environment
 
@@ -379,6 +358,10 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `APP_KEY` | Ya | Kunci enkripsi Laravel; dibuat dengan `php artisan key:generate` |
 | `APP_URL` | Ya | Base URL aplikasi dan link pada reminder |
 | `DB_*` | Ya | Koneksi database |
+| `CACHE_STORE` | Ya | Cache default Laravel; default proyek `database` |
+| `FILESYSTEM_DISK` | Ya | Disk filesystem default; `local` memakai `storage/app/private` |
+| `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek `database` |
+| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek `database` |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
 | `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori, deskripsi, dan posisi; default `300` detik |
 | `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
@@ -392,7 +375,9 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `API_VERSION` | Tidak | Versi yang tampil pada OpenAPI; default `0.0.1` |
 | `SCRAMBLE_DEV_TOOLS` | Tidak | Menyalakan developer tools pada halaman dokumentasi API |
 
-`OPENAI_API_KEY`, `OPENAI_URL`, `API_VERSION`, dan `SCRAMBLE_DEV_TOOLS` belum tercantum di `.env.example`; tambahkan manual hanya bila fitur terkait dipakai dan jangan memasukkan nilainya ke Git.
+Gunakan nama konfigurasi Laravel 12 `CACHE_STORE` dan `FILESYSTEM_DISK`. Nama lama `CACHE_DRIVER` dan `FILESYSTEM_DRIVER` tidak lagi digunakan oleh konfigurasi proyek.
+
+Variabel opsional OpenAI dan Scramble sudah tersedia di `.env.example`; biarkan API key kosong bila fitur AI tidak digunakan dan jangan memasukkan credential ke Git.
 
 Untuk local development tanpa SMTP, gunakan:
 
@@ -432,7 +417,13 @@ Scheduler tidak wajib untuk menjalankan UI, tetapi harus dijalankan bila sedang 
 php artisan schedule:work
 ```
 
-Queue default adalah `sync`, sehingga queue worker tidak dibutuhkan. Jangan mengubah `QUEUE_CONNECTION=database` sebelum menambahkan migration tabel `jobs` dan menyiapkan worker.
+Queue default adalah `database` dan migration tabel `jobs` sudah tersedia. Jalankan worker saat fitur yang mengantrekan job digunakan:
+
+```bash
+php artisan queue:work
+```
+
+Sebagai alternatif, `composer run dev` menjalankan server Laravel, queue listener, log viewer, dan Vite bersama-sama.
 
 ## API dan dokumentasi
 
@@ -520,10 +511,10 @@ Hapus `--dry-run` hanya setelah mail, WhatsApp, recipient, template, dan tanggal
 Laravel scheduler harus dipanggil setiap menit:
 
 ```cron
-* * * * * cd /absolute/path/to/dnd-web && /absolute/path/to/php8.4 artisan schedule:run >> storage/logs/scheduler.log 2>&1
+* * * * * cd /absolute/path/to/dnd-web && /absolute/path/to/php artisan schedule:run >> storage/logs/scheduler.log 2>&1
 ```
 
-Temukan dan verifikasi path binary PHP 8.4 dengan `command -v php` pada server. Pastikan log scheduler dipantau dan dirotasi, atau arahkan stdout/stderr ke sistem logging deployment. Jangan membuang error scheduler tanpa monitoring.
+Temukan dan verifikasi path binary PHP dengan `command -v php` pada server. Pastikan log scheduler dipantau dan dirotasi, atau arahkan stdout/stderr ke sistem logging deployment. Jangan membuang error scheduler tanpa monitoring.
 
 Pada deployment multi-server, `KPI_REMINDER_CACHE_STORE` harus menunjuk cache store bersama yang mendukung atomic lock. Migration repository sudah menyediakan tabel cache khusus untuk default store `kpi_reminders`.
 
@@ -570,7 +561,7 @@ Gunakan scope kecil dan satu tujuan per branch. Hindari menggabungkan refactor l
 
 ### Aturan implementasi
 
-- Jangan mengubah schema melalui migration yang sudah pernah berjalan di shared environment; tambahkan migration baru yang reversible. Compatibility fix metadata/class pada migration legacy hanya boleh dilakukan maintainer, tanpa mengubah schema, lalu diuji pada database fresh dan database existing.
+- Jangan mengubah schema melalui migration yang sudah pernah berjalan di shared environment; tambahkan migration baru yang reversible dan uji pada database fresh maupun database existing.
 - Gunakan `ApprovalScopeService` untuk hierarchy; jangan membuat ulang query bawahan di banyak tempat.
 - Ikuti pipeline canonical `LeaderboardKPI` untuk scoring sampai agregasinya benar-benar disentralisasi. `calculateKpiScore()` menghasilkan rasio berbobot, sehingga normalisasikan ke unit persen sebelum meneruskannya ke `calculateFinalKpiScore()`; jangan membuat formula baru di controller atau export.
 - Endpoint API baru wajib memanggil policy/Gate atau melakukan ownership check yang setara.
@@ -588,46 +579,18 @@ Sebelum membuka PR ke `dev-azka`, pastikan:
 - Migration memiliki `up()` dan `down()` yang aman.
 - Policy web dan authorization API sudah diperiksa.
 - Validasi error dan empty state sudah ditangani.
-- Test terkait ditambahkan; test yang runnable dijalankan memakai database test terpisah dan blocker baseline didokumentasikan.
+- Test terkait ditambahkan dan full test suite berhasil dijalankan.
 - `npm run build` berhasil bila ada perubahan frontend/Filament asset.
 - Dokumentasi API/Postman diperbarui bila kontrak API berubah.
 - Tidak ada `.env`, token, dump database, data pribadi, atau credential di commit.
 
 ## Testing dan quality check
 
-> [!CAUTION]
-> `phpunit.xml` saat ini tidak mengganti koneksi database. Menjalankan test tanpa `.env.testing` terpisah dapat menyentuh database dari `.env`. Jangan pernah menjalankan test terhadap database development bersama atau production.
+`phpunit.xml` mengunci test ke SQLite in-memory (`DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`), cache/session array, queue sync, dan mail array. Full test suite tidak menggunakan database development dari `.env`.
 
-Siapkan database test khusus:
-
-```bash
-cp .env.example .env.testing
-php artisan key:generate --env=testing
-```
-
-> [!WARNING]
-> `.env.testing` di-ignore oleh repository. Tetap jangan menyalin `.env` ke file ini atau memakai `git add -f`, karena `.env.testing` dapat berisi credential database atau secret layanan.
-
-Ubah minimal nilai berikut di `.env.testing`:
-
-```dotenv
-APP_ENV=testing
-DB_CONNECTION=mysql
-DB_DATABASE=dnd_test
-MAIL_MAILER=array
-CACHE_DRIVER=array
-QUEUE_CONNECTION=sync
-SESSION_DRIVER=array
-```
-
-Pastikan `DB_DATABASE` pada `.env.testing` berbeda dari `.env`. Fresh test database juga terdampak blocker migration legacy yang dijelaskan di atas. Karena beberapa test memakai `RefreshDatabase`, **full test suite belum dapat dijalankan dengan aman dan konsisten sampai migration tersebut diperbaiki**; database test yang sudah dimigrasikan tidak menghilangkan blocker ini.
-
-Setelah blocker migration diperbaiki, jalankan test berikut:
+Jalankan test berikut:
 
 ```bash
-# HANYA untuk dnd_test yang disposable; command ini menghapus seluruh isinya
-php artisan migrate:fresh --seed --env=testing
-
 # Semua test
 php artisan test
 
@@ -635,33 +598,38 @@ php artisan test
 php artisan test --filter=NamaTest
 ```
 
-Quality check yang tidak membutuhkan migration dapat dijalankan sekarang:
+Quality check proyek:
 
 ```bash
-# Static analysis level proyek
-vendor/bin/phpstan analyse --no-progress
+# Laravel formatter
+vendor/bin/pint --test
 
-# Preview refactor otomatis; tidak mengubah file
-vendor/bin/rector process --dry-run
+# Static analysis level proyek
+vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+# Preview refactor Laravel 12; tidak mengubah file
+vendor/bin/rector process --dry-run --no-progress-bar
 
 # Validasi dependency metadata
-composer validate --no-check-publish
+composer validate --strict
+composer audit
 
 # Production frontend bundle
 npm run build
+npm audit
 ```
 
-Baseline test dan static analysis saat ini belum sepenuhnya bersih serta beberapa test masih bergantung pada seed/order. Perlakukan failure existing secara terpisah dari regresi baru, dokumentasikan bukti, dan jangan menurunkan coverage perubahan baru. Config Rector juga masih menargetkan set Laravel 9–11 sehingga hasilnya harus direview manual, bukan langsung diterapkan massal.
+Konfigurasi Rector memakai level Laravel 12 (`UP_TO_LARAVEL_120`). Tetap review diff sebelum menerapkan refactor otomatis secara massal.
 
 ## Deployment checklist
 
 Repository belum menyediakan pipeline deployment. Minimum checklist untuk server:
 
-1. Gunakan PHP 8.4 dan jalankan preflight `composer check-platform-reqs --lock --no-dev` sebelum install dependency.
-2. Set `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL`, database, mail, WhatsApp, dan secret lain dengan benar.
+1. Gunakan PHP 8.3 atau lebih baru, aktifkan extension yang disyaratkan termasuk `ext-intl` dan `ext-iconv`, lalu jalankan preflight `composer check-platform-reqs --lock --no-dev`.
+2. Set `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL`, database, mail, WhatsApp, dan secret lain dengan benar. Gunakan `CACHE_STORE` serta `FILESYSTEM_DISK`, bukan nama environment lama `CACHE_DRIVER`/`FILESYSTEM_DRIVER`.
 3. Jadikan folder `public/` sebagai document root web server.
 4. Pastikan `storage/` dan `bootstrap/cache/` writable oleh user web server.
-5. Pastikan database adalah database existing dengan tabel `migrations` yang konsisten. Deployment ke database baru masih terblokir oleh migration legacy; jangan menjalankan `migrate --force` pada fresh database sampai blocker diperbaiki.
+5. Backup database dan file storage, periksa `php artisan migrate:status`, lalu review migration pending. Fresh database maupun database existing didukung.
 6. Install dan build:
 
    ```bash
@@ -679,31 +647,36 @@ Repository belum menyediakan pipeline deployment. Minimum checklist untuk server
 7. Pasang cron Laravel scheduler setiap menit dan hubungkan error ke monitoring.
 8. Verifikasi `/up`, login panel, asset, export, dan reminder dengan dry-run.
 9. Review `config/cors.php`; konfigurasi saat ini mengizinkan origin `*`.
-10. Jangan menjalankan seeder data contoh di production.
-11. Jangan membuka `/api/v1` ke klien tak tepercaya sebelum authorization audit selesai.
+10. `bootstrap/app.php` mempercayai forwarded headers dari semua proxy. Pastikan origin hanya dapat diakses melalui reverse proxy/load balancer tepercaya, atau batasi daftar proxy sebelum production.
+11. Jangan menjalankan seeder data contoh di production.
+12. Jangan membuka `/api/v1` ke klien tak tepercaya sebelum authorization audit selesai.
 
-Karena `composer.json` menonaktifkan platform check runtime, `composer check-platform-reqs --lock --no-dev` wajib menjadi release check terpisah.
+### Catatan upgrade deployment existing
+
+- Migration kompatibilitas mengganti nama tabel `password_resets` menjadi `password_reset_tokens`, menetapkan `email` sebagai primary key, dan menyelaraskan kolom nama token Sanctum dengan schema Laravel 12/Sanctum 4. Karena reset password dinonaktifkan, token reset lama dibersihkan saat constraint primary key diterapkan.
+- Migration baru menyediakan tabel cache (`cache` dan `cache_locks`), `sessions`, serta `jobs` sesuai default Laravel 12. Pastikan tabel bernama sama belum dibuat manual sebelum migration dijalankan.
+- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Verifikasi juga `SESSION_DRIVER=database` dan `QUEUE_CONNECTION=database` beserta worker queue.
+- Default prefix cache/Redis dan nama cookie session sekarang mengikuti skeleton Laravel 12. Pengguna akan login ulang dan cache lama tidak lagi terbaca setelah deploy, kecuali nilai lama dipertahankan eksplisit melalui `CACHE_PREFIX`, `REDIS_PREFIX`, dan `SESSION_COOKIE`.
+- Root disk `local` sekarang `storage/app/private`. Inventarisasi dan pindahkan file private lama dari `storage/app` ke `storage/app/private` dengan backup terlebih dahulu; jangan memindahkan isi `storage/app/public`.
+- Setelah migration dan pemindahan storage, jalankan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
 
 ## Batasan dan technical debt
 
 Daftar ini adalah batas perilaku aktual, bukan fitur yang dijanjikan:
 
-1. **Fresh migration belum berjalan.** Ada mismatch nama class pada migration task category legacy.
-2. **Authorization API belum setara dengan panel.** Mayoritas controller API hanya bergantung pada token Sanctum. Mutasi jurnal, request approval, KPI, dan domain lain belum konsisten memanggil policy/ownership check; request approval juga belum memverifikasi assigned approver atau transisi dari `PENDING`.
-3. **Guard custom panel belum seragam.** Widget `ChecklistKPI` belum meng-authorize ID objek ketika mutasi. Form user memungkinkan `MANAGER`/`COORDINATOR` membuat user atau mengubah bawahan ke role berprivilege termasuk `ADMIN`; import Excel dapat memperbarui/restore user secara luas dan membuat master organisasi. Nested create pada form KPI/User juga dapat membuat indikator/posisi tanpa mengikuti policy resource master. UI visibility bukan pengganti authorization action.
-4. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service.
-5. **API KPI hanya mendukung sebagian workflow.** API belum membuat relasi `parent_id` untuk roll-up extra task dan belum menegakkan lock periode pada endpoint mutasi.
-6. **API import JSON belum menjadi jalur operasional.** `UserController::importJson()` masih memanggil method service yang tidak tersedia. Gunakan import JSON dari panel admin sampai diperbaiki dan diberi authorization.
-7. **Scope export belum konsisten.** Export kehadiran mengambil seluruh tabel, sedangkan export review non-admin hanya mengambil bawahan langsung, bukan seluruh approval scope. Audit sebagai potensi kebocoran data.
-8. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database.
-9. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`.
-10. **Ada rule legacy berbasis ID/username.** Beberapa policy dan master KPI masih bergantung pada ID atau username tertentu. Jangan mengurutkan ulang seed/master ID tanpa audit.
-11. **Role tidak otomatis berarti permission.** Beberapa role organisasi belum dipetakan ke kemampuan manajerial pada policy.
-12. **Queue dan infra belum dipaketkan.** Default queue adalah `sync`; tidak ada migration tabel `jobs`, Docker setup, atau CI pipeline.
-13. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat.
-14. **Filter reminder API sebagian rusak.** Filter `periode` dan `search` pada reminder log merujuk kolom yang tidak ada (`periode`/`destination`; schema memakai `sent_at`/`recipient`) sehingga request berfilter dapat gagal.
-15. **Contoh environment belum lengkap.** `.env.example` belum memuat seluruh variabel OpenAI dan Scramble yang didokumentasikan di atas.
-16. **Target reminder belum diselaraskan dengan permission.** Reminder pembuatan KPI dapat dikirim kepada user yang menjadi approver tetapi tidak diizinkan oleh `KpiPolicy` untuk membuat KPI.
+1. **Authorization API belum setara dengan panel.** Mayoritas controller API hanya bergantung pada token Sanctum. Mutasi jurnal, request approval, KPI, dan domain lain belum konsisten memanggil policy/ownership check; request approval juga belum memverifikasi assigned approver atau transisi dari `PENDING`.
+2. **Guard custom panel belum seragam.** Widget `ChecklistKPI` belum meng-authorize ID objek ketika mutasi. Form user memungkinkan `MANAGER`/`COORDINATOR` membuat user atau mengubah bawahan ke role berprivilege termasuk `ADMIN`; import Excel dapat memperbarui/restore user secara luas dan membuat master organisasi. Nested create pada form KPI/User juga dapat membuat indikator/posisi tanpa mengikuti policy resource master. UI visibility bukan pengganti authorization action.
+3. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service.
+4. **API KPI hanya mendukung sebagian workflow.** API belum membuat relasi `parent_id` untuk roll-up extra task dan belum menegakkan lock periode pada endpoint mutasi.
+5. **API import JSON belum menjadi jalur operasional.** `UserController::importJson()` masih memanggil method service yang tidak tersedia. Gunakan import JSON dari panel admin sampai diperbaiki dan diberi authorization.
+6. **Scope export belum konsisten.** Export kehadiran mengambil seluruh tabel, sedangkan export review non-admin hanya mengambil bawahan langsung, bukan seluruh approval scope. Audit sebagai potensi kebocoran data.
+7. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database.
+8. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`.
+9. **Ada rule bisnis berbasis ID/username.** Beberapa policy dan master KPI masih bergantung pada ID atau username tertentu. Jangan mengurutkan ulang seed/master ID tanpa audit.
+10. **Role tidak otomatis berarti permission.** Beberapa role organisasi belum dipetakan ke kemampuan manajerial pada policy.
+11. **Queue dan infra belum dipaketkan penuh.** Default queue database dan migration tabel `jobs` tersedia, tetapi supervisor/monitoring worker, Docker setup, dan CI pipeline belum tersedia.
+12. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat.
+13. **Target reminder belum diselaraskan dengan permission.** Reminder pembuatan KPI dapat dikirim kepada user yang menjadi approver tetapi tidak diizinkan oleh `KpiPolicy` untuk membuat KPI.
 
 Gunakan bagian ini sebagai checklist pertama ketika mengerjakan hardening dan onboarding teknis.
 
@@ -711,18 +684,16 @@ Gunakan bagian ini sebagai checklist pertama ketika mengerjakan hardening dan on
 
 ### Composer menolak versi PHP
 
-Pastikan CLI dan FPM sama-sama memakai PHP 8.4:
+Pastikan CLI dan FPM sama-sama memakai PHP 8.3 atau lebih baru:
 
 ```bash
 php -v
 composer check-platform-reqs
 ```
 
-PHP 8.5 belum didukung oleh PhpSpreadsheet yang terkunci.
-
 ### Composer melaporkan `ext-intl` atau `ext-iconv` tidak tersedia
 
-Install/aktifkan extension yang hilang untuk PHP 8.4, lalu ulangi `composer install`. Jangan memakai `--ignore-platform-reqs` sebagai solusi environment normal.
+Install/aktifkan extension yang hilang untuk versi PHP yang digunakan, lalu ulangi `composer install`. Jangan memakai `--ignore-platform-reqs` sebagai solusi environment normal.
 
 ### `Vite manifest not found`
 

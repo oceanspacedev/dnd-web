@@ -8,11 +8,11 @@ use Filament\Pages\Page;
 
 class UserPositionGuide extends Page
 {
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-book-open';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-book-open';
 
     protected static ?string $navigationLabel = 'Panduan Ubah Posisi';
 
-    protected static string | \UnitEnum | null $navigationGroup = 'Panduan';
+    protected static string|\UnitEnum|null $navigationGroup = 'Panduan';
 
     protected static ?int $navigationSort = 82;
 

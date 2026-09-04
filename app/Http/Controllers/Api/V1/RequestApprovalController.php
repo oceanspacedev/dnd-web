@@ -8,9 +8,9 @@ use App\Http\Requests\Api\V1\UpdateRequestRequest;
 use App\Http\Resources\Api\V1\RequestResource;
 use App\Models\Request as TodoRequest;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 
 /**
  * @tags Pengajuan & Approval Tugas (Requests & Approvals)
@@ -43,7 +43,7 @@ class RequestApprovalController extends Controller
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('todo_request', 'like', "%{$search}%")
-                  ->orWhere('todo_replace', 'like', "%{$search}%");
+                    ->orWhere('todo_replace', 'like', "%{$search}%");
             });
         }
 
@@ -70,7 +70,7 @@ class RequestApprovalController extends Controller
     {
         $todoRequest = TodoRequest::with(['user', 'approveId', 'approvedBy'])->find($id);
 
-        if (!$todoRequest) {
+        if (! $todoRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
@@ -114,7 +114,7 @@ class RequestApprovalController extends Controller
     {
         $todoRequest = TodoRequest::find($id);
 
-        if (!$todoRequest) {
+        if (! $todoRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
@@ -150,7 +150,7 @@ class RequestApprovalController extends Controller
     {
         $todoRequest = TodoRequest::find($id);
 
-        if (!$todoRequest) {
+        if (! $todoRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
@@ -203,7 +203,7 @@ class RequestApprovalController extends Controller
     {
         $todoRequest = TodoRequest::find($id);
 
-        if (!$todoRequest) {
+        if (! $todoRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
@@ -213,7 +213,7 @@ class RequestApprovalController extends Controller
         $todoRequest->update([
             'status' => 'APPROVED',
             'approved_by' => auth()->id(),
-            'approved_at' => Carbon::now(),
+            'approved_at' => Date::now(),
         ]);
 
         $todoRequest->load(['user', 'approveId', 'approvedBy']);
@@ -232,7 +232,7 @@ class RequestApprovalController extends Controller
     {
         $todoRequest = TodoRequest::find($id);
 
-        if (!$todoRequest) {
+        if (! $todoRequest) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
@@ -242,7 +242,7 @@ class RequestApprovalController extends Controller
         $todoRequest->update([
             'status' => 'REJECTED',
             'approved_by' => auth()->id(),
-            'approved_at' => Carbon::now(),
+            'approved_at' => Date::now(),
         ]);
 
         $todoRequest->load(['user', 'approveId', 'approvedBy']);

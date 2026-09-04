@@ -2,13 +2,13 @@
 
 namespace App\Imports;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Models\Area;
 use App\Models\Divisi;
 use App\Models\Position;
-use App\Models\User;
 use App\Models\Role;
+use App\Models\User;
 use Exception;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
@@ -16,8 +16,11 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 class UsersImport implements ToModel, WithHeadingRow
 {
     protected array $errors = [];
+
     protected int $rowCounter = 1; // Row 1 is heading row
+
     protected int $successCounter = 0;
+
     protected static ?string $defaultPasswordHash = null;
 
     public function __construct()
@@ -28,11 +31,9 @@ class UsersImport implements ToModel, WithHeadingRow
     }
 
     /**
-     * @param array $row
-     *
      * @return Model|null
      */
-    public function model(array $row)
+    public function model(array $row): Model|array|null
     {
         $this->rowCounter++;
         $currentRowNum = $row['row_number'] ?? $this->rowCounter;
@@ -40,12 +41,12 @@ class UsersImport implements ToModel, WithHeadingRow
         try {
             // Flexible field extraction supporting alternate column names
             $namaLengkap = trim((string) $this->getValue($row, ['nama_lengkap', 'nama', 'name']));
-            $employeeId  = trim((string) $this->getValue($row, ['id_karyawan', 'employee_id']));
-            $noHpKeys    = ['no_hp', 'hp', 'phone', 'no_telepon', 'telepon'];
-            $emailKeys   = ['email', 'email_address'];
-            $hasNoHp     = $this->hasAnyColumn($row, $noHpKeys);
-            $hasEmail    = $this->hasAnyColumn($row, $emailKeys);
-            $noHp        = $hasNoHp
+            $employeeId = trim((string) $this->getValue($row, ['id_karyawan', 'employee_id']));
+            $noHpKeys = ['no_hp', 'hp', 'phone', 'no_telepon', 'telepon'];
+            $emailKeys = ['email', 'email_address'];
+            $hasNoHp = $this->hasAnyColumn($row, $noHpKeys);
+            $hasEmail = $this->hasAnyColumn($row, $emailKeys);
+            $noHp = $hasNoHp
                 ? $this->normalizeContactAliases(
                     $row,
                     $noHpKeys,
@@ -53,7 +54,7 @@ class UsersImport implements ToModel, WithHeadingRow
                     'No. HP',
                 )
                 : null;
-            $email       = $hasEmail
+            $email = $hasEmail
                 ? $this->normalizeContactAliases(
                     $row,
                     $emailKeys,
@@ -62,8 +63,8 @@ class UsersImport implements ToModel, WithHeadingRow
                 )
                 : null;
             $rawUsername = (string) $this->getValue($row, ['username']);
-            $roleInput   = trim((string) $this->getValue($row, ['role', 'role_name']));
-            $areaInput   = trim((string) $this->getValue($row, ['area', 'area_name']));
+            $roleInput = trim((string) $this->getValue($row, ['role', 'role_name']));
+            $areaInput = trim((string) $this->getValue($row, ['area', 'area_name']));
             $divisiInput = trim((string) $this->getValue($row, ['divisi', 'divisi_name']));
 
             // Clean & normalize username; auto-generate from nama_lengkap if blank
@@ -82,7 +83,7 @@ class UsersImport implements ToModel, WithHeadingRow
                 $user = User::withTrashed()->where('employee_id', $employeeId)->first();
                 $matchedBy = $user ? 'employee_id' : null;
             }
-            if (!$user && $username !== '') {
+            if (! $user && $username !== '') {
                 $user = User::withTrashed()->where('username', $username)->first();
                 $matchedBy = $user ? ($rawUsername !== '' ? 'username' : 'derived_username') : null;
             }
@@ -104,8 +105,8 @@ class UsersImport implements ToModel, WithHeadingRow
                     ->orWhereRaw('LOWER(REPLACE(name, " ", "")) = ?', [strtolower(preg_replace('/\s+/', '', $roleInput))])
                     ->first();
             }
-            if (!$role) {
-                throw new Exception('Role "' . ($roleInput ?: '-') . '" tidak ditemukan');
+            if (! $role) {
+                throw new Exception('Role "'.($roleInput ?: '-').'" tidak ditemukan');
             }
 
             // Area lookup & auto-creation if missing
@@ -117,11 +118,11 @@ class UsersImport implements ToModel, WithHeadingRow
                     ->orWhereRaw('LOWER(name) = ?', [strtolower($areaInput)])
                     ->first();
 
-                if (!$area) {
+                if (! $area) {
                     $area = Area::create(['name' => $areaInput]);
                 }
             }
-            if (!$area) {
+            if (! $area) {
                 throw new Exception('Area "-" tidak ditemukan');
             }
 
@@ -134,14 +135,14 @@ class UsersImport implements ToModel, WithHeadingRow
                     ->orWhereRaw('LOWER(name) = ?', [strtolower($divisiInput)])
                     ->first();
 
-                if (!$divisi) {
+                if (! $divisi) {
                     $divisi = Divisi::create([
                         'name' => $divisiInput,
                         'area_id' => $area->id,
                     ]);
                 }
             }
-            if (!$divisi) {
+            if (! $divisi) {
                 throw new Exception('Divisi "-" tidak ditemukan');
             }
 
@@ -204,15 +205,15 @@ class UsersImport implements ToModel, WithHeadingRow
                     'mr' => false,
                     'approval_id' => $approval ? $approval->id : null,
                     'position_id' => $positionId,
-                    'password' => !empty($passwordInput) ? bcrypt($passwordInput) : static::$defaultPasswordHash,
+                    'password' => ! empty($passwordInput) ? bcrypt($passwordInput) : static::$defaultPasswordHash,
                 ]);
             }
 
             $this->successCounter++;
         } catch (QueryException $e) {
-            $this->errors[] = 'SQL Error baris ' . $currentRowNum . ': ' . $e->getMessage();
+            $this->errors[] = 'SQL Error baris '.$currentRowNum.': '.$e->getMessage();
         } catch (Exception $e) {
-            $this->errors[] = 'Baris ' . $currentRowNum . ': ' . $e->getMessage();
+            $this->errors[] = 'Baris '.$currentRowNum.': '.$e->getMessage();
         }
 
         return null;
@@ -228,6 +229,7 @@ class UsersImport implements ToModel, WithHeadingRow
                 return $row[$key];
             }
         }
+
         return '';
     }
 
@@ -290,12 +292,12 @@ class UsersImport implements ToModel, WithHeadingRow
             return null;
         }
 
-        if (is_bool($value) || (!is_scalar($value) && !$value instanceof \Stringable)) {
+        if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
             throw new Exception('No. HP tidak valid');
         }
 
         if (is_float($value)) {
-            if (!is_finite($value) || floor($value) !== $value) {
+            if (! is_finite($value) || floor($value) !== $value) {
                 throw new Exception('No. HP tidak valid');
             }
 
@@ -312,7 +314,7 @@ class UsersImport implements ToModel, WithHeadingRow
         // scientific notation even when they contain a phone number.
         if (preg_match('/^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$/', $phone) === 1) {
             $numericPhone = (float) $phone;
-            if (!is_finite($numericPhone) || floor($numericPhone) !== $numericPhone) {
+            if (! is_finite($numericPhone) || floor($numericPhone) !== $numericPhone) {
                 throw new Exception('No. HP tidak valid');
             }
 
@@ -326,13 +328,13 @@ class UsersImport implements ToModel, WithHeadingRow
         $digits = preg_replace('/\D+/', '', $phone);
 
         if (str_starts_with($digits, '0062')) {
-            $digits = '0' . substr($digits, 4);
+            $digits = '0'.substr($digits, 4);
         } elseif (str_starts_with($digits, '62')) {
-            $digits = '0' . substr($digits, 2);
+            $digits = '0'.substr($digits, 2);
         } elseif (str_starts_with($digits, '8')) {
             // Numeric spreadsheet cells drop a leading zero. Restore it for
             // Indonesian mobile numbers.
-            $digits = '0' . $digits;
+            $digits = '0'.$digits;
         }
 
         if (preg_match('/^08\d{8,12}$/', $digits) !== 1) {
@@ -348,7 +350,7 @@ class UsersImport implements ToModel, WithHeadingRow
             return null;
         }
 
-        if (is_bool($value) || (!is_scalar($value) && !$value instanceof \Stringable)) {
+        if (is_bool($value) || (! is_scalar($value) && ! $value instanceof \Stringable)) {
             throw new Exception('Email tidak valid');
         }
 
@@ -401,7 +403,7 @@ class UsersImport implements ToModel, WithHeadingRow
         $normalizedName = preg_replace('/\s+/', ' ', $positionValue);
         $position = Position::whereRaw('LOWER(name) = ?', [strtolower($normalizedName)])->first();
 
-        if (!$position) {
+        if (! $position) {
             $position = Position::create(['name' => $normalizedName]);
         }
 

@@ -4,8 +4,8 @@ namespace App\Exports;
 
 use App\Models\Kpi;
 use App\Models\User;
-use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -14,8 +14,11 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, WithTitle
 {
     protected string $year;
+
     protected string $divisi_id;
+
     protected ?int $userId;
+
     protected array $usersMonthYear = [];
 
     public function __construct(string $year, string $divisi_id, ?int $userId = null)
@@ -36,8 +39,8 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
         $this->usersMonthYear = [];
 
         for ($month = 1; $month <= 12; $month++) {
-            $yearMonth = $this->year . '-' . sprintf("%02d", $month);
-            $carbonDate = Carbon::createFromFormat('Y-m', $yearMonth);
+            $yearMonth = $this->year.'-'.sprintf('%02d', $month);
+            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 
@@ -69,7 +72,7 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
             $sumOfScores = 0;
 
             for ($month = 1; $month <= 12; $month++) {
-                $yearMonth = $this->year . '-' . sprintf("%02d", $month);
+                $yearMonth = $this->year.'-'.sprintf('%02d', $month);
                 $yearlyGroupedKpis = $groupedUsersKpisByYear[$yearMonth] ?? collect();
                 $cumulativeScore = 0;
 
@@ -112,18 +115,19 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
         $this->usersMonthYear = [];
 
         for ($month = 1; $month <= 12; $month++) {
-            $yearMonth = $this->year . '-' . sprintf("%02d", $month);
-            $carbonDate = Carbon::createFromFormat('Y-m', $yearMonth);
+            $yearMonth = $this->year.'-'.sprintf('%02d', $month);
+            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 
         return array_merge($headings, $this->usersMonthYear, ['Average']);
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         $result = [$row['name']];
         $average = [$row['average']];
+
         return array_merge($result, $row['score'], $average);
     }
 }

@@ -2,10 +2,11 @@
 
 namespace App\Http\Resources\Api\V1;
 
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Date;
 
+/** @mixin \App\Models\Request */
 class RequestResource extends JsonResource
 {
     /**
@@ -38,9 +39,9 @@ class RequestResource extends JsonResource
                 'nama_lengkap' => $this->approvedBy->nama_lengkap,
                 'username' => $this->approvedBy->username,
             ]),
-            'approved_at' => $rawApprovedAt ? Carbon::parse($rawApprovedAt)->toIso8601String() : null,
+            'approved_at' => $rawApprovedAt ? Date::parse($rawApprovedAt)->toIso8601String() : null,
             'status' => $this->status ?? 'PENDING',
-            'created_at' => $rawCreatedAt ? Carbon::parse($rawCreatedAt)->toIso8601String() : null,
+            'created_at' => $rawCreatedAt ? Date::parse($rawCreatedAt)->toIso8601String() : null,
         ];
     }
 }

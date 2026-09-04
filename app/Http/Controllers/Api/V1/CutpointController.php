@@ -34,10 +34,10 @@ class CutpointController extends Controller
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('keterangan', 'like', "%{$search}%")
-                  ->orWhereHas('user', function ($uq) use ($search) {
-                      $uq->where('nama_lengkap', 'like', "%{$search}%")
-                         ->orWhere('username', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('nama_lengkap', 'like', "%{$search}%")
+                            ->orWhere('username', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -64,7 +64,7 @@ class CutpointController extends Controller
     {
         $cutpoint = Cutpoint::with('user')->find($id);
 
-        if (!$cutpoint) {
+        if (! $cutpoint) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pemotongan poin tidak ditemukan.',
@@ -102,7 +102,7 @@ class CutpointController extends Controller
     {
         $cutpoint = Cutpoint::find($id);
 
-        if (!$cutpoint) {
+        if (! $cutpoint) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pemotongan poin tidak ditemukan.',
@@ -127,7 +127,7 @@ class CutpointController extends Controller
     {
         $cutpoint = Cutpoint::find($id);
 
-        if (!$cutpoint) {
+        if (! $cutpoint) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data pemotongan poin tidak ditemukan.',
@@ -149,7 +149,7 @@ class CutpointController extends Controller
     {
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',

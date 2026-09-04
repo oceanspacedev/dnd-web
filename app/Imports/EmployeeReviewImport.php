@@ -2,21 +2,26 @@
 
 namespace App\Imports;
 
-use PhpOffice\PhpSpreadsheet\Shared\Date;
-use DateTime;
-use Exception;
 use App\Models\EmployeeReview;
 use App\Models\User;
+use DateTime;
+use Exception;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
-use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 class EmployeeReviewImport implements ToModel, WithHeadingRow
 {
     private $usersCache = [];
+
     private ?array $allowedUserIds = null;
+
     private $importedCount = 0;
+
     private $skippedCount = 0;
+
     private $skippedDetails = []; // Array untuk menyimpan detail data yang dilewati
 
     public function __construct(?array $allowedUserIds = null)
@@ -53,7 +58,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
         $this->usersCache = array_merge($this->usersCache, $employeeCache);
     }
 
-    public function model(array $row)
+    public function model(array $row): Model|array|null
     {
         Log::info('Data baris: ', $row);
 
@@ -61,12 +66,12 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
         $userId = null;
 
         // Prioritaskan pencarian berdasarkan id_karyawan
-        if (!empty($row['id_karyawan']) && isset($this->usersCache[$row['id_karyawan']])) {
+        if (! empty($row['id_karyawan']) && isset($this->usersCache[$row['id_karyawan']])) {
             $userId = $this->usersCache[$row['id_karyawan']];
         }
 
         // Jika tidak ditemukan berdasarkan id_karyawan, coba cari berdasarkan nama_lengkap
-        if (is_null($userId) && !empty($row['nama_lengkap']) && isset($this->usersCache[$row['nama_lengkap']])) {
+        if (is_null($userId) && ! empty($row['nama_lengkap']) && isset($this->usersCache[$row['nama_lengkap']])) {
             $userId = $this->usersCache[$row['nama_lengkap']];
         }
 
@@ -78,6 +83,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
                 'reason' => 'User di luar scope approval Anda',
             ];
             $this->skippedCount++;
+
             return null;
         }
 
@@ -92,20 +98,20 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
             } elseif (DateTime::createFromFormat('d/m/y', $row['periode']) !== false) {
                 $periode = DateTime::createFromFormat('d/m/y', $row['periode'])->format('Y-m');
             } else {
-                Log::error("Format Periode tidak dikenali: " . $row['periode']);
+                Log::error('Format Periode tidak dikenali: '.$row['periode']);
             }
         } catch (Exception $e) {
-            Log::error("Kesalahan saat parsing Periode: " . $e->getMessage());
+            Log::error('Kesalahan saat parsing Periode: '.$e->getMessage());
         }
 
         // Jika userId dan periode valid, lakukan pengecekan dan simpan data
         if ($userId && $periode) {
             $existingReview = EmployeeReview::where('user_id', $userId)
-                                            ->where('periode', $periode)
-                                            ->exists();
+                ->where('periode', $periode)
+                ->exists();
 
             if ($existingReview) {
-                Log::info('Melewati review yang sudah ada untuk user_id ' . $userId . ' dan periode ' . $periode);
+                Log::info('Melewati review yang sudah ada untuk user_id '.$userId.' dan periode '.$periode);
 
                 // Simpan detail data yang dilewati
                 $this->skippedDetails[] = [
@@ -115,10 +121,12 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
                 ];
 
                 $this->skippedCount++;
+
                 return null;
             }
 
             $this->importedCount++;
+
             return new EmployeeReview([
                 'user_id' => $userId,
                 'periode' => $periode,
@@ -129,7 +137,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
             ]);
         }
 
-        Log::error('Import EmployeeReview: Pengguna tidak ditemukan atau gagal parsing Periode untuk nama_lengkap ' . $row['nama_lengkap']);
+        Log::error('Import EmployeeReview: Pengguna tidak ditemukan atau gagal parsing Periode untuk nama_lengkap '.$row['nama_lengkap']);
 
         // Simpan detail data yang dilewati jika pengguna tidak ditemukan atau periode tidak valid
         $this->skippedDetails[] = [
@@ -139,6 +147,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
         ];
 
         $this->skippedCount++;
+
         return null;
     }
 

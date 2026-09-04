@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class KpiCategory extends Model
@@ -18,14 +19,16 @@ class KpiCategory extends Model
         'created_at',
         'updated_at',
         'deleted_at',
-    ];   
-    
-    public function kpi_description()
+    ];
+
+    /** @return HasMany<KpiDescription, $this> */
+    public function kpi_description(): HasMany
     {
         return $this->hasMany(KpiDescription::class);
     }
 
-    public function kpi()
+    /** @return HasMany<Kpi, $this> */
+    public function kpi(): HasMany
     {
         return $this->hasMany(Kpi::class);
     }

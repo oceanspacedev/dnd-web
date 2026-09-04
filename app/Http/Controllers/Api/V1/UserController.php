@@ -39,9 +39,9 @@ class UserController extends Controller
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('nama_lengkap', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('employee_id', 'like', "%{$search}%");
+                    ->orWhere('username', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('employee_id', 'like', "%{$search}%");
             });
         }
 
@@ -88,7 +88,7 @@ class UserController extends Controller
     {
         $user = User::with(['role', 'area', 'divisi', 'position', 'approval'])->find($id);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
@@ -157,7 +157,7 @@ class UserController extends Controller
     {
         $user = User::find($id);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
@@ -169,7 +169,7 @@ class UserController extends Controller
         $validated = $request->validated();
         $this->ensureCanAssignRole($request, $validated);
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
@@ -201,7 +201,7 @@ class UserController extends Controller
 
         $user = User::find($id);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
@@ -289,7 +289,7 @@ class UserController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengimpor data: ' . $e->getMessage(),
+                'message' => 'Gagal mengimpor data: '.$e->getMessage(),
             ], 500);
         }
     }

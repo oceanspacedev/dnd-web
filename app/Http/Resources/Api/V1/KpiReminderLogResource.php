@@ -2,9 +2,11 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Models\KpiReminderLog;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/** @mixin KpiReminderLog */
 class KpiReminderLogResource extends JsonResource
 {
     /**
@@ -29,8 +31,8 @@ class KpiReminderLogResource extends JsonResource
                 'type' => $this->setting->type,
             ]),
             'channel' => $this->channel,
-            'destination' => $this->destination,
-            'periode' => $this->periode,
+            'destination' => $this->recipient,
+            'periode' => $this->sent_at?->format('Y-m'),
             'status' => $this->status,
             'error_message' => $this->error_message,
             'sent_at' => $this->sent_at?->toIso8601String(),

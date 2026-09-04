@@ -1,7 +1,18 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ActivityController;
+use App\Http\Controllers\Api\V1\AnalyticsController;
+use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CutpointController;
+use App\Http\Controllers\Api\V1\EmployeeReviewController;
+use App\Http\Controllers\Api\V1\KpiController;
 use App\Http\Controllers\Api\V1\MasterDataController;
+use App\Http\Controllers\Api\V1\OveropenController;
+use App\Http\Controllers\Api\V1\ReminderController;
+use App\Http\Controllers\Api\V1\RequestApprovalController;
+use App\Http\Controllers\Api\V1\UserController;
+use App\Http\Controllers\Api\V1\WorkJournalController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -10,8 +21,8 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 |
 | Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider or bootstrap/app.php
-| and all of them will be assigned to the "api" middleware group.
+| routes are loaded by bootstrap/app.php and all of them are assigned
+| to the "api" middleware group.
 |
 */
 
@@ -66,159 +77,159 @@ Route::prefix('v1')->group(function () {
 
         // Modul 3: Manajemen Karyawan (Users)
         Route::prefix('users')->group(function () {
-            Route::get('supervisors', [\App\Http\Controllers\Api\V1\UserController::class, 'supervisors']);
-            Route::post('import-json', [\App\Http\Controllers\Api\V1\UserController::class, 'importJson']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\UserController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\UserController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\UserController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\UserController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\UserController::class, 'destroy']);
+            Route::get('supervisors', [UserController::class, 'supervisors']);
+            Route::post('import-json', [UserController::class, 'importJson']);
+            Route::get('/', [UserController::class, 'index']);
+            Route::post('/', [UserController::class, 'store']);
+            Route::get('{id}', [UserController::class, 'show']);
+            Route::put('{id}', [UserController::class, 'update']);
+            Route::delete('{id}', [UserController::class, 'destroy']);
         });
 
         // Modul 4: Manajemen KPI & Scoring
         Route::prefix('kpis')->group(function () {
             // Master KPI References
-            Route::get('categories', [\App\Http\Controllers\Api\V1\KpiController::class, 'categories']);
-            Route::get('types', [\App\Http\Controllers\Api\V1\KpiController::class, 'types']);
-            Route::get('descriptions', [\App\Http\Controllers\Api\V1\KpiController::class, 'descriptions']);
+            Route::get('categories', [KpiController::class, 'categories']);
+            Route::get('types', [KpiController::class, 'types']);
+            Route::get('descriptions', [KpiController::class, 'descriptions']);
 
             // User Performance Summary
-            Route::get('user/{userId}/summary', [\App\Http\Controllers\Api\V1\KpiController::class, 'userSummary']);
+            Route::get('user/{userId}/summary', [KpiController::class, 'userSummary']);
 
             // KPI Details nested under KPI
-            Route::post('{kpiId}/details', [\App\Http\Controllers\Api\V1\KpiController::class, 'storeDetail']);
+            Route::post('{kpiId}/details', [KpiController::class, 'storeDetail']);
 
             // KPI CRUD
-            Route::get('/', [\App\Http\Controllers\Api\V1\KpiController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\KpiController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\KpiController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\KpiController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\KpiController::class, 'destroy']);
+            Route::get('/', [KpiController::class, 'index']);
+            Route::post('/', [KpiController::class, 'store']);
+            Route::get('{id}', [KpiController::class, 'show']);
+            Route::put('{id}', [KpiController::class, 'update']);
+            Route::delete('{id}', [KpiController::class, 'destroy']);
         });
 
         // Individual KPI Detail operations
         Route::prefix('kpi-details')->group(function () {
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\KpiController::class, 'updateDetail']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\KpiController::class, 'destroyDetail']);
+            Route::put('{id}', [KpiController::class, 'updateDetail']);
+            Route::delete('{id}', [KpiController::class, 'destroyDetail']);
         });
 
         // Modul 5: Aktivitas Kerja (Daily, Weekly, Monthly, DailyLog, Summary)
         Route::prefix('activities')->group(function () {
             // Activity Summary
-            Route::get('summary', [\App\Http\Controllers\Api\V1\ActivityController::class, 'summary']);
+            Route::get('summary', [ActivityController::class, 'summary']);
 
             // Daily Tasks & Logs
-            Route::get('dailies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'dailies']);
-            Route::post('dailies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'storeDaily']);
-            Route::get('dailies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'showDaily']);
-            Route::put('dailies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'updateDaily']);
-            Route::delete('dailies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'destroyDaily']);
-            Route::get('dailies/{dailyId}/logs', [\App\Http\Controllers\Api\V1\ActivityController::class, 'dailyLogs']);
-            Route::post('dailies/{dailyId}/logs', [\App\Http\Controllers\Api\V1\ActivityController::class, 'storeDailyLog']);
+            Route::get('dailies', [ActivityController::class, 'dailies']);
+            Route::post('dailies', [ActivityController::class, 'storeDaily']);
+            Route::get('dailies/{id}', [ActivityController::class, 'showDaily']);
+            Route::put('dailies/{id}', [ActivityController::class, 'updateDaily']);
+            Route::delete('dailies/{id}', [ActivityController::class, 'destroyDaily']);
+            Route::get('dailies/{dailyId}/logs', [ActivityController::class, 'dailyLogs']);
+            Route::post('dailies/{dailyId}/logs', [ActivityController::class, 'storeDailyLog']);
 
             // Weekly Tasks
-            Route::get('weeklies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'weeklies']);
-            Route::post('weeklies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'storeWeekly']);
-            Route::get('weeklies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'showWeekly']);
-            Route::put('weeklies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'updateWeekly']);
-            Route::delete('weeklies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'destroyWeekly']);
+            Route::get('weeklies', [ActivityController::class, 'weeklies']);
+            Route::post('weeklies', [ActivityController::class, 'storeWeekly']);
+            Route::get('weeklies/{id}', [ActivityController::class, 'showWeekly']);
+            Route::put('weeklies/{id}', [ActivityController::class, 'updateWeekly']);
+            Route::delete('weeklies/{id}', [ActivityController::class, 'destroyWeekly']);
 
             // Monthly Tasks
-            Route::get('monthlies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'monthlies']);
-            Route::post('monthlies', [\App\Http\Controllers\Api\V1\ActivityController::class, 'storeMonthly']);
-            Route::get('monthlies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'showMonthly']);
-            Route::put('monthlies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'updateMonthly']);
-            Route::delete('monthlies/{id}', [\App\Http\Controllers\Api\V1\ActivityController::class, 'destroyMonthly']);
+            Route::get('monthlies', [ActivityController::class, 'monthlies']);
+            Route::post('monthlies', [ActivityController::class, 'storeMonthly']);
+            Route::get('monthlies/{id}', [ActivityController::class, 'showMonthly']);
+            Route::put('monthlies/{id}', [ActivityController::class, 'updateMonthly']);
+            Route::delete('monthlies/{id}', [ActivityController::class, 'destroyMonthly']);
         });
 
         // Modul 6: Presensi Karyawan (Attendances)
         Route::prefix('attendances')->group(function () {
-            Route::get('user/{userId}', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'userAttendances']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\AttendanceController::class, 'destroy']);
+            Route::get('user/{userId}', [AttendanceController::class, 'userAttendances']);
+            Route::get('/', [AttendanceController::class, 'index']);
+            Route::post('/', [AttendanceController::class, 'store']);
+            Route::get('{id}', [AttendanceController::class, 'show']);
+            Route::put('{id}', [AttendanceController::class, 'update']);
+            Route::delete('{id}', [AttendanceController::class, 'destroy']);
         });
 
         // Modul 6: Review Karyawan (Employee Reviews)
         Route::prefix('employee-reviews')->group(function () {
-            Route::get('user/{userId}', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'userReviews']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'destroy']);
+            Route::get('user/{userId}', [EmployeeReviewController::class, 'userReviews']);
+            Route::get('/', [EmployeeReviewController::class, 'index']);
+            Route::post('/', [EmployeeReviewController::class, 'store']);
+            Route::get('{id}', [EmployeeReviewController::class, 'show']);
+            Route::put('{id}', [EmployeeReviewController::class, 'update']);
+            Route::delete('{id}', [EmployeeReviewController::class, 'destroy']);
         });
 
         // Modul 6: Evaluasi Total Performa (KPI 70% + Presensi 15% + Review 15%)
         Route::prefix('evaluations')->group(function () {
-            Route::get('user/{userId}/score', [\App\Http\Controllers\Api\V1\EmployeeReviewController::class, 'integratedScore']);
+            Route::get('user/{userId}/score', [EmployeeReviewController::class, 'integratedScore']);
         });
 
         // Modul 7: Pengajuan Izin & Workflow Approval (Requests & Approvals)
         Route::prefix('requests')->group(function () {
-            Route::get('pending-approvals', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'pendingApprovals']);
-            Route::post('{id}/approve', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'approve']);
-            Route::post('{id}/reject', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'reject']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\RequestApprovalController::class, 'destroy']);
+            Route::get('pending-approvals', [RequestApprovalController::class, 'pendingApprovals']);
+            Route::post('{id}/approve', [RequestApprovalController::class, 'approve']);
+            Route::post('{id}/reject', [RequestApprovalController::class, 'reject']);
+            Route::get('/', [RequestApprovalController::class, 'index']);
+            Route::post('/', [RequestApprovalController::class, 'store']);
+            Route::get('{id}', [RequestApprovalController::class, 'show']);
+            Route::put('{id}', [RequestApprovalController::class, 'update']);
+            Route::delete('{id}', [RequestApprovalController::class, 'destroy']);
         });
 
         // Modul 7: Overopen Deadline (Overopens)
         Route::prefix('overopens')->group(function () {
-            Route::get('/', [\App\Http\Controllers\Api\V1\OveropenController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\OveropenController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\OveropenController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\OveropenController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\OveropenController::class, 'destroy']);
+            Route::get('/', [OveropenController::class, 'index']);
+            Route::post('/', [OveropenController::class, 'store']);
+            Route::get('{id}', [OveropenController::class, 'show']);
+            Route::put('{id}', [OveropenController::class, 'update']);
+            Route::delete('{id}', [OveropenController::class, 'destroy']);
         });
 
         // Modul 7: Pemotongan Poin Kedisiplinan (Cutpoints)
         Route::prefix('cutpoints')->group(function () {
-            Route::get('user/{userId}', [\App\Http\Controllers\Api\V1\CutpointController::class, 'userCutpoints']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\CutpointController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\CutpointController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\CutpointController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\CutpointController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\CutpointController::class, 'destroy']);
+            Route::get('user/{userId}', [CutpointController::class, 'userCutpoints']);
+            Route::get('/', [CutpointController::class, 'index']);
+            Route::post('/', [CutpointController::class, 'store']);
+            Route::get('{id}', [CutpointController::class, 'show']);
+            Route::put('{id}', [CutpointController::class, 'update']);
+            Route::delete('{id}', [CutpointController::class, 'destroy']);
         });
 
         // Modul 8: Leaderboard, Analitik & Dashboard (Analytics)
         Route::prefix('analytics')->group(function () {
-            Route::get('leaderboard/export', [\App\Http\Controllers\Api\V1\AnalyticsController::class, 'exportLeaderboard']);
-            Route::get('leaderboard', [\App\Http\Controllers\Api\V1\AnalyticsController::class, 'leaderboard']);
-            Route::get('dashboard', [\App\Http\Controllers\Api\V1\AnalyticsController::class, 'dashboard']);
-            Route::get('department-stats', [\App\Http\Controllers\Api\V1\AnalyticsController::class, 'departmentStats']);
-            Route::get('kpi-checklist', [\App\Http\Controllers\Api\V1\AnalyticsController::class, 'kpiChecklist']);
+            Route::get('leaderboard/export', [AnalyticsController::class, 'exportLeaderboard']);
+            Route::get('leaderboard', [AnalyticsController::class, 'leaderboard']);
+            Route::get('dashboard', [AnalyticsController::class, 'dashboard']);
+            Route::get('department-stats', [AnalyticsController::class, 'departmentStats']);
+            Route::get('kpi-checklist', [AnalyticsController::class, 'kpiChecklist']);
         });
 
         // Modul 9: Reminder & WhatsApp Integrasi (Reminders)
         Route::prefix('reminders')->group(function () {
-            Route::post('trigger', [\App\Http\Controllers\Api\V1\ReminderController::class, 'trigger']);
-            Route::post('send-test', [\App\Http\Controllers\Api\V1\ReminderController::class, 'sendTest']);
-            Route::get('logs', [\App\Http\Controllers\Api\V1\ReminderController::class, 'logs']);
-            Route::get('logs/{id}', [\App\Http\Controllers\Api\V1\ReminderController::class, 'showLog']);
-            Route::get('settings', [\App\Http\Controllers\Api\V1\ReminderController::class, 'settings']);
-            Route::post('settings', [\App\Http\Controllers\Api\V1\ReminderController::class, 'storeSetting']);
-            Route::get('settings/{id}', [\App\Http\Controllers\Api\V1\ReminderController::class, 'showSetting']);
-            Route::put('settings/{id}', [\App\Http\Controllers\Api\V1\ReminderController::class, 'updateSetting']);
-            Route::delete('settings/{id}', [\App\Http\Controllers\Api\V1\ReminderController::class, 'destroySetting']);
-            Route::post('settings/{id}/toggle', [\App\Http\Controllers\Api\V1\ReminderController::class, 'toggleSetting']);
+            Route::post('trigger', [ReminderController::class, 'trigger']);
+            Route::post('send-test', [ReminderController::class, 'sendTest']);
+            Route::get('logs', [ReminderController::class, 'logs']);
+            Route::get('logs/{id}', [ReminderController::class, 'showLog']);
+            Route::get('settings', [ReminderController::class, 'settings']);
+            Route::post('settings', [ReminderController::class, 'storeSetting']);
+            Route::get('settings/{id}', [ReminderController::class, 'showSetting']);
+            Route::put('settings/{id}', [ReminderController::class, 'updateSetting']);
+            Route::delete('settings/{id}', [ReminderController::class, 'destroySetting']);
+            Route::post('settings/{id}/toggle', [ReminderController::class, 'toggleSetting']);
         });
 
         // Modul 10: Jurnal Harian (Work Journals)
         Route::prefix('journals')->group(function () {
-            Route::get('today', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'today']);
-            Route::get('team', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'team']);
-            Route::get('/', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'index']);
-            Route::post('/', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'store']);
-            Route::get('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'show']);
-            Route::put('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'update']);
-            Route::delete('{id}', [\App\Http\Controllers\Api\V1\WorkJournalController::class, 'destroy']);
+            Route::get('today', [WorkJournalController::class, 'today']);
+            Route::get('team', [WorkJournalController::class, 'team']);
+            Route::get('/', [WorkJournalController::class, 'index']);
+            Route::post('/', [WorkJournalController::class, 'store']);
+            Route::get('{id}', [WorkJournalController::class, 'show']);
+            Route::put('{id}', [WorkJournalController::class, 'update']);
+            Route::delete('{id}', [WorkJournalController::class, 'destroy']);
         });
     });
 });

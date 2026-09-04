@@ -1,22 +1,30 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-BEKeB-TV.css",
+    "file": "assets/app-DP1sM5-R.css",
     "src": "resources/css/app.css",
-    "isEntry": true
+    "isEntry": true,
+    "name": "app",
+    "names": [
+      "app.css"
+    ]
   },
   "resources/js/app.js": {
-    "file": "assets/app-l0sNRNKZ.js",
+    "file": "assets/app-CIomGrQN.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true
   },
   "vendor/kungfufafa/mekaya-theme/resources/css/theme.css": {
-    "file": "assets/theme-CLU16BC_.css",
+    "file": "assets/theme-BHAM73YL.css",
     "src": "vendor/kungfufafa/mekaya-theme/resources/css/theme.css",
-    "isEntry": true
+    "isEntry": true,
+    "name": "theme",
+    "names": [
+      "theme.css"
+    ]
   },
   "vendor/kungfufafa/mekaya-theme/resources/js/mekaya.js": {
-    "file": "assets/mekaya-DQS1Aond.js",
+    "file": "assets/mekaya-B2gQh5dK.js",
     "name": "mekaya",
     "src": "vendor/kungfufafa/mekaya-theme/resources/js/mekaya.js",
     "isEntry": true

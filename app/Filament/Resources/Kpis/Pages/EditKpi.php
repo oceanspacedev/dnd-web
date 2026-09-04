@@ -2,9 +2,8 @@
 
 namespace App\Filament\Resources\Kpis\Pages;
 
-use Filament\Actions\DeleteAction;
 use App\Filament\Resources\Kpis\KpiResource;
-use Filament\Actions;
+use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +27,7 @@ class EditKpi extends EditRecord
                 'kpi_detail.kpi_description',
                 'user.position',
                 'kpi_category',
-                'kpi_type'
+                'kpi_type',
             ]);
     }
 
@@ -48,7 +47,7 @@ class EditKpi extends EditRecord
         $queries = DB::getQueryLog();
         Log::info('KPI Edit Queries', [
             'count' => count($queries),
-            'queries' => $queries
+            'queries' => $queries,
         ]);
     }
 }

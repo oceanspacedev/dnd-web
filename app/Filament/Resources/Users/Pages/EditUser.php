@@ -2,10 +2,9 @@
 
 namespace App\Filament\Resources\Users\Pages;
 
-use Filament\Actions\DeleteAction;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
-use Filament\Actions;
+use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
@@ -39,6 +38,7 @@ class EditUser extends EditRecord
                 ->send();
 
             $this->halt();
+
             return;
         }
 

@@ -8,18 +8,18 @@ use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 
-class MonthlyReport implements FromArray, WithMapping, WithHeadings
+class MonthlyReport implements FromArray, WithHeadings, WithMapping
 {
     protected string $month;
 
-    function __construct(string $month)
+    public function __construct(string $month)
     {
         $this->month = $month;
     }
 
     public function array(): array
     {
-        $data = array();
+        $data = [];
         $users = User::with('area', 'divisi')
             ->where('mn', 1)
             ->orWhere('mr', 1)
@@ -44,17 +44,17 @@ class MonthlyReport implements FromArray, WithMapping, WithHeadings
             if ($totalTaskmonthly && $totalClosedMonthly) {
                 $kpiMonthly = $valueMonthly / $totalTaskmonthly > 1 ? 20 : ($valueMonthly / $totalTaskmonthly) * 20;
             }
-            if($totalClosedMonthly < 10){
+            if ($totalClosedMonthly < 10) {
                 $totalClosedMonthly = '0'.$totalClosedMonthly;
             }
 
             if ($totalTaskmonthly < 10) {
-                $totalTaskmonthly = '0' . $totalTaskmonthly;
+                $totalTaskmonthly = '0'.$totalTaskmonthly;
             }
 
             array_push($data, [
                 'user' => $user,
-                'actm' =>  $totalClosedMonthly . "/" . $totalTaskmonthly,
+                'actm' => $totalClosedMonthly.'/'.$totalTaskmonthly,
                 'kpiMonthly' => $kpiMonthly,
             ]);
         }
@@ -73,7 +73,7 @@ class MonthlyReport implements FromArray, WithMapping, WithHeadings
         ];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row['user']->nama_lengkap,

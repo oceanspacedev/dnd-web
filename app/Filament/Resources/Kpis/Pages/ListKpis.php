@@ -2,35 +2,32 @@
 
 namespace App\Filament\Resources\Kpis\Pages;
 
-use Filament\Actions\CreateAction;
-use Filament\Schemas\Components\Grid;
-use Exception;
 use App\Exports\KpiMonthlyExport;
 use App\Exports\KpiPerDivisionExport;
 use App\Filament\Resources\Kpis\KpiResource;
 use App\Models\Divisi;
 use App\Models\Kpi;
 use App\Models\Position;
+use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Actions;
+use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
-use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Select;
+use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Resources\Pages\ListRecords;
-use Filament\Support\Enums\ActionSize;
-use App\Models\User;
-use Carbon\Carbon;
 use Filament\Notifications\Notification;
-use Illuminate\Support\Collection;
+use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ListKpis extends ListRecords
 {
     protected static string $resource = KpiResource::class;
-    protected static ?string $title = "KPI";
+
+    protected static ?string $title = 'KPI';
 
     protected function getHeaderActions(): array
     {
@@ -64,7 +61,7 @@ class ListKpis extends ListRecords
                                     'user' => 'Per User',
                                 ];
                             })
-                            ->default(fn() => auth()->user()->role_id == 1 ? 'division' : 'user')
+                            ->default(fn () => auth()->user()->role_id == 1 ? 'division' : 'user')
                             ->required()
                             ->live(),
                         Select::make('divisi')
@@ -99,7 +96,7 @@ class ListKpis extends ListRecords
                         TextInput::make('tahun')
                             ->label('Tahun')
                             ->maxLength(4)
-                            ->default(fn() => now()->format('Y'))
+                            ->default(fn () => now()->format('Y'))
                             ->regex('/^\d{4}$/')
                             ->validationMessages([
                                 'regex' => 'Format yang valid adalah tahun (YYYY).',
@@ -109,7 +106,7 @@ class ListKpis extends ListRecords
                         TextInput::make('bulan')
                             ->label('Bulan')
                             ->maxLength(7)
-                            ->default(fn() => now()->format('Y-m'))
+                            ->default(fn () => now()->format('Y-m'))
                             ->regex('/^\d{4}-\d{2}$/')
                             ->validationMessages([
                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
@@ -125,7 +122,7 @@ class ListKpis extends ListRecords
                     ->action(function (array $data) {
                         $isYear = ($data['periode'] ?? 'year') === 'year';
                         $exportByUser = ($data['export_by'] ?? 'division') === 'user';
-                        $userId = $exportByUser && !empty($data['user_id']) ? (int) $data['user_id'] : null;
+                        $userId = $exportByUser && ! empty($data['user_id']) ? (int) $data['user_id'] : null;
                         $user = $userId ? User::where('id', $userId)->first() : null;
                         $isAdmin = auth()->user()->role_id == 1;
                         $managedUserIds = $isAdmin
@@ -159,11 +156,11 @@ class ListKpis extends ListRecords
                         $divisiId = $data['divisi'] ?? ($user?->divisi_id ?? auth()->user()->divisi_id);
                         $divisi = Divisi::where('id', $divisiId)->first();
                         $divisionName = $user && $user->divisi ? $user->divisi->name : ($divisi->name ?? auth()->user()->divisi->name);
-                        $fileSuffix = $user ? '_' . $user->nama_lengkap : '';
+                        $fileSuffix = $user ? '_'.$user->nama_lengkap : '';
 
                         if ($isYear) {
                             $year = $data['tahun'];
-                            $filename = 'KPI_' . $divisionName . '_' . $year . $fileSuffix . '.xlsx';
+                            $filename = 'KPI_'.$divisionName.'_'.$year.$fileSuffix.'.xlsx';
 
                             return Excel::download(
                                 new KpiMonthlyExport($year, (string) $divisiId, $userId),
@@ -172,7 +169,7 @@ class ListKpis extends ListRecords
                         }
 
                         $month = $data['bulan'];
-                        $filename = 'KPI_' . $divisionName . '_' . $month . $fileSuffix . '.xlsx';
+                        $filename = 'KPI_'.$divisionName.'_'.$month.$fileSuffix.'.xlsx';
 
                         return Excel::download(
                             new KpiPerDivisionExport($month, (string) $divisiId, $userId),
@@ -183,7 +180,7 @@ class ListKpis extends ListRecords
                     ->label('Copy KPI')
                     ->icon('heroicon-o-document-duplicate')
                     ->schema([
-                        Grid::make(['default' => 1,])
+                        Grid::make(['default' => 1])
                             ->schema([
                                 Radio::make('copy_mode')
                                     ->label('Pilih Mode Copy')
@@ -195,7 +192,7 @@ class ListKpis extends ListRecords
                                     ->inline()
                                     ->required()
                                     ->live(),
-                                
+
                                 Select::make('position')
                                     ->label('Posisi')
                                     ->searchable()
@@ -227,7 +224,7 @@ class ListKpis extends ListRecords
                                                 return $user->nama_lengkap;
                                             })->implode(', ');
 
-                                            $options[$position->id] = $position->name . ' - ' . $userNames;
+                                            $options[$position->id] = $position->name.' - '.$userNames;
                                         }
 
                                         return $options;
@@ -255,7 +252,7 @@ class ListKpis extends ListRecords
 
                                         foreach ($users as $user) {
                                             $positionName = $user->position ? $user->position->name : 'No Position';
-                                            $options[$user->id] = $user->nama_lengkap . ' (' . $positionName . ')';
+                                            $options[$user->id] = $user->nama_lengkap.' ('.$positionName.')';
                                         }
 
                                         return $options;
@@ -284,7 +281,7 @@ class ListKpis extends ListRecords
 
                                         foreach ($users as $user) {
                                             $positionName = $user->position ? $user->position->name : 'No Position';
-                                            $options[$user->id] = $user->nama_lengkap . ' (' . $positionName . ')';
+                                            $options[$user->id] = $user->nama_lengkap.' ('.$positionName.')';
                                         }
 
                                         return $options;
@@ -292,12 +289,12 @@ class ListKpis extends ListRecords
                                     ->visible(fn ($get) => $get('copy_mode') === 'individual')
                                     ->required(fn ($get) => $get('copy_mode') === 'individual'),
 
-                                Grid::make(['default' => 2,])
+                                Grid::make(['default' => 2])
                                     ->schema([
                                         TextInput::make('tanggal1')
                                             ->label('Dari Bulan')
                                             ->maxLength(7)
-                                            ->default(fn() => now()->format('Y-m'))
+                                            ->default(fn () => now()->format('Y-m'))
                                             ->regex('/^\d{4}-\d{2}$/')
                                             ->validationMessages([
                                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
@@ -307,23 +304,23 @@ class ListKpis extends ListRecords
                                         TextInput::make('tanggal2')
                                             ->label('Ke Bulan')
                                             ->maxLength(7)
-                                            ->default(fn() => now()->addMonth()->format('Y-m'))
+                                            ->default(fn () => now()->addMonth()->format('Y-m'))
                                             ->regex('/^\d{4}-\d{2}$/')
                                             ->validationMessages([
                                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
                                             ])
                                             ->extraInputAttributes(['type' => 'month'])
                                             ->required(),
-                                    ])
-                            ])
+                                    ]),
+                            ]),
                     ])
                     ->slideOver()
                     ->modalWidth('md')
                     ->modalHeading('Copy KPI')
                     ->action(function (array $data) {
                         try {
-                            $fromDate = Carbon::createFromFormat('Y-m', $data['tanggal1'])->startOfMonth();
-                            $toDate = Carbon::createFromFormat('Y-m', $data['tanggal2'])->startOfMonth();
+                            $fromDate = Date::createFromFormat('Y-m', $data['tanggal1'])->startOfMonth();
+                            $toDate = Date::createFromFormat('Y-m', $data['tanggal2'])->startOfMonth();
                             $copyMode = $data['copy_mode'];
                             $isAdmin = auth()->user()->role?->name === 'ADMIN';
                             $allowedUserIds = [];
@@ -359,6 +356,7 @@ class ListKpis extends ListRecords
                                     // Skip if KPI already exists for this user in target month
                                     if (in_array($kpi->user_id, $existingKpis)) {
                                         $skippedCount++;
+
                                         continue;
                                     }
 
@@ -422,6 +420,7 @@ class ListKpis extends ListRecords
                                         // Skip if KPI already exists for this target user in target month
                                         if (in_array($targetUserId, $existingKpis)) {
                                             $skippedCount++;
+
                                             continue;
                                         }
 
@@ -455,7 +454,7 @@ class ListKpis extends ListRecords
                                 ->success()
                                 ->send();
 
-                            return redirect()->route('filament.admin.resources.kpis.index');
+                            return to_route('filament.admin.resources.kpis.index');
                         } catch (Exception $e) {
                             Notification::make()
                                 ->title('Error copying KPI')

@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class KpiDescription extends Model
@@ -19,17 +21,22 @@ class KpiDescription extends Model
         'updated_at',
     ];
 
-    protected $casts = [
-        'is_negative' => 'boolean',
-    ];
-    
-    public function kpi_category()
+    /** @return BelongsTo<KpiCategory, $this> */
+    public function kpi_category(): BelongsTo
     {
         return $this->belongsTo(KpiCategory::class);
     }
 
-    public function kpi_detail()
+    /** @return HasMany<KpiDetail, $this> */
+    public function kpi_detail(): HasMany
     {
         return $this->hasMany(KpiDetail::class);
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'is_negative' => 'boolean',
+        ];
     }
 }

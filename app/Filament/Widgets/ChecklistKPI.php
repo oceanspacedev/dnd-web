@@ -2,32 +2,41 @@
 
 namespace App\Filament\Widgets;
 
-use Exception;
-use App\Models\KpiDetail;
-use App\Models\KpiDescription;
-use App\Models\Kpi;
 use App\Models\Divisi;
+use App\Models\Kpi;
+use App\Models\KpiDescription;
+use App\Models\KpiDetail;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
 use App\Services\KpiScoringService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Exception;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Date;
 
 class ChecklistKPI extends Widget
 {
     protected string $view = 'filament.widgets.checklist-kpi';
-    protected int | string | array $columnSpan = 'full';
+
+    protected int|string|array $columnSpan = 'full';
 
     public $month;
+
     public $user_id;
+
     public $parent_id;
+
     public $description;
+
     public $count_type = 'NON';
+
     public $value_actual;
+
     public $kpiDetail;
+
     public int $updateModalKey = 0;
 
     public function mount($user_id = null, $month = null): void
@@ -38,8 +47,8 @@ class ChecklistKPI extends Widget
 
     protected function getKpis()
     {
-        $currentMonth = Carbon::now()->month;
-        $currentYear = Carbon::now()->year;
+        $currentMonth = Date::now()->month;
+        $currentYear = Date::now()->year;
 
         $with = [
             'kpi_detail',
@@ -59,12 +68,12 @@ class ChecklistKPI extends Widget
 
         if ($this->month) {
             try {
-                $date = Carbon::createFromFormat('m/Y', $this->month);
+                $date = Date::createFromFormat('m/Y', $this->month);
             } catch (Exception $e) {
                 try {
-                    $date = Carbon::parse($this->month);
+                    $date = Date::parse($this->month);
                 } catch (Exception $e2) {
-                    $date = Carbon::now();
+                    $date = Date::now();
                 }
             }
 
@@ -98,6 +107,7 @@ class ChecklistKPI extends Widget
             $groupedKpiByCategory = $groupedKpiByCategory->sortBy(function ($kpis, $categoryName) {
                 $categoryOrder = ['MAIN JOB', 'ADMINISTRATION', 'REPORTING'];
                 $categoryIndex = array_search($categoryName, $categoryOrder);
+
                 return $categoryIndex !== false ? $categoryIndex : count($categoryOrder);
             });
 
@@ -156,7 +166,7 @@ class ChecklistKPI extends Widget
     {
         $this->kpiDetail = KpiDetail::with(['kpi', 'kpi_description'])->findOrFail($kpiDetailId);
 
-        if (!$this->ensureKpiDetailEditable($this->kpiDetail)) {
+        if (! $this->ensureKpiDetailEditable($this->kpiDetail)) {
             return;
         }
 
@@ -170,7 +180,7 @@ class ChecklistKPI extends Widget
     {
         $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($kpiDetailId);
 
-        if (!$this->ensureKpiDetailEditable($parentKpiDetail)) {
+        if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
             return;
         }
 
@@ -186,7 +196,7 @@ class ChecklistKPI extends Widget
     {
         $kpiDetail = KpiDetail::with('kpi')->findOrFail($kpiDetailId);
 
-        if (!$this->ensureKpiDetailEditable($kpiDetail)) {
+        if (! $this->ensureKpiDetailEditable($kpiDetail)) {
             return;
         }
 
@@ -199,12 +209,12 @@ class ChecklistKPI extends Widget
 
     public function submitUpdateKpi()
     {
-        if (!$this->kpiDetail) {
+        if (! $this->kpiDetail) {
             return;
         }
 
         $this->kpiDetail->loadMissing('kpi');
-        if (!$this->ensureKpiDetailEditable($this->kpiDetail)) {
+        if (! $this->ensureKpiDetailEditable($this->kpiDetail)) {
             return;
         }
 
@@ -247,7 +257,7 @@ class ChecklistKPI extends Widget
             // Ambil detail parent KPI
             $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($this->parent_id);
 
-            if (!$this->ensureKpiDetailEditable($parentKpiDetail)) {
+            if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
                 return;
             }
 
@@ -300,7 +310,7 @@ class ChecklistKPI extends Widget
 
         } catch (Exception $e) {
             // Flash error ke session
-            session()->flash('error', 'Terjadi kesalahan saat menyimpan ekstra task: ' . $e->getMessage());
+            session()->flash('error', 'Terjadi kesalahan saat menyimpan ekstra task: '.$e->getMessage());
         }
     }
 
@@ -315,7 +325,7 @@ class ChecklistKPI extends Widget
                 // Ambil parent dari extra task
                 $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($extraTask->parent_id);
 
-                if (!$this->ensureKpiDetailEditable($parentKpiDetail)) {
+                if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
                     return;
                 }
 
@@ -359,15 +369,15 @@ class ChecklistKPI extends Widget
                 session()->flash('error', 'Data bukan ekstra task.');
             }
         } catch (Exception $e) {
-            session()->flash('error', 'Terjadi kesalahan saat menghapus ekstra task: ' . $e->getMessage());
+            session()->flash('error', 'Terjadi kesalahan saat menghapus ekstra task: '.$e->getMessage());
         }
     }
 
     public function getDeadlineInfo(string $kpiDate): array
     {
-        $kpiMonth = Carbon::parse($kpiDate)->startOfMonth();
+        $kpiMonth = Date::parse($kpiDate)->startOfMonth();
         $deadline = $this->resolveChecklistDeadline($kpiMonth);
-        $now = Carbon::now();
+        $now = Date::now();
         $isAdmin = (int) auth()->user()->role_id === 1;
         $isClosed = ! $isAdmin && $now->gt($deadline);
         $daysLeft = $isClosed ? 0 : (int) max(0, $now->diffInDays($deadline, false));
@@ -382,7 +392,7 @@ class ChecklistKPI extends Widget
 
     public function canEditKpiDetail($kpiDetail): bool
     {
-        if (!$kpiDetail || !$kpiDetail->kpi || !$kpiDetail->kpi->date) {
+        if (! $kpiDetail || ! $kpiDetail->kpi || ! $kpiDetail->kpi->date) {
             return false;
         }
 
@@ -395,14 +405,14 @@ class ChecklistKPI extends Widget
             return true;
         }
 
-        if (!$kpiDate) {
+        if (! $kpiDate) {
             return false;
         }
 
-        $kpiMonth = Carbon::parse($kpiDate)->startOfMonth();
+        $kpiMonth = Date::parse($kpiDate)->startOfMonth();
         $deadline = $this->resolveChecklistDeadline($kpiMonth);
 
-        return Carbon::now()->lessThanOrEqualTo($deadline);
+        return Date::now()->lessThanOrEqualTo($deadline);
     }
 
     protected function ensureKpiDetailEditable($kpiDetail): bool
@@ -411,12 +421,12 @@ class ChecklistKPI extends Widget
             return true;
         }
 
-        $kpiMonth = Carbon::parse($kpiDetail->kpi->date)->startOfMonth();
+        $kpiMonth = Date::parse($kpiDetail->kpi->date)->startOfMonth();
         $deadline = $this->resolveChecklistDeadline($kpiMonth);
 
         Notification::make()
             ->title('Periode checklist sudah ditutup')
-            ->body('Pengisian KPI ' . $kpiMonth->format('F Y') . ' hanya sampai ' . $deadline->format('d M Y') . '.')
+            ->body('Pengisian KPI '.$kpiMonth->format('F Y').' hanya sampai '.$deadline->format('d M Y').'.')
             ->danger()
             ->send();
 

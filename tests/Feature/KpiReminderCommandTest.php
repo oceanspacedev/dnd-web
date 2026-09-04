@@ -3,15 +3,17 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\SendKpiRemindersCommand;
+use App\Http\Controllers\Api\V1\ReminderController;
 use App\Mail\KpiReminderMail;
 use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -37,12 +39,12 @@ class KpiReminderCommandTest extends TestCase
         config()->set('kpi-reminders.cache_store', 'array');
 
         $this->createSchema();
-        Carbon::setTestNow('2026-09-15 08:00:00');
+        Date::setTestNow('2026-09-15 08:00:00');
     }
 
     protected function tearDown(): void
     {
-        Carbon::setTestNow();
+        Date::setTestNow();
 
         parent::tearDown();
     }
@@ -109,7 +111,7 @@ class KpiReminderCommandTest extends TestCase
             'recipient' => $user->email,
             'status' => 'failed',
             'error_message' => 'SMTP sementara tidak tersedia',
-            'sent_at' => Carbon::now(),
+            'sent_at' => Date::now(),
         ]);
 
         $this->artisan('kpi:send-reminders', ['--setting-id' => $setting->id])
@@ -122,6 +124,41 @@ class KpiReminderCommandTest extends TestCase
             'channel' => 'email',
             'status' => 'sent',
         ]);
+    }
+
+    public function test_log_filters_and_resource_use_current_schema_columns(): void
+    {
+        $user = $this->createUser('Penerima Log', email: 'recipient@example.test');
+        $setting = $this->createSetting(sendEmail: true);
+
+        $matchingLog = KpiReminderLog::create([
+            'kpi_reminder_setting_id' => $setting->id,
+            'user_id' => $user->id,
+            'channel' => 'email',
+            'recipient' => $user->email,
+            'status' => 'sent',
+            'sent_at' => Date::parse('2026-09-15 08:00:00'),
+        ]);
+
+        KpiReminderLog::create([
+            'kpi_reminder_setting_id' => $setting->id,
+            'user_id' => $user->id,
+            'channel' => 'email',
+            'recipient' => 'other@example.test',
+            'status' => 'sent',
+            'sent_at' => Date::parse('2026-10-15 08:00:00'),
+        ]);
+
+        $request = Request::create('/api/v1/reminders/logs', 'GET', [
+            'periode' => '2026-09',
+            'search' => 'recipient@example.test',
+        ]);
+        $payload = (new ReminderController)->logs($request)->getData(true);
+
+        $this->assertSame(1, $payload['meta']['total']);
+        $this->assertSame($matchingLog->id, $payload['data'][0]['id']);
+        $this->assertSame('recipient@example.test', $payload['data'][0]['destination']);
+        $this->assertSame('2026-09', $payload['data'][0]['periode']);
     }
 
     public function test_command_returns_failure_when_whatsapp_delivery_fails(): void
@@ -175,10 +212,10 @@ class KpiReminderCommandTest extends TestCase
     {
         $method = new ReflectionMethod(SendKpiRemindersCommand::class, 'identifyTargetUsers');
         $targets = $method->invoke(
-            app(SendKpiRemindersCommand::class),
+            resolve(SendKpiRemindersCommand::class),
             $setting,
-            Carbon::parse('2026-09-01 00:00:00'),
-            Carbon::parse('2026-10-01 00:00:00'),
+            Date::parse('2026-09-01 00:00:00'),
+            Date::parse('2026-10-01 00:00:00'),
         );
 
         return collect($targets)->pluck('id')->sort()->values()->all();

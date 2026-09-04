@@ -2,8 +2,9 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
 use App\Models\Weekly;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -11,17 +12,19 @@ use Maatwebsite\Excel\Concerns\WithMapping;
 class WeeklyExport implements FromCollection, WithHeadings, WithMapping
 {
     protected int $week;
+
     protected int $year;
 
-    function __construct(int $week, int $year)
+    public function __construct(int $week, int $year)
     {
         $this->week = $week;
         $this->year = $year;
     }
+
     /**
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
         return Weekly::with('user', 'user.area', 'user.divisi')
             ->where('week', $this->week)
@@ -46,7 +49,7 @@ class WeeklyExport implements FromCollection, WithHeadings, WithMapping
         ];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row->user->nama_lengkap,

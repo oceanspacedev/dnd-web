@@ -6,8 +6,8 @@ use App\Models\KpiCategory;
 use App\Models\KpiDescription;
 use App\Models\Position;
 use App\Models\User;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class KpiCacheService
 {

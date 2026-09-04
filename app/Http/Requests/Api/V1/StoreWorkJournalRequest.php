@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\V1;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
 
 class StoreWorkJournalRequest extends FormRequest
 {
@@ -22,7 +23,7 @@ class StoreWorkJournalRequest extends FormRequest
             'date' => [
                 'nullable',
                 'date',
-                \Illuminate\Validation\Rule::unique('work_journals', 'date')->where(function ($query) use ($userId) {
+                Rule::unique('work_journals', 'date')->where(function ($query) use ($userId) {
                     return $query->where('user_id', $userId)->whereNull('deleted_at');
                 }),
             ],

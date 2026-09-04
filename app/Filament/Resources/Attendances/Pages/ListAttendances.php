@@ -2,28 +2,28 @@
 
 namespace App\Filament\Resources\Attendances\Pages;
 
-use Filament\Actions\CreateAction;
-use Log;
-use Throwable;
-use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Exports\AttendanceExport;
 use App\Exports\AttendanceImportTemplateExport;
-use Filament\Actions;
-use Filament\Actions\Action;
-use Filament\Actions\ActionGroup;
-use Filament\Forms\Components\FileUpload;
-use Filament\Resources\Pages\ListRecords;
-use Illuminate\Support\Facades\Storage;
+use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Imports\AttendanceImport;
 use App\Services\ApprovalScopeService;
-use Carbon\Carbon;
-use Maatwebsite\Excel\Facades\Excel;
+use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
+use Filament\Actions\CreateAction;
+use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
+use Filament\Resources\Pages\ListRecords;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\Storage;
+use Log;
+use Maatwebsite\Excel\Facades\Excel;
+use Throwable;
 
 class ListAttendances extends ListRecords
 {
     protected static string $resource = AttendanceResource::class;
-    protected static ?string $title = "Kehadiran";
+
+    protected static ?string $title = 'Kehadiran';
 
     protected function getHeaderActions(): array
     {
@@ -34,17 +34,17 @@ class ListAttendances extends ListRecords
                 ->icon('heroicon-s-arrow-down-tray')
                 ->color('gray')
                 ->action(function () {
-                    $currentPeriod = Carbon::now()->format('Y-m');
+                    $currentPeriod = Date::now()->format('Y-m');
                     $fileName = "attendance_import_template_{$currentPeriod}.xlsx";
 
-                    return Excel::download(new AttendanceImportTemplateExport(), $fileName);
+                    return Excel::download(new AttendanceImportTemplateExport, $fileName);
                 }),
             ActionGroup::make([
                 Action::make('export')
                     ->label('Export')
                     ->icon('heroicon-s-arrow-down-tray')
                     ->action(function () {
-                        return Excel::download(new AttendanceExport(), 'attendance_data.xlsx');
+                        return Excel::download(new AttendanceExport, 'attendance_data.xlsx');
                     }),
                 Action::make('import')
                     ->icon('heroicon-s-arrow-up-tray')
@@ -77,11 +77,12 @@ class ListAttendances extends ListRecords
             }
 
             // Check if file exists in the data
-            if (!isset($data['file']) || empty($data['file'])) {
+            if (! isset($data['file']) || empty($data['file'])) {
                 Notification::make()
                     ->title('Error: No file was uploaded')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -117,8 +118,8 @@ class ListAttendances extends ListRecords
             }
 
             // Check if file exists at the path
-            if (!file_exists($fullPath)) {
-                Log::error('File not found at path: ' . $fullPath);
+            if (! file_exists($fullPath)) {
+                Log::error('File not found at path: '.$fullPath);
                 Log::info('Original file data: ', ['data' => $data['file']]);
 
                 Notification::make()
@@ -126,6 +127,7 @@ class ListAttendances extends ListRecords
                     ->body('Technical details: File path could not be resolved correctly.')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -135,11 +137,12 @@ class ListAttendances extends ListRecords
             summarize_import:
 
             // Check if getImportSummary method exists
-            if (!method_exists($import, 'getImportSummary')) {
+            if (! method_exists($import, 'getImportSummary')) {
                 Notification::make()
                     ->title('Error: Import summary method not found')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -164,12 +167,12 @@ class ListAttendances extends ListRecords
 
         } catch (Throwable $e) {
             // Log the error for debugging
-            Log::error('Import Error: ' . $e->getMessage());
+            Log::error('Import Error: '.$e->getMessage());
             Log::error($e->getTraceAsString());
 
             // Send a notification with the error message
             Notification::make()
-                ->title('Error during import: ' . $e->getMessage())
+                ->title('Error during import: '.$e->getMessage())
                 ->danger()
                 ->send();
         }

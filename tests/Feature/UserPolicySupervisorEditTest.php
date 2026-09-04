@@ -8,10 +8,13 @@ use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class UserPolicySupervisorEditTest extends TestCase
 {
+    use RefreshDatabase;
+
     protected function tearDown(): void
     {
         ApprovalScopeService::clearMemo();
@@ -31,7 +34,7 @@ class UserPolicySupervisorEditTest extends TestCase
 
         $supervisor = User::create([
             'nama_lengkap' => 'Supervisor Lead',
-            'username' => 'spv_' . uniqid(),
+            'username' => 'spv_'.uniqid(),
             'password' => bcrypt('password'),
             'role_id' => $roleTeamLeader->id,
             'area_id' => $area->id,
@@ -47,7 +50,7 @@ class UserPolicySupervisorEditTest extends TestCase
 
         $subordinate = User::create([
             'nama_lengkap' => 'Subordinate Staff',
-            'username' => 'sub_' . uniqid(),
+            'username' => 'sub_'.uniqid(),
             'password' => bcrypt('password'),
             'role_id' => $roleStaff->id,
             'area_id' => $area->id,
@@ -64,7 +67,7 @@ class UserPolicySupervisorEditTest extends TestCase
 
         $otherUser = User::create([
             'nama_lengkap' => 'Other Staff',
-            'username' => 'other_' . uniqid(),
+            'username' => 'other_'.uniqid(),
             'password' => bcrypt('password'),
             'role_id' => $roleStaff->id,
             'area_id' => $area->id,

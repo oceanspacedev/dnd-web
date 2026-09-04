@@ -2,16 +2,15 @@
 
 namespace App\Filament\Pages;
 
-use App\Filament\Pages\Dashboard;
 use Filament\Pages\Page;
 
 class KpiStaffGuide extends Page
 {
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-clipboard-document-check';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
 
     protected static ?string $navigationLabel = 'Panduan KPI Operasional';
 
-    protected static string | \UnitEnum | null $navigationGroup = 'Panduan';
+    protected static string|\UnitEnum|null $navigationGroup = 'Panduan';
 
     protected static ?int $navigationSort = 81;
 

@@ -9,9 +9,9 @@ use App\Http\Resources\Api\V1\WorkJournalResource;
 use App\Models\User;
 use App\Models\WorkJournal;
 use App\Services\ApprovalScopeService;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 
 /**
  * @tags Jurnal Harian
@@ -37,18 +37,18 @@ class WorkJournalController extends Controller
             $parts = explode('-', $month);
             if (count($parts) === 2) {
                 $query->whereYear('date', (int) $parts[0])
-                      ->whereMonth('date', (int) $parts[1]);
+                    ->whereMonth('date', (int) $parts[1]);
             }
         }
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('activity', 'like', "%{$search}%")
-                  ->orWhere('notes', 'like', "%{$search}%")
-                  ->orWhereHas('user', function ($uq) use ($search) {
-                      $uq->where('nama_lengkap', 'like', "%{$search}%")
-                         ->orWhere('username', 'like', "%{$search}%");
-                  });
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('nama_lengkap', 'like', "%{$search}%")
+                            ->orWhere('username', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -74,17 +74,17 @@ class WorkJournalController extends Controller
     public function today(Request $request): JsonResponse
     {
         $userId = auth()->id();
-        $today = Carbon::now()->toDateString();
+        $today = Date::now()->toDateString();
 
         $journal = WorkJournal::with(['user.divisi', 'user.area', 'user.position'])
             ->where('user_id', $userId)
             ->whereDate('date', $today)
             ->first();
 
-        if (!$journal) {
+        if (! $journal) {
             return response()->json([
                 'success' => true,
-                'message' => 'Anda belum mengisi jurnal harian untuk hari ini (' . $today . ').',
+                'message' => 'Anda belum mengisi jurnal harian untuk hari ini ('.$today.').',
                 'data' => null,
                 'has_submitted_today' => false,
                 'today' => $today,
@@ -116,7 +116,7 @@ class WorkJournalController extends Controller
         // If superadmin / no subordinates, allow viewing all or team
         $query = WorkJournal::with(['user.divisi', 'user.area', 'user.position']);
 
-        if ($currentUser->role?->name !== 'ADMIN' && !empty($subordinateIds)) {
+        if ($currentUser->role?->name !== 'ADMIN' && ! empty($subordinateIds)) {
             $query->whereIn('user_id', $subordinateIds);
         } elseif ($currentUser->role?->name !== 'ADMIN' && empty($subordinateIds)) {
             // User is not admin and has no subordinates
@@ -141,18 +141,18 @@ class WorkJournalController extends Controller
             $parts = explode('-', $month);
             if (count($parts) === 2) {
                 $query->whereYear('date', (int) $parts[0])
-                      ->whereMonth('date', (int) $parts[1]);
+                    ->whereMonth('date', (int) $parts[1]);
             }
         }
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('activity', 'like', "%{$search}%")
-                  ->orWhere('notes', 'like', "%{$search}%")
-                  ->orWhereHas('user', function ($uq) use ($search) {
-                      $uq->where('nama_lengkap', 'like', "%{$search}%")
-                         ->orWhere('username', 'like', "%{$search}%");
-                  });
+                    ->orWhere('notes', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('nama_lengkap', 'like', "%{$search}%")
+                            ->orWhere('username', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -179,7 +179,7 @@ class WorkJournalController extends Controller
     {
         $journal = WorkJournal::with(['user.divisi', 'user.area', 'user.position'])->find($id);
 
-        if (!$journal) {
+        if (! $journal) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data jurnal harian tidak ditemukan.',
@@ -200,7 +200,7 @@ class WorkJournalController extends Controller
     {
         $validated = $request->validated();
         $validated['user_id'] = $validated['user_id'] ?? auth()->id();
-        $validated['date'] = $validated['date'] ?? Carbon::now()->toDateString();
+        $validated['date'] = $validated['date'] ?? Date::now()->toDateString();
 
         $journal = WorkJournal::create($validated);
         $journal->load(['user.divisi', 'user.area', 'user.position']);
@@ -219,7 +219,7 @@ class WorkJournalController extends Controller
     {
         $journal = WorkJournal::find($id);
 
-        if (!$journal) {
+        if (! $journal) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data jurnal harian tidak ditemukan.',
@@ -244,7 +244,7 @@ class WorkJournalController extends Controller
     {
         $journal = WorkJournal::find($id);
 
-        if (!$journal) {
+        if (! $journal) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data jurnal harian tidak ditemukan.',

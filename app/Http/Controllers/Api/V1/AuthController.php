@@ -30,7 +30,7 @@ class AuthController extends Controller
             ->orWhere('email', $login)
             ->first();
 
-        if (!$user || !Hash::check($password, $user->password)) {
+        if (! $user || ! Hash::check($password, $user->password)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Kredensial yang diberikan tidak cocok dengan data kami.',
@@ -104,7 +104,7 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if (!Hash::check($request->input('current_password'), $user->password)) {
+        if (! Hash::check($request->input('current_password'), $user->password)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Validasi gagal.',

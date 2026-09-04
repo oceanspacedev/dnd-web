@@ -1,1 +1,1 @@
-// app.js
+import './bootstrap';

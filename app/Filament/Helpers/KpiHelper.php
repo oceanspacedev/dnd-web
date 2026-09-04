@@ -2,13 +2,12 @@
 
 namespace App\Filament\Helpers;
 
-use App\Models\User;
-use App\Models\Kpi;
-use App\Models\Area;
 use App\Models\Divisi;
-use Carbon\Carbon;
+use App\Models\Kpi;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Date;
 
 class KpiHelper
 {
@@ -17,25 +16,25 @@ class KpiHelper
         if (empty($month)) {
             return now()->format($targetFormat);
         }
-        
+
         // Detect format
         if (strpos($month, '/') !== false) {
             // Format m/Y
-            return Carbon::createFromFormat('m/Y', $month)->format($targetFormat);
+            return Date::createFromFormat('m/Y', $month)->format($targetFormat);
         } elseif (strpos($month, '-') !== false) {
             // Format Y-m
-            return Carbon::createFromFormat('Y-m', $month)->format($targetFormat);
+            return Date::createFromFormat('Y-m', $month)->format($targetFormat);
         }
-        
+
         // Default, return as is
         return $month;
     }
-    
+
     public static function getKpisData($month, $userId = null)
     {
         $month = self::getFormattedMonth($month, 'm/Y');
-        $date = Carbon::createFromFormat('m/Y', $month);
-        
+        $date = Date::createFromFormat('m/Y', $month);
+
         $kpisQuery = Kpi::with('kpi_detail', 'kpi_detail.kpi_description', 'kpi_type', 'kpi_category', 'user')
             ->where('kpi_type_id', 3)
             ->whereMonth('date', $date->month)
@@ -65,6 +64,7 @@ class KpiHelper
             $groupedKpiByCategory = $groupedKpiByCategory->sortBy(function ($kpis, $categoryName) {
                 $categoryOrder = ['MAIN JOB', 'ADMINISTRATION', 'REPORTING'];
                 $categoryIndex = array_search($categoryName, $categoryOrder);
+
                 return $categoryIndex !== false ? $categoryIndex : count($categoryOrder);
             });
 
@@ -99,33 +99,33 @@ class KpiHelper
             'divisions' => Divisi::all(),
         ];
     }
-    
+
     public static function getLeaderboardData($month, $userId = null, $area = null, $division = null)
     {
         $month = self::getFormattedMonth($month, 'Y-m');
-        $date = Carbon::createFromFormat('Y-m', $month);
+        $date = Date::createFromFormat('Y-m', $month);
 
         $query = User::query()
             ->with([
                 'divisi.area',
                 'area',
-                'kpi' => function($query) use ($month) {
+                'kpi' => function ($query) use ($month) {
                     $query->select('id', 'user_id', 'percentage', 'date')
                         ->where('kpi_type_id', 3)
                         ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$month])
                         ->orderBy('date', 'DESC')
-                        ->with(['kpi_detail' => function($query) {
+                        ->with(['kpi_detail' => function ($query) {
                             $query->whereNotNull('value_result')->where('value_result', '>=', 0);
                         }]);
                 },
-                'attendance' => function($query) use ($month) {
+                'attendance' => function ($query) use ($month) {
                     $query->select('user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days', 'periode')
                         ->where('periode', $month);
                 },
-                'employeeReview' => function($query) use ($month) {
+                'employeeReview' => function ($query) use ($month) {
                     $query->select('user_id', 'responsiveness', 'problem_solver', 'helpfulness', 'initiative', 'periode')
                         ->where('periode', $month);
-                }
+                },
             ]);
 
         if ($area) {
@@ -155,13 +155,13 @@ class KpiHelper
                 'kpiScore' => $kpiScore,
                 'attendanceScore' => $attendanceScore,
                 'activityScore' => $activityScore,
-                'totalScore' => $totalScore
+                'totalScore' => $totalScore,
             ];
         }
 
         return collect($leaderboardData)->sortByDesc('totalScore')->values()->all();
     }
-    
+
     protected static function getUsers()
     {
         return User::query()
@@ -171,11 +171,11 @@ class KpiHelper
             ->orderBy('nama_lengkap')
             ->get();
     }
-    
+
     protected static function calculateKPIScore($user)
     {
         $kpiScore = 0;
-        
+
         foreach ($user->kpi as $kpi) {
             $kpiDetailWithValue = $kpi->kpi_detail->filter(function ($kpiDetail) {
                 return $kpiDetail->value_result !== null && $kpiDetail->value_result >= 0;
@@ -193,7 +193,9 @@ class KpiHelper
 
     protected static function calculateAttendanceScore($user)
     {
-        if (!$user->attendance) return 0;
+        if (! $user->attendance) {
+            return 0;
+        }
 
         $attendance = $user->attendance;
         $lateLess30 = $attendance->late_less_30 ?? 0;
@@ -201,18 +203,22 @@ class KpiHelper
         $sickDays = $attendance->sick_days ?? 0;
         $workDays = $attendance->work_days ?? 0;
 
-        if ($workDays <= 0) return 0;
+        if ($workDays <= 0) {
+            return 0;
+        }
 
         $initialAttendanceAchv = ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100;
         $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
         $finalAttendanceAchv = max(0, $initialAttendanceAchv - $penalty);
-        
+
         return ($finalAttendanceAchv / 100) * 40;
     }
 
     protected static function calculateActivityScore($user)
     {
-        if (!$user->employeeReview) return 0;
+        if (! $user->employeeReview) {
+            return 0;
+        }
 
         $review = $user->employeeReview;
         $responsiveness = $review->responsiveness ?? 0;

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Exports\LeaderboardExport;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\LeaderboardExportController;
 use App\Http\Resources\Api\V1\DashboardStatsResource;
@@ -11,16 +10,15 @@ use App\Http\Resources\Api\V1\LeaderboardResource;
 use App\Models\Area;
 use App\Models\Attendance;
 use App\Models\Daily;
-use App\Models\Divisi;
 use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\Request as TodoRequest;
 use App\Models\User;
 use App\Services\KpiScoringService;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
 
 /**
@@ -51,7 +49,7 @@ class AnalyticsController extends Controller
         if ($search) {
             $userQuery->where(function ($q) use ($search) {
                 $q->where('nama_lengkap', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%");
+                    ->orWhere('username', 'like', "%{$search}%");
             });
         }
 
@@ -156,7 +154,7 @@ class AnalyticsController extends Controller
      */
     public function leaderboard(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Carbon::now()->format('Y-m'));
+        $periode = $request->query('periode', Date::now()->format('Y-m'));
         $areaId = $request->query('area_id') ? (int) $request->query('area_id') : null;
         $divisiId = $request->query('divisi_id') ? (int) $request->query('divisi_id') : null;
         $search = $request->query('search');
@@ -196,7 +194,8 @@ class AnalyticsController extends Controller
      */
     public function exportLeaderboard(Request $request)
     {
-        $exporter = new LeaderboardExportController();
+        $exporter = new LeaderboardExportController;
+
         return $exporter->export($request);
     }
 
@@ -205,7 +204,7 @@ class AnalyticsController extends Controller
      */
     public function dashboard(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Carbon::now()->format('Y-m'));
+        $periode = $request->query('periode', Date::now()->format('Y-m'));
         $scores = $this->computeScoresForPeriod($periode);
 
         $totalEmployees = count($scores);
@@ -230,7 +229,7 @@ class AnalyticsController extends Controller
         };
 
         // Today's daily tasks
-        $today = Carbon::now()->toDateString();
+        $today = Date::now()->toDateString();
         $dailyToday = Daily::whereDate('date', $today)->get();
         $dailyTotal = $dailyToday->count();
         $dailyCompleted = $dailyToday->where('status', 'Completed')->count();
@@ -269,7 +268,7 @@ class AnalyticsController extends Controller
      */
     public function departmentStats(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Carbon::now()->format('Y-m'));
+        $periode = $request->query('periode', Date::now()->format('Y-m'));
         $scores = $this->computeScoresForPeriod($periode);
 
         // Group by Division
@@ -327,23 +326,23 @@ class AnalyticsController extends Controller
         $userId = $request->query('user_id') ? (int) $request->query('user_id') : auth()->id();
         $user = User::with(['divisi', 'area'])->find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
 
-        $periode = $request->query('periode', Carbon::now()->format('Y-m'));
+        $periode = $request->query('periode', Date::now()->format('Y-m'));
         $parts = explode('-', $periode);
         $year = (int) ($parts[0] ?? date('Y'));
         $month = isset($parts[1]) ? (int) $parts[1] : (int) date('m');
 
         // Check checklist lock days
         $lockDays = max(0, (int) config('kpi.checklist_lock_days', 5));
-        $kpiMonth = Carbon::create($year, $month, 1);
+        $kpiMonth = Date::create($year, $month, 1);
         $deadline = (clone $kpiMonth)->endOfMonth()->addDays($lockDays)->endOfDay();
-        $isLocked = Carbon::now()->greaterThan($deadline);
+        $isLocked = Date::now()->greaterThan($deadline);
 
         $kpis = Kpi::with([
             'kpi_category',
@@ -363,7 +362,7 @@ class AnalyticsController extends Controller
         foreach ($kpis as $kpi) {
             $catName = $kpi->kpi_category?->name ?? 'MAIN JOB';
 
-            if (!isset($groupedByCategory[$catName])) {
+            if (! isset($groupedByCategory[$catName])) {
                 $groupedByCategory[$catName] = [
                     'category' => $catName,
                     'kpi_id' => $kpi->id,

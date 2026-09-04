@@ -2,25 +2,29 @@
 
 namespace App\Exports;
 
-use App\Helpers\ConvertDate;
+use App\Support\IsoWeek;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class TamplateDaily implements WithHeadings, FromCollection
+class TemplateDaily implements FromCollection, WithHeadings
 {
     use Exportable;
-    public function collection()
+
+    public function collection(): Enumerable
     {
-        $monday = ConvertDate::getMondayOrSaturday(now()->year, now()->weekOfYear, true);
+        $monday = IsoWeek::startsAt(now()->year, now()->weekOfYear);
+
         return collect([
             [
                 'date' => $monday->format('Y-m-d'),
                 'task' => 'contoh task daily',
-                'time' => '08:00'
+                'time' => '08:00',
             ],
         ]);
     }
+
     public function headings(): array
     {
         return [

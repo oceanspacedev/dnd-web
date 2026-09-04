@@ -7,7 +7,9 @@ use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 class KpiPerDivisionExport implements WithMultipleSheets
 {
     protected string $month;
+
     protected string $divisi_id;
+
     protected ?int $userId;
 
     public function __construct(string $month, string $divisi_id, ?int $userId = null)

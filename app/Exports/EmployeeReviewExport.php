@@ -2,24 +2,25 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
 use App\Models\EmployeeReview;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class EmployeeReviewExport implements FromCollection, WithHeadings, WithMapping, WithTitle, ShouldAutoSize
+class EmployeeReviewExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
     /**
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
         $authUser = auth()->user();
 
-        if (!$authUser) {
+        if (! $authUser) {
             return collect();
         }
 
@@ -61,9 +62,9 @@ class EmployeeReviewExport implements FromCollection, WithHeadings, WithMapping,
     }
 
     /**
-     * @param array $review
+     * @param  array  $review
      */
-    public function map($review): array
+    public function map(mixed $review): array
     {
         return [
             $review['employee_id'],

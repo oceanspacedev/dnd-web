@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class KpiDetail extends Model
@@ -20,25 +22,24 @@ class KpiDetail extends Model
         'deleted_at',
     ];
 
-    public function kpi()
+    /** @return BelongsTo<Kpi, $this> */
+    public function kpi(): BelongsTo
     {
         return $this->belongsTo(Kpi::class);
     }
 
-    public function kpi_description()
+    /** @return BelongsTo<KpiDescription, $this> */
+    public function kpi_description(): BelongsTo
     {
         return $this->belongsTo(KpiDescription::class);
     }
 
-    public function children()
+    /** @return HasMany<KpiDetail, $this> */
+    public function children(): HasMany
     {
         return $this->hasMany(KpiDetail::class, 'parent_id');
     }
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array
-     */
+
     protected function casts(): array
     {
         return [

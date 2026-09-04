@@ -74,7 +74,7 @@ class KpiController extends Controller
     {
         $kpi = Kpi::with(['user', 'kpi_category', 'kpi_type', 'kpi_detail.kpi_description'])->find($id);
 
-        if (!$kpi) {
+        if (! $kpi) {
             return response()->json([
                 'success' => false,
                 'message' => 'KPI tidak ditemukan.',
@@ -104,7 +104,7 @@ class KpiController extends Controller
         ]);
 
         // Create detail items if provided
-        if (!empty($validated['details']) && is_array($validated['details'])) {
+        if (! empty($validated['details']) && is_array($validated['details'])) {
             foreach ($validated['details'] as $detailData) {
                 $description = KpiDescription::find($detailData['kpi_description_id']);
                 $isNegative = (bool) ($description?->is_negative ?? false);
@@ -144,7 +144,7 @@ class KpiController extends Controller
     {
         $kpi = Kpi::find($id);
 
-        if (!$kpi) {
+        if (! $kpi) {
             return response()->json([
                 'success' => false,
                 'message' => 'KPI tidak ditemukan.',
@@ -168,7 +168,7 @@ class KpiController extends Controller
     {
         $kpi = Kpi::find($id);
 
-        if (!$kpi) {
+        if (! $kpi) {
             return response()->json([
                 'success' => false,
                 'message' => 'KPI tidak ditemukan.',
@@ -195,7 +195,7 @@ class KpiController extends Controller
     {
         $kpi = Kpi::find($kpiId);
 
-        if (!$kpi) {
+        if (! $kpi) {
             return response()->json([
                 'success' => false,
                 'message' => 'KPI tidak ditemukan.',
@@ -239,7 +239,7 @@ class KpiController extends Controller
     {
         $detail = KpiDetail::with('kpi_description')->find($id);
 
-        if (!$detail) {
+        if (! $detail) {
             return response()->json([
                 'success' => false,
                 'message' => 'Detail KPI tidak ditemukan.',
@@ -281,7 +281,7 @@ class KpiController extends Controller
     {
         $detail = KpiDetail::find($id);
 
-        if (!$detail) {
+        if (! $detail) {
             return response()->json([
                 'success' => false,
                 'message' => 'Detail KPI tidak ditemukan.',
@@ -369,7 +369,7 @@ class KpiController extends Controller
     {
         $user = User::with(['role', 'position'])->find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',

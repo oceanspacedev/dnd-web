@@ -7,10 +7,12 @@ use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class LeaderboardAttendanceDetailSheet implements FromArray, WithHeadings, WithTitle, ShouldAutoSize
+class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, WithHeadings, WithTitle
 {
     protected $attendanceDetails;
+
     protected string $periodType;
+
     protected string $selectedPeriod;
 
     public function __construct($attendanceDetails, string $periodType, string $selectedPeriod)

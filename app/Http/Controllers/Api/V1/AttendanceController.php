@@ -38,7 +38,7 @@ class AttendanceController extends Controller
         if ($search = $request->query('search')) {
             $query->whereHas('user', function ($q) use ($search) {
                 $q->where('nama_lengkap', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%");
+                    ->orWhere('username', 'like', "%{$search}%");
             });
         }
 
@@ -65,7 +65,7 @@ class AttendanceController extends Controller
     {
         $attendance = Attendance::with('user')->find($id);
 
-        if (!$attendance) {
+        if (! $attendance) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data presensi tidak ditemukan.',
@@ -115,7 +115,7 @@ class AttendanceController extends Controller
     {
         $attendance = Attendance::find($id);
 
-        if (!$attendance) {
+        if (! $attendance) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data presensi tidak ditemukan.',
@@ -140,7 +140,7 @@ class AttendanceController extends Controller
     {
         $attendance = Attendance::find($id);
 
-        if (!$attendance) {
+        if (! $attendance) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data presensi tidak ditemukan.',
@@ -162,7 +162,7 @@ class AttendanceController extends Controller
     {
         $user = User::find($userId);
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Karyawan tidak ditemukan.',

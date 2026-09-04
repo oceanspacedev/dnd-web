@@ -13,8 +13,6 @@ class PasswordResetDisabledTest extends TestCase
 
     public function test_the_admin_login_page_does_not_show_a_password_reset_link(): void
     {
-        $this->get('/admin/login')
-            ->assertOk()
-            ->assertDontSee('/admin/password-reset/request', false);
+        $this->get('/admin/login')->assertOk()->assertDontSeeHtml('/admin/password-reset/request');
     }
 }

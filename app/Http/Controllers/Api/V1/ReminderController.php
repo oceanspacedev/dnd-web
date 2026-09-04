@@ -9,7 +9,6 @@ use App\Http\Requests\Api\V1\TriggerReminderRequest;
 use App\Http\Requests\Api\V1\UpdateReminderSettingRequest;
 use App\Http\Resources\Api\V1\KpiReminderLogResource;
 use App\Http\Resources\Api\V1\KpiReminderSettingResource;
-use App\Mail\KpiReminderMail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Services\WhatsAppService;
@@ -56,7 +55,7 @@ class ReminderController extends Controller
     {
         $setting = KpiReminderSetting::find($id);
 
-        if (!$setting) {
+        if (! $setting) {
             return response()->json([
                 'success' => false,
                 'message' => 'Pengaturan pengingat tidak ditemukan.',
@@ -94,7 +93,7 @@ class ReminderController extends Controller
     {
         $setting = KpiReminderSetting::find($id);
 
-        if (!$setting) {
+        if (! $setting) {
             return response()->json([
                 'success' => false,
                 'message' => 'Pengaturan pengingat tidak ditemukan.',
@@ -118,7 +117,7 @@ class ReminderController extends Controller
     {
         $setting = KpiReminderSetting::find($id);
 
-        if (!$setting) {
+        if (! $setting) {
             return response()->json([
                 'success' => false,
                 'message' => 'Pengaturan pengingat tidak ditemukan.',
@@ -140,19 +139,19 @@ class ReminderController extends Controller
     {
         $setting = KpiReminderSetting::find($id);
 
-        if (!$setting) {
+        if (! $setting) {
             return response()->json([
                 'success' => false,
                 'message' => 'Pengaturan pengingat tidak ditemukan.',
             ], 404);
         }
 
-        $setting->is_active = !$setting->is_active;
+        $setting->is_active = ! $setting->is_active;
         $setting->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Status aktif pengingat berhasil diubah menjadi: ' . ($setting->is_active ? 'AKTIF' : 'NON-AKTIF'),
+            'message' => 'Status aktif pengingat berhasil diubah menjadi: '.($setting->is_active ? 'AKTIF' : 'NON-AKTIF'),
             'data' => new KpiReminderSettingResource($setting),
         ]);
     }
@@ -180,18 +179,24 @@ class ReminderController extends Controller
             $query->where('status', strtolower($status));
         }
 
-        if ($periode = $request->query('periode')) {
-            $query->where('periode', 'like', "{$periode}%");
+        $period = $request->query('periode');
+
+        if (is_string($period) && preg_match('/^(?<year>\d{4})(?:-(?<month>0[1-9]|1[0-2]))?$/D', $period, $matches)) {
+            $query->whereYear('sent_at', (int) $matches['year']);
+
+            if (! empty($matches['month'])) {
+                $query->whereMonth('sent_at', (int) $matches['month']);
+            }
         }
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
-                $q->where('destination', 'like', "%{$search}%")
-                  ->orWhere('error_message', 'like', "%{$search}%")
-                  ->orWhereHas('user', function ($uq) use ($search) {
-                      $uq->where('nama_lengkap', 'like', "%{$search}%")
-                         ->orWhere('username', 'like', "%{$search}%");
-                  });
+                $q->where('recipient', 'like', "%{$search}%")
+                    ->orWhere('error_message', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('nama_lengkap', 'like', "%{$search}%")
+                            ->orWhere('username', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -218,7 +223,7 @@ class ReminderController extends Controller
     {
         $log = KpiReminderLog::with(['user', 'setting'])->find($id);
 
-        if (!$log) {
+        if (! $log) {
             return response()->json([
                 'success' => false,
                 'message' => 'Log pengiriman tidak ditemukan.',
@@ -268,7 +273,7 @@ class ReminderController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengeksekusi pemicu pengingat KPI: ' . $e->getMessage(),
+                'message' => 'Gagal mengeksekusi pemicu pengingat KPI: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -289,8 +294,8 @@ class ReminderController extends Controller
             return response()->json([
                 'success' => $res['success'],
                 'message' => $res['success']
-                    ? 'Pesan uji coba WhatsApp berhasil dikirim ke ' . $destination
-                    : 'Gagal mengirim pesan WhatsApp: ' . ($res['message'] ?? 'Error gateway.'),
+                    ? 'Pesan uji coba WhatsApp berhasil dikirim ke '.$destination
+                    : 'Gagal mengirim pesan WhatsApp: '.($res['message'] ?? 'Error gateway.'),
                 'data' => [
                     'channel' => 'whatsapp',
                     'destination' => $destination,
@@ -307,7 +312,7 @@ class ReminderController extends Controller
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Email uji coba berhasil dikirim ke ' . $destination,
+                    'message' => 'Email uji coba berhasil dikirim ke '.$destination,
                     'data' => [
                         'channel' => 'email',
                         'destination' => $destination,
@@ -316,7 +321,7 @@ class ReminderController extends Controller
             } catch (Throwable $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Gagal mengirim email uji coba: ' . $e->getMessage(),
+                    'message' => 'Gagal mengirim email uji coba: '.$e->getMessage(),
                 ], 500);
             }
         }

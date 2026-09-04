@@ -2,13 +2,14 @@
 
 namespace App\Exports;
 
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class LeaderboardSummarySheet implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithTitle
+class LeaderboardSummarySheet implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
     protected array $leaderboardData;
 
@@ -22,7 +23,7 @@ class LeaderboardSummarySheet implements FromCollection, WithHeadings, WithMappi
         return 'Leaderboard';
     }
 
-    public function collection()
+    public function collection(): Enumerable
     {
         return collect($this->leaderboardData);
     }
@@ -41,7 +42,7 @@ class LeaderboardSummarySheet implements FromCollection, WithHeadings, WithMappi
         ];
     }
 
-    public function map($data): array
+    public function map(mixed $data): array
     {
         return [
             $data['user']->employee_id,

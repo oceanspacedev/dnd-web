@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
+use App\Models\Area;
+use App\Models\Divisi;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
@@ -11,13 +13,16 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class UserBulkUpdatePositionTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_user_resource_table_registers_update_position_bulk_action(): void
     {
-        $page = app(ListUsers::class);
+        $page = resolve(ListUsers::class);
         $table = UserResource::table(Table::make($page));
         $toolbarActions = $table->getToolbarActions();
 
@@ -38,14 +43,14 @@ class UserBulkUpdatePositionTest extends TestCase
     public function test_update_position_bulk_action_updates_records(): void
     {
         $role = Role::first() ?? Role::create(['name' => 'STAFF']);
-        $area = \App\Models\Area::first() ?? \App\Models\Area::create(['name' => 'Test Area']);
-        $divisi = \App\Models\Divisi::first() ?? \App\Models\Divisi::create(['name' => 'Test Divisi', 'area_id' => $area->id]);
+        $area = Area::first() ?? Area::create(['name' => 'Test Area']);
+        $divisi = Divisi::first() ?? Divisi::create(['name' => 'Test Divisi', 'area_id' => $area->id]);
         $oldPosition = Position::firstOrCreate(['name' => 'Posisi Lama']);
         $newPosition = Position::firstOrCreate(['name' => 'Posisi Baru Testing']);
 
         $user1 = User::create([
             'nama_lengkap' => 'Karyawan Test 1',
-            'username' => 'testuser1_' . uniqid(),
+            'username' => 'testuser1_'.uniqid(),
             'password' => bcrypt('password'),
             'role_id' => $role->id,
             'area_id' => $area->id,
@@ -61,7 +66,7 @@ class UserBulkUpdatePositionTest extends TestCase
 
         $user2 = User::create([
             'nama_lengkap' => 'Karyawan Test 2',
-            'username' => 'testuser2_' . uniqid(),
+            'username' => 'testuser2_'.uniqid(),
             'password' => bcrypt('password'),
             'role_id' => $role->id,
             'area_id' => $area->id,
@@ -75,7 +80,7 @@ class UserBulkUpdatePositionTest extends TestCase
             'mr' => false,
         ]);
 
-        $page = app(ListUsers::class);
+        $page = resolve(ListUsers::class);
         $table = UserResource::table(Table::make($page));
         $toolbarActions = $table->getToolbarActions();
         $bulkGroup = collect($toolbarActions)->first(fn ($action) => $action instanceof BulkActionGroup);

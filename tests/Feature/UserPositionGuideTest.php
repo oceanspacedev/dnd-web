@@ -2,16 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Pages\UserPositionGuide;
 use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Models\Role;
+use App\Models\User;
 use Filament\Actions\Action;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class UserPositionGuideTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_list_users_has_panduan_ubah_posisi_header_action(): void
     {
-        $page = app(ListUsers::class);
+        $page = resolve(ListUsers::class);
         $method = new ReflectionMethod($page, 'getHeaderActions');
         $actions = $method->invoke($page);
 
@@ -25,24 +32,32 @@ class UserPositionGuideTest extends TestCase
 
     public function test_user_position_guide_sidebar_page_is_configured_properly(): void
     {
-        $page = new \App\Filament\Pages\UserPositionGuide();
-        $this->assertSame('Panduan Ubah Posisi', \App\Filament\Pages\UserPositionGuide::getNavigationLabel());
-        $this->assertSame('Panduan', \App\Filament\Pages\UserPositionGuide::getNavigationGroup());
-        $this->assertSame('panduan-ubah-posisi', \App\Filament\Pages\UserPositionGuide::getSlug());
+        $page = new UserPositionGuide;
+        $this->assertSame('Panduan Ubah Posisi', UserPositionGuide::getNavigationLabel());
+        $this->assertSame('Panduan', UserPositionGuide::getNavigationGroup());
+        $this->assertSame('panduan-ubah-posisi', UserPositionGuide::getSlug());
         $this->assertSame('Panduan Ubah Posisi Massal', $page->getTitle());
     }
 
     public function test_user_position_guide_page_renders_successfully(): void
     {
-        $admin = \App\Models\User::first() ?? \App\Models\User::create([
+        $adminRole = Role::query()->create(['name' => 'ADMIN']);
+        $admin = User::query()->create([
             'nama_lengkap' => 'Admin Test',
-            'username' => 'adm_' . uniqid(),
+            'username' => 'adm_'.uniqid(),
             'password' => bcrypt('password'),
+            'role_id' => $adminRole->id,
+            'area_id' => 1,
+            'divisi_id' => 1,
+            'wn' => false,
+            'wr' => false,
+            'mn' => false,
+            'mr' => false,
         ]);
 
         $this->actingAs($admin);
 
-        \Livewire\Livewire::test(\App\Filament\Pages\UserPositionGuide::class)
+        Livewire::test(UserPositionGuide::class)
             ->assertSuccessful()
             ->assertSee('Panduan Ubah Posisi Karyawan')
             ->assertSee('Cara Mengubah Posisi Banyak Karyawan Sekaligus');

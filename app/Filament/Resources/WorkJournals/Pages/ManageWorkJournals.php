@@ -4,14 +4,12 @@ namespace App\Filament\Resources\WorkJournals\Pages;
 
 use App\Filament\Exports\WorkJournalExporter;
 use App\Filament\Resources\WorkJournals\WorkJournalResource;
-use App\Models\User;
 use App\Services\WorkJournalReportService;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\ExportAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Radio;
-use Filament\Forms\Components\Select;
 use Filament\Resources\Pages\ManageRecords;
 
 class ManageWorkJournals extends ManageRecords
@@ -57,7 +55,7 @@ class ManageWorkJournals extends ManageRecords
                 ->action(function (array $data) {
                     $user = auth()->user();
 
-                    return app(WorkJournalReportService::class)->generateAndDownload(
+                    return resolve(WorkJournalReportService::class)->generateAndDownload(
                         user: $user,
                         dateFrom: $data['date_from'],
                         dateUntil: $data['date_until'],

@@ -7,7 +7,6 @@ use App\Http\Requests\Api\V1\StoreOveropenRequest;
 use App\Http\Requests\Api\V1\UpdateOveropenRequest;
 use App\Http\Resources\Api\V1\OveropenResource;
 use App\Models\Overopen;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -62,7 +61,7 @@ class OveropenController extends Controller
     {
         $overopen = Overopen::with(['user', 'leader'])->find($id);
 
-        if (!$overopen) {
+        if (! $overopen) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data overopen tidak ditemukan.',
@@ -103,7 +102,7 @@ class OveropenController extends Controller
     {
         $overopen = Overopen::find($id);
 
-        if (!$overopen) {
+        if (! $overopen) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data overopen tidak ditemukan.',
@@ -128,7 +127,7 @@ class OveropenController extends Controller
     {
         $overopen = Overopen::find($id);
 
-        if (!$overopen) {
+        if (! $overopen) {
             return response()->json([
                 'success' => false,
                 'message' => 'Data overopen tidak ditemukan.',

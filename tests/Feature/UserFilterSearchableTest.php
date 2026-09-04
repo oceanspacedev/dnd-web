@@ -13,7 +13,7 @@ class UserFilterSearchableTest extends TestCase
 {
     public function test_user_table_filters_are_searchable(): void
     {
-        $page = app(ListUsers::class);
+        $page = resolve(ListUsers::class);
         $table = UserResource::table(Table::make($page));
         $filters = $table->getFilters();
 
@@ -29,7 +29,7 @@ class UserFilterSearchableTest extends TestCase
 
     public function test_user_table_columns_are_searchable(): void
     {
-        $page = app(ListUsers::class);
+        $page = resolve(ListUsers::class);
         $table = UserResource::table(Table::make($page));
         $columns = $table->getColumns();
 

@@ -2,60 +2,58 @@
 
 namespace App\Filament\Resources\Users;
 
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Flex;
-use Filament\Schemas\Components\Group;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Actions\EditAction;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\RestoreAction;
-use Filament\Actions\ForceDeleteAction;
-use Filament\Actions\BulkAction;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\RestoreBulkAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\Pages\CreateUser;
 use App\Filament\Resources\Users\Pages\EditUser;
-use App\Filament\Resources\Users\Pages;
-use App\Filament\Resources\Users\RelationManagers;
+use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Mail\KpiReminderMail;
 use App\Models\Divisi;
+use App\Models\KpiReminderLog;
+use App\Models\KpiReminderSetting;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Illuminate\Database\Eloquent\Collection;
-use Filament\Forms;
+use App\Services\WhatsAppService;
+use App\Support\WhatsAppNumber;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\ForceDeleteAction;
+use Filament\Actions\ForceDeleteBulkAction;
+use Filament\Actions\RestoreAction;
+use Filament\Actions\RestoreBulkAction;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Flex;
+use Filament\Schemas\Components\Group;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Schema;
 use Filament\Tables;
+use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Hash;
-use Filament\Actions\Action;
-use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\CheckboxList;
-use Filament\Notifications\Notification;
-use Filament\Schemas\Components\Utilities\Get;
-use App\Mail\KpiReminderMail;
-use App\Services\WhatsAppService;
-use App\Support\WhatsAppNumber;
-use App\Models\KpiReminderSetting;
-use App\Models\KpiReminderLog;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
-use Carbon\Carbon;
 
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
 
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-user-group';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-group';
+
     protected static ?int $navigationSort = 4;
 
     public static function form(Schema $schema): Schema
@@ -84,7 +82,7 @@ class UserResource extends Resource
                                 : null)
                             ->rule(function (?User $record) {
                                 return function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
-                                    if (! filled($value)) {
+                                    if (blank($value)) {
                                         return;
                                     }
 
@@ -126,9 +124,10 @@ class UserResource extends Resource
                             ->live()
                             ->options(function (callable $get) {
                                 $area_id = $get('area_id');
-                                if (!$area_id) {
+                                if (! $area_id) {
                                     return [];
                                 }
+
                                 return Divisi::where('area_id', $area_id)
                                     ->pluck('name', 'id');
                             })
@@ -148,7 +147,7 @@ class UserResource extends Resource
                             ->required()
                             ->live()
                             ->afterStateUpdated(function ($state, callable $set) {
-                                $role = $state ? \App\Models\Role::find($state) : null;
+                                $role = $state ? Role::find($state) : null;
                                 if (! $role || ! $role->requires_approval) {
                                     $set('approval_id', null);
                                 }
@@ -170,7 +169,8 @@ class UserResource extends Resource
                                 if (! $roleId) {
                                     return false;
                                 }
-                                $role = \App\Models\Role::find($roleId);
+                                $role = Role::find($roleId);
+
                                 return (bool) ($role?->requires_approval);
                             })
                             ->required(function (callable $get) {
@@ -178,7 +178,8 @@ class UserResource extends Resource
                                 if (! $roleId) {
                                     return false;
                                 }
-                                $role = \App\Models\Role::find($roleId);
+                                $role = Role::find($roleId);
+
                                 return (bool) ($role?->requires_approval);
                             })
                             ->options(function (?User $record) {
@@ -227,7 +228,7 @@ class UserResource extends Resource
                                     ->label('Username')
                                     ->required()
                                     ->unique(ignoreRecord: true)
-                                    ->dehydrateStateUsing(fn($state) => strtolower($state))
+                                    ->dehydrateStateUsing(fn ($state) => strtolower($state))
                                     ->regex('/^[\S]+$/')
                                     ->validationMessages([
                                         'regex' => 'Username tidak boleh mengandung spasi',
@@ -236,12 +237,12 @@ class UserResource extends Resource
                                 TextInput::make('password')
                                     ->label('Kata Sandi')
                                     ->password()
-                                    ->dehydrateStateUsing(fn($state) => Hash::make($state))
-                                    ->dehydrated(fn($state) => filled($state))
+                                    ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                                    ->dehydrated(fn ($state) => filled($state))
                                     ->maxLength(255)
                                     ->label('Password')
                                     ->placeholder('Masukkan password')
-                                    ->required(fn(string $context): bool => $context === 'create')
+                                    ->required(fn (string $context): bool => $context === 'create')
                                     ->revealable(),
                             ])
                             ->collapsible()
@@ -250,7 +251,7 @@ class UserResource extends Resource
                     ])
                         ->columns(1)
                         ->columnSpan(2),
-                ])
+                ]),
             ])->columns(3);
     }
 
@@ -437,10 +438,10 @@ class UserResource extends Resource
                         $customMsg = trim((string) ($data['custom_message'] ?? ''));
 
                         $tenggatDay = (int) $setting->deadline_day;
-                        $deadlineDate = Carbon::today()->day(min($tenggatDay, Carbon::today()->daysInMonth));
+                        $deadlineDate = Date::today()->day(min($tenggatDay, Date::today()->daysInMonth));
                         $tenggatLabel = $deadlineDate->format('d M Y');
-                        $periodeLabel = Carbon::now()->isoFormat('MMMM YYYY');
-                        $link = config('app.url', 'http://localhost') . '/admin/kpis';
+                        $periodeLabel = Date::now()->isoFormat('MMMM YYYY');
+                        $link = config('app.url', 'http://localhost').'/admin/kpis';
 
                         $placeholders = [
                             '{nama}' => $record->nama_lengkap,
@@ -469,7 +470,7 @@ class UserResource extends Resource
                                         : KpiReminderSetting::getDefaultEmailTemplate($type);
                                     $body = strtr($bodyTemplate, $placeholders);
                                     if ($customMsg !== '') {
-                                        $body .= "\n\nPesan Tambahan:\n" . $customMsg;
+                                        $body .= "\n\nPesan Tambahan:\n".$customMsg;
                                     }
 
                                     Mail::to($record->email)->send(new KpiReminderMail($subject, $body));
@@ -507,7 +508,7 @@ class UserResource extends Resource
                                     : KpiReminderSetting::getDefaultWhatsappTemplate($type);
                                 $waMessage = strtr($waTemplate, $placeholders);
                                 if ($customMsg !== '') {
-                                    $waMessage .= "\n\n*Pesan Tambahan:*\n" . $customMsg;
+                                    $waMessage .= "\n\n*Pesan Tambahan:*\n".$customMsg;
                                 }
 
                                 try {
@@ -602,8 +603,7 @@ class UserResource extends Resource
     protected static function resolveActiveReminderSetting(
         string $type,
         int $settingId,
-    ): ?KpiReminderSetting
-    {
+    ): ?KpiReminderSetting {
         $setting = KpiReminderSetting::query()
             ->whereKey($settingId)
             ->where('type', $type)
@@ -641,7 +641,7 @@ class UserResource extends Resource
                 'recipient' => $recipient,
                 'status' => $status,
                 'error_message' => $errorMessage,
-                'sent_at' => Carbon::now(),
+                'sent_at' => Date::now(),
             ]);
         } catch (\Throwable $exception) {
             report($exception);

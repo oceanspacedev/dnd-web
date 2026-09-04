@@ -8,8 +8,8 @@ use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
 use App\Services\KpiScoringService;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
 
 class LeaderboardExportController extends Controller
@@ -18,8 +18,8 @@ class LeaderboardExportController extends Controller
     {
         $periodType = $request->input('period_type', 'month');
         $selectedPeriod = $periodType === 'year'
-            ? ($request->year ? $request->year : Carbon::now()->format('Y'))
-            : ($request->month ? $request->month : Carbon::now()->format('Y-m'));
+            ? ($request->year ? $request->year : Date::now()->format('Y'))
+            : ($request->month ? $request->month : Date::now()->format('Y-m'));
         $divisionId = $request->division;
         $areaId = $request->area;
 
@@ -60,22 +60,22 @@ class LeaderboardExportController extends Controller
 
             $attendanceSummaryDetails = Attendance::with(['user.divisi', 'user.area'])
                 ->whereIn('user_id', $userIds)
-                ->where('periode', 'like', $selectedPeriod . '-%')
+                ->where('periode', 'like', $selectedPeriod.'-%')
                 ->get();
 
             $reviewSummaryDetails = EmployeeReview::with(['user.divisi', 'user.area'])
                 ->whereIn('user_id', $userIds)
-                ->where('periode', 'like', $selectedPeriod . '-%')
+                ->where('periode', 'like', $selectedPeriod.'-%')
                 ->get();
 
             $kpisByUserMonth = $kpiSummaryDetails->groupBy(function ($kpi) {
-                return $kpi->user_id . '|' . Carbon::parse($kpi->date)->format('Y-m');
+                return $kpi->user_id.'|'.Date::parse($kpi->date)->format('Y-m');
             });
             $attendanceByUserMonth = $attendanceSummaryDetails->groupBy(function ($attendance) {
-                return $attendance->user_id . '|' . $attendance->periode;
+                return $attendance->user_id.'|'.$attendance->periode;
             });
             $reviewByUserMonth = $reviewSummaryDetails->groupBy(function ($review) {
-                return $review->user_id . '|' . $review->periode;
+                return $review->user_id.'|'.$review->periode;
             });
 
             foreach ($users as $user) {
@@ -89,7 +89,7 @@ class LeaderboardExportController extends Controller
 
                 for ($month = 1; $month <= 12; $month++) {
                     $ym = sprintf('%s-%02d', $selectedPeriod, $month);
-                    $key = $user->id . '|' . $ym;
+                    $key = $user->id.'|'.$ym;
 
                     $kpiScoreRaw = 0;
                     $kpisForMonth = $kpisByUserMonth->get($key, collect());
@@ -184,7 +184,7 @@ class LeaderboardExportController extends Controller
                         ->with(['kpi_detail' => function ($query) {
                             $query->whereNotNull('value_result')->where('value_result', '>=', 0);
                         }]);
-                }
+                },
             ]);
 
             $userQuery->chunk(100, function ($users) use (&$leaderboardData) {
@@ -311,7 +311,7 @@ class LeaderboardExportController extends Controller
         $teamUserIds = [];
         $pendingApproverIds = [$leaderId];
 
-        while (!empty($pendingApproverIds)) {
+        while (true) {
             $directSubordinateIds = User::whereIn('approval_id', $pendingApproverIds)->pluck('id')->all();
             $newSubordinateIds = array_values(array_diff($directSubordinateIds, $teamUserIds));
 

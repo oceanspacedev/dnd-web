@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\Users\Pages;
 
 use App\Filament\Resources\Users\UserResource;
-use Filament\Actions;
+use App\Models\Role;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Facades\Auth;
 
@@ -13,7 +13,7 @@ class CreateUser extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $role = !empty($data['role_id']) ? \App\Models\Role::find($data['role_id']) : null;
+        $role = ! empty($data['role_id']) ? Role::find($data['role_id']) : null;
         if ($role && ! $role->requires_approval) {
             $data['approval_id'] = null;
         } else {

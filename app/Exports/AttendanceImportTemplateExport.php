@@ -2,20 +2,21 @@
 
 namespace App\Exports;
 
-use Carbon\Carbon;
 use App\Models\User;
+use Illuminate\Support\Enumerable;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Concerns\FromCollection;
-use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class AttendanceImportTemplateExport implements FromCollection, WithHeadings, ShouldAutoSize
+class AttendanceImportTemplateExport implements FromCollection, ShouldAutoSize, WithHeadings
 {
     /**
      * Fetch data for export: only users' full names and current period.
      */
-    public function collection()
+    public function collection(): Enumerable
     {
-        $currentPeriod = Carbon::now()->format('Y-m'); // Current month in YYYY-MM format
+        $currentPeriod = Date::now()->format('Y-m'); // Current month in YYYY-MM format
 
         return User::whereNull('deleted_at')
             ->select('employee_id', 'nama_lengkap')

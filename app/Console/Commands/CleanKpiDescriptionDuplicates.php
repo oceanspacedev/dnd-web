@@ -3,8 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\Kpi;
-use App\Models\KpiDescription;
-use App\Models\KpiDetail;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -82,7 +80,7 @@ class CleanKpiDescriptionDuplicates extends Command
 
         // Group by description text and category
         $grouped = $usedDescriptions->groupBy(function ($item) {
-            return strtolower(trim($item->description)) . '_' . $item->kpi_category_id;
+            return strtolower(trim($item->description)).'_'.$item->kpi_category_id;
         });
 
         foreach ($grouped as $key => $group) {
@@ -113,10 +111,10 @@ class CleanKpiDescriptionDuplicates extends Command
 
                     return [
                         $item->id,
-                        substr($item->description, 0, 50) . (strlen($item->description) > 50 ? '...' : ''),
+                        substr($item->description, 0, 50).(strlen($item->description) > 50 ? '...' : ''),
                         $item->kpi_category_id,
                         $item->created_at,
-                        $usageCount
+                        $usageCount,
                     ];
                 })
             );
@@ -146,7 +144,7 @@ class CleanKpiDescriptionDuplicates extends Command
             $toDelete = $group->where('id', '!=', $keeper->id);
 
             $this->info("\nProcessing group: {$key}");
-            $this->info("Keeping ID: {$keeper->id} (Description: " . substr($keeper->description, 0, 50) . "...)");
+            $this->info("Keeping ID: {$keeper->id} (Description: ".substr($keeper->description, 0, 50).'...)');
 
             foreach ($toDelete as $duplicate) {
                 $this->warn("Processing duplicate ID: {$duplicate->id}");
@@ -159,7 +157,7 @@ class CleanKpiDescriptionDuplicates extends Command
 
                 if ($usageCount > 0) {
                     // Update kpi_details to use the keeper
-                    if (!$isDryRun) {
+                    if (! $isDryRun) {
                         DB::table('kpi_details')
                             ->where('kpi_description_id', $duplicate->id)
                             ->update(['kpi_description_id' => $keeper->id]);
@@ -170,7 +168,7 @@ class CleanKpiDescriptionDuplicates extends Command
                 }
 
                 // Delete the duplicate
-                if (!$isDryRun) {
+                if (! $isDryRun) {
                     DB::table('kpi_descriptions')
                         ->where('id', $duplicate->id)
                         ->update(['deleted_at' => now()]);
@@ -186,7 +184,7 @@ class CleanKpiDescriptionDuplicates extends Command
         $this->info("Total kpi_details updated: {$totalUpdated}");
 
         if ($isDryRun) {
-            $this->warn("This was a dry run. No actual changes were made.");
+            $this->warn('This was a dry run. No actual changes were made.');
         }
     }
 }

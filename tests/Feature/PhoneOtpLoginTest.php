@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\WhatsappOtp;
 use App\Services\WhatsAppOtpNotificationService;
+use App\Services\WhatsAppOtpService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Auth;
@@ -57,20 +58,18 @@ class PhoneOtpLoginTest extends TestCase
 
         $this->get('/admin/login')
             ->assertOk()
-            ->assertSee('Atau masuk dengan')
-            ->assertSee('WhatsApp')
-            ->assertSee(route('phone-login'), false);
+            ->assertSee('Atau masuk dengan')->assertSee('WhatsApp')->assertSeeHtml(route('phone-login'));
     }
 
     public function test_phone_login_route_and_livewire_component_are_registered(): void
     {
-        $route = app('router')->getRoutes()->getByName('phone-login');
+        $route = resolve('router')->getRoutes()->getByName('phone-login');
 
         $this->assertNotNull($route);
         $this->assertContains('web', $route->middleware());
         $this->assertSame(
             PhoneLogin::class,
-            app(ComponentRegistry::class)->getClass('phone-login'),
+            resolve(ComponentRegistry::class)->getClass('phone-login'),
         );
     }
 
@@ -281,7 +280,7 @@ class PhoneOtpLoginTest extends TestCase
     {
         $user = $this->createUser();
         $otp = $this->createOtp($user, '123456');
-        $service = app(\App\Services\WhatsAppOtpService::class);
+        $service = resolve(WhatsAppOtpService::class);
 
         $this->assertNotNull($service->verify(
             $user,
@@ -301,7 +300,7 @@ class PhoneOtpLoginTest extends TestCase
     public function test_issuing_a_new_otp_invalidates_the_previous_code(): void
     {
         $user = $this->createUser();
-        $service = app(\App\Services\WhatsAppOtpService::class);
+        $service = resolve(WhatsAppOtpService::class);
 
         $first = $service->issue($user, '6281234567890', WhatsappOtp::PURPOSE_LOGIN);
         $second = $service->issue($user, '6281234567890', WhatsappOtp::PURPOSE_LOGIN);
@@ -393,7 +392,7 @@ class PhoneOtpLoginTest extends TestCase
 
     public function test_phone_login_does_not_expose_separate_verification_routes(): void
     {
-        $routes = app('router')->getRoutes();
+        $routes = resolve('router')->getRoutes();
 
         $this->assertNull($routes->getByName('phone-login.verify'));
         $this->assertNull($routes->getByName('phone-login.verify.submit'));

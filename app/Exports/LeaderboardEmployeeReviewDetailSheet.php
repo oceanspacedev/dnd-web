@@ -7,10 +7,12 @@ use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class LeaderboardEmployeeReviewDetailSheet implements FromArray, WithHeadings, WithTitle, ShouldAutoSize
+class LeaderboardEmployeeReviewDetailSheet implements FromArray, ShouldAutoSize, WithHeadings, WithTitle
 {
     protected $reviewDetails;
+
     protected string $periodType;
+
     protected string $selectedPeriod;
 
     public function __construct($reviewDetails, string $periodType, string $selectedPeriod)

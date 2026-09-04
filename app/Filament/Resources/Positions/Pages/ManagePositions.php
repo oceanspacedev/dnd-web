@@ -2,9 +2,8 @@
 
 namespace App\Filament\Resources\Positions\Pages;
 
-use Filament\Actions\CreateAction;
 use App\Filament\Resources\Positions\PositionResource;
-use Filament\Actions;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ManageRecords;
 
 class ManagePositions extends ManageRecords

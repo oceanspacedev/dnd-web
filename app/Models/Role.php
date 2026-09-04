@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Role extends Model
 {
@@ -18,12 +19,16 @@ class Role extends Model
         'updated_at',
     ];
 
-    protected $casts = [
-        'requires_approval' => 'boolean',
-    ];   
-    
-    public function user()
+    /** @return HasMany<User, $this> */
+    public function user(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'requires_approval' => 'boolean',
+        ];
     }
 }

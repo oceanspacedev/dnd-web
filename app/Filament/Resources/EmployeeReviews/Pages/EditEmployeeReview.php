@@ -2,11 +2,9 @@
 
 namespace App\Filament\Resources\EmployeeReviews\Pages;
 
-use Filament\Actions\DeleteAction;
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
-use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Actions;
+use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
@@ -32,6 +30,7 @@ class EditEmployeeReview extends EditRecord
                 ->send();
 
             $this->halt();
+
             return;
         }
     }

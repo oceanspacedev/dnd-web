@@ -2,25 +2,25 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\User;
 use App\Models\Area;
-use App\Models\Divisi;
-use App\Models\Kpi;
 use App\Models\Cutpoint;
-use Carbon\Carbon;
-use Filament\Widgets\Widget;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use App\Models\Divisi;
+use App\Models\User;
 use App\Services\KpiScoringService;
+use Filament\Widgets\Widget;
 
 class LeaderboardKPI extends Widget
 {
     protected string $view = 'filament.widgets.leaderboard-kpi';
-    protected int | string | array $columnSpan = 'full';
+
+    protected int|string|array $columnSpan = 'full';
 
     public $user_id;
+
     public $month;
+
     public $area;
+
     public $division;
 
     public function mount($user_id = null, $month = null): void
@@ -41,34 +41,33 @@ class LeaderboardKPI extends Widget
         if ($this->area) {
             return Divisi::where('area_id', $this->area)->get();
         }
+
         return Divisi::all();
     }
 
     protected function getLeaderboardData()
     {
-        $date = Carbon::createFromFormat('Y-m', $this->month);
-
         $query = User::query()
             ->with([
                 'divisi.area',
                 'area',
-                'kpi' => function($query) use ($date) {
+                'kpi' => function ($query) {
                     $query->select('id', 'user_id', 'percentage', 'date')
                         ->where('kpi_type_id', 3)
                         ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$this->month])
                         ->orderBy('date', 'DESC')
-                        ->with(['kpi_detail' => function($query) {
+                        ->with(['kpi_detail' => function ($query) {
                             $query->whereNotNull('value_result')->where('value_result', '>=', 0);
                         }]);
                 },
-                'attendance' => function($query) use ($date) {
+                'attendance' => function ($query) {
                     $query->select('user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days', 'periode')
                         ->where('periode', $this->month);
                 },
-                'employeeReview' => function($query) use ($date) {
+                'employeeReview' => function ($query) {
                     $query->select('user_id', 'responsiveness', 'problem_solver', 'helpfulness', 'initiative', 'periode')
                         ->where('periode', $this->month);
-                }
+                },
             ]);
 
         if ($this->area) {
@@ -123,7 +122,9 @@ class LeaderboardKPI extends Widget
 
     protected function calculateAttendanceScore($user)
     {
-        if (!$user->attendance) return 0;
+        if (! $user->attendance) {
+            return 0;
+        }
 
         $attendance = $user->attendance;
         $lateLess30 = $attendance->late_less_30 ?? 0;
@@ -131,7 +132,9 @@ class LeaderboardKPI extends Widget
         $sickDays = $attendance->sick_days ?? 0;
         $workDays = $attendance->work_days ?? 0;
 
-        if ($workDays <= 0) return 0;
+        if ($workDays <= 0) {
+            return 0;
+        }
 
         $initialAttendanceAchv = ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100;
         $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
@@ -142,7 +145,9 @@ class LeaderboardKPI extends Widget
 
     protected function calculateActivityScore($user)
     {
-        if (!$user->employeeReview) return 0;
+        if (! $user->employeeReview) {
+            return 0;
+        }
 
         $review = $user->employeeReview;
         $responsiveness = $review->responsiveness ?? 0;

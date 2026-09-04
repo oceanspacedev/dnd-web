@@ -14,6 +14,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -64,7 +65,7 @@ class SendKpiRemindersCommand extends Command
             return self::SUCCESS;
         }
 
-        $now = Carbon::now();
+        $now = Date::now();
         $today = $now->copy()->startOfDay();
         $periodStart = $now->copy()->startOfMonth();
         $periodEnd = $periodStart->copy()->addMonth();
@@ -91,6 +92,7 @@ class SendKpiRemindersCommand extends Command
 
             if (! $shouldTrigger && $settingId === null) {
                 $this->info("Hari ini (Tgl {$today->day}) bukan jadwal pengingat untuk tenggat Tgl {$setting->deadline_day}. Dilewati.");
+
                 continue;
             }
 
@@ -150,8 +152,7 @@ class SendKpiRemindersCommand extends Command
         KpiReminderSetting $setting,
         Carbon $periodStart,
         Carbon $periodEnd,
-    ): array
-    {
+    ): array {
         $targetUsers = [];
 
         if ($setting->type === 'pembuatan_kpi') {
@@ -222,8 +223,7 @@ class SendKpiRemindersCommand extends Command
         User $user,
         array $placeholders,
         bool $isDryRun,
-    ): bool
-    {
+    ): bool {
         $lock = $this->createReminderLock($setting, $user, 'email');
 
         if (! $lock->get()) {
@@ -237,7 +237,7 @@ class SendKpiRemindersCommand extends Command
                 ->where('user_id', $user->id)
                 ->where('channel', 'email')
                 ->where('status', 'sent')
-                ->whereDate('sent_at', Carbon::today())
+                ->whereDate('sent_at', Date::today())
                 ->exists();
 
             if ($alreadySentToday) {
@@ -262,7 +262,7 @@ class SendKpiRemindersCommand extends Command
                     'channel' => 'email',
                     'recipient' => $user->email,
                     'status' => 'sent',
-                    'sent_at' => Carbon::now(),
+                    'sent_at' => Date::now(),
                 ]);
 
                 $this->info(" [EMAIL SENT] Terkirim ke {$user->email}");
@@ -278,7 +278,7 @@ class SendKpiRemindersCommand extends Command
                     'recipient' => $user->email,
                     'status' => 'failed',
                     'error_message' => $e->getMessage(),
-                    'sent_at' => Carbon::now(),
+                    'sent_at' => Date::now(),
                 ]);
 
                 $this->error(" [EMAIL FAILED] Gagal ke {$user->email}: {$e->getMessage()}");
@@ -298,8 +298,7 @@ class SendKpiRemindersCommand extends Command
         User $user,
         array $placeholders,
         bool $isDryRun,
-    ): bool
-    {
+    ): bool {
         $lock = $this->createReminderLock($setting, $user, 'whatsapp');
 
         if (! $lock->get()) {
@@ -313,7 +312,7 @@ class SendKpiRemindersCommand extends Command
                 ->where('user_id', $user->id)
                 ->where('channel', 'whatsapp')
                 ->where('status', 'sent')
-                ->whereDate('sent_at', Carbon::today())
+                ->whereDate('sent_at', Date::today())
                 ->exists();
 
             if ($alreadySentToday) {
@@ -332,7 +331,7 @@ class SendKpiRemindersCommand extends Command
                 ?? trim((string) $user->no_hp);
             $idempotencyKey = 'kpi-rem-'.substr(hash(
                 'sha256',
-                "{$setting->id}:{$user->id}:whatsapp:".Carbon::today()->toDateString().":{$normalizedPhone}:{$message}",
+                "{$setting->id}:{$user->id}:whatsapp:".Date::today()->toDateString().":{$normalizedPhone}:{$message}",
             ), 0, 32);
             $result = WhatsAppService::send($user->no_hp, $message, $idempotencyKey);
 
@@ -343,7 +342,7 @@ class SendKpiRemindersCommand extends Command
                 'recipient' => $user->no_hp,
                 'status' => $result['success'] ? 'sent' : 'failed',
                 'error_message' => $result['success'] ? null : $result['message'],
-                'sent_at' => Carbon::now(),
+                'sent_at' => Date::now(),
             ]);
 
             if ($result['success']) {
@@ -362,7 +361,7 @@ class SendKpiRemindersCommand extends Command
 
     private function reminderLockKey(KpiReminderSetting $setting, User $user, string $channel): string
     {
-        return "kpi-reminder:{$setting->id}:{$user->id}:{$channel}:".Carbon::today()->toDateString();
+        return "kpi-reminder:{$setting->id}:{$user->id}:{$channel}:".Date::today()->toDateString();
     }
 
     private function createReminderLock(
@@ -390,7 +389,7 @@ class SendKpiRemindersCommand extends Command
             ? 'Alamat email user belum tersedia.'
             : 'Nomor WhatsApp user belum tersedia.';
 
-        $this->warn(" [".strtoupper($channel)." FAILED] {$errorMessage} User ID: {$user->id}");
+        $this->warn(' ['.strtoupper($channel)." FAILED] {$errorMessage} User ID: {$user->id}");
 
         if ($isDryRun) {
             return;
@@ -404,7 +403,7 @@ class SendKpiRemindersCommand extends Command
                 'recipient' => '-',
                 'status' => 'failed',
                 'error_message' => $errorMessage,
-                'sent_at' => Carbon::now(),
+                'sent_at' => Date::now(),
             ]);
         } catch (Throwable $exception) {
             Log::error('Gagal mencatat penerima pengingat KPI yang tidak tersedia: '.$exception->getMessage());

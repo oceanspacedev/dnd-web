@@ -18,9 +18,9 @@ use App\Models\Daily;
 use App\Models\DailyLog;
 use App\Models\Monthly;
 use App\Models\Weekly;
-use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Date;
 
 /**
  * @tags Aktivitas Kerja (Daily, Weekly, Monthly)
@@ -94,7 +94,7 @@ class ActivityController extends Controller
     {
         $daily = Daily::with(['user', 'taskcategory', 'taskstatus', 'tag', 'add', 'dailyLog.user'])->find($id);
 
-        if (!$daily) {
+        if (! $daily) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas harian tidak ditemukan.',
@@ -141,7 +141,7 @@ class ActivityController extends Controller
     {
         $daily = Daily::find($id);
 
-        if (!$daily) {
+        if (! $daily) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas harian tidak ditemukan.',
@@ -168,7 +168,7 @@ class ActivityController extends Controller
     {
         $daily = Daily::find($id);
 
-        if (!$daily) {
+        if (! $daily) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas harian tidak ditemukan.',
@@ -195,7 +195,7 @@ class ActivityController extends Controller
     {
         $daily = Daily::find($dailyId);
 
-        if (!$daily) {
+        if (! $daily) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas harian tidak ditemukan.',
@@ -203,8 +203,7 @@ class ActivityController extends Controller
         }
 
         $logs = DailyLog::with('user')
-            ->where('task_id', $dailyId)
-            ->orderBy('created_at')
+            ->where('task_id', $dailyId)->oldest()
             ->get();
 
         return response()->json([
@@ -221,7 +220,7 @@ class ActivityController extends Controller
     {
         $daily = Daily::find($dailyId);
 
-        if (!$daily) {
+        if (! $daily) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas harian tidak ditemukan.',
@@ -301,7 +300,7 @@ class ActivityController extends Controller
     {
         $weekly = Weekly::with(['user', 'taskcategory', 'taskstatus', 'tag', 'add'])->find($id);
 
-        if (!$weekly) {
+        if (! $weekly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas mingguan tidak ditemukan.',
@@ -346,7 +345,7 @@ class ActivityController extends Controller
     {
         $weekly = Weekly::find($id);
 
-        if (!$weekly) {
+        if (! $weekly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas mingguan tidak ditemukan.',
@@ -373,7 +372,7 @@ class ActivityController extends Controller
     {
         $weekly = Weekly::find($id);
 
-        if (!$weekly) {
+        if (! $weekly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas mingguan tidak ditemukan.',
@@ -438,7 +437,7 @@ class ActivityController extends Controller
     {
         $monthly = Monthly::with(['user', 'tag', 'add'])->find($id);
 
-        if (!$monthly) {
+        if (! $monthly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas bulanan tidak ditemukan.',
@@ -483,7 +482,7 @@ class ActivityController extends Controller
     {
         $monthly = Monthly::find($id);
 
-        if (!$monthly) {
+        if (! $monthly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas bulanan tidak ditemukan.',
@@ -510,7 +509,7 @@ class ActivityController extends Controller
     {
         $monthly = Monthly::find($id);
 
-        if (!$monthly) {
+        if (! $monthly) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tugas bulanan tidak ditemukan.',
@@ -535,7 +534,7 @@ class ActivityController extends Controller
     public function summary(Request $request): JsonResponse
     {
         $userId = $request->query('user_id', auth()->id());
-        $today = Carbon::today()->format('Y-m-d');
+        $today = Date::today()->format('Y-m-d');
 
         $dailyQuery = Daily::where('user_id', $userId);
         $totalDailyToday = (clone $dailyQuery)->whereDate('date', $today)->count();

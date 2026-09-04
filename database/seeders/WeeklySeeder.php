@@ -4,17 +4,15 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use App\Models\Weekly;
-use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
+use Illuminate\Database\Seeder;
 
 class WeeklySeeder extends Seeder
 {
     /**
      * Run the database seeds.
-     *
-     * @return void
      */
-    public function run()
+    public function run(): void
     {
         $faker = Faker::create('id_ID');
         for ($m = 0; $m < 2; $m++) {
@@ -25,7 +23,7 @@ class WeeklySeeder extends Seeder
                         Weekly::create([
                             'user_id' => $user->id,
                             'task' => $faker->sentence(3),
-                            'week' => $m == 0 ? now()->startOfWeek()->weekOfYear: now()->startOfWeek()->addWeek(1)->weekOfYear,
+                            'week' => $m == 0 ? now()->startOfWeek()->weekOfYear : now()->startOfWeek()->addWeek(1)->weekOfYear,
                             'year' => date('Y'),
                             'tipe' => 'NON',
                             'status_non' => false,
@@ -40,7 +38,7 @@ class WeeklySeeder extends Seeder
                             'week' => $m == 0 ? now()->startOfWeek()->weekOfYear : now()->startOfWeek()->addWeek(1)->weekOfYear,
                             'year' => date('Y'),
                             'tipe' => 'RESULT',
-                            'value_plan' => $faker->randomDigitNotNull() . '00000',
+                            'value_plan' => $faker->randomDigitNotNull().'00000',
                             'value_actual' => 0,
                             'status_result' => false,
                         ]);

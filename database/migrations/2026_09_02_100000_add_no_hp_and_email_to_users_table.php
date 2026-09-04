@@ -8,18 +8,16 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * @return void
      */
-    public function up()
+    public function up(): void
     {
-        if (!Schema::hasColumn('users', 'no_hp')) {
+        if (! Schema::hasColumn('users', 'no_hp')) {
             Schema::table('users', function (Blueprint $table) {
                 $table->string('no_hp')->after('username')->nullable();
             });
         }
 
-        if (!Schema::hasColumn('users', 'email')) {
+        if (! Schema::hasColumn('users', 'email')) {
             Schema::table('users', function (Blueprint $table) {
                 $table->string('email')->after('no_hp')->nullable();
             });
@@ -28,10 +26,8 @@ return new class extends Migration
 
     /**
      * Reverse the migrations.
-     *
-     * @return void
      */
-    public function down()
+    public function down(): void
     {
         // These data-bearing columns may have existed before this migration.
         // Retain them on rollback because the migration cannot safely know
