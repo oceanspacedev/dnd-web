@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Filament\Auth\Pages\PhoneLogin;
 use App\Models\KpiDescription;
 use App\Observers\KpiDescriptionObserver;
 use App\Models\KpiCategory;
@@ -12,6 +13,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -32,6 +34,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        Livewire::component('phone-login', PhoneLogin::class);
+
         // Register observers for cache management
         KpiDescription::observe(KpiDescriptionObserver::class);
         KpiCategory::observe(KpiCategoryObserver::class);

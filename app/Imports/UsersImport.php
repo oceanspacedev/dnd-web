@@ -77,11 +77,20 @@ class UsersImport implements ToModel, WithHeadingRow
 
             // Look up existing user by employee_id first, then by username (including soft-deleted users)
             $user = null;
+            $matchedBy = null;
             if ($employeeId !== '') {
                 $user = User::withTrashed()->where('employee_id', $employeeId)->first();
+                $matchedBy = $user ? 'employee_id' : null;
             }
             if (!$user && $username !== '') {
                 $user = User::withTrashed()->where('username', $username)->first();
+                $matchedBy = $user ? ($rawUsername !== '' ? 'username' : 'derived_username') : null;
+            }
+
+            if ($user && $hasNoHp && $matchedBy === 'derived_username') {
+                throw new Exception(
+                    'No. HP login user existing hanya boleh diubah melalui ID karyawan atau username eksplisit yang cocok',
+                );
             }
 
             if ($user && $user->trashed()) {

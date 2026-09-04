@@ -26,6 +26,6 @@ class CreateUser extends CreateRecord
         $data['mn'] = $data['mn'] ?? false;
         $data['mr'] = $data['mr'] ?? false;
 
-        return $data;
+        return UserResource::mutateAuthorizedData($data);
     }
 }

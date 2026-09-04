@@ -82,12 +82,12 @@ class AuthController extends Controller
     }
 
     /**
-     * Update user profile (email and phone).
+     * Update the authenticated user's email.
      */
     public function updateProfile(UpdateProfileRequest $request): JsonResponse
     {
         $user = $request->user();
-        $user->update($request->only(['email', 'no_hp']));
+        $user->update($request->only(['email']));
         $user->load(['role', 'area', 'divisi', 'position', 'approval']);
 
         return response()->json([

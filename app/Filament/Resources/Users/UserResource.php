@@ -23,6 +23,7 @@ use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages;
 use App\Filament\Resources\Users\RelationManagers;
 use App\Models\Divisi;
+use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
 use Filament\Forms;
@@ -40,9 +41,11 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
 use App\Mail\KpiReminderMail;
 use App\Services\WhatsAppService;
+use App\Support\WhatsAppNumber;
 use App\Models\KpiReminderSetting;
 use App\Models\KpiReminderLog;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class UserResource extends Resource
@@ -67,8 +70,39 @@ class UserResource extends Resource
                             ->maxLength(255),
                         TextInput::make('no_hp')
                             ->label('No. HP')
+                            ->placeholder('Contoh: 081234567890')
+                            ->helperText('Dipakai sebagai nomor kontak sekaligus login WhatsApp melalui OTP.')
                             ->tel()
-                            ->maxLength(255),
+                            ->maxLength(20)
+                            ->disabled(fn (): bool => auth()->user()?->role?->name !== 'ADMIN')
+                            ->dehydrated(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                            ->dehydrateStateUsing(fn ($state): ?string => filled($state)
+                                ? (WhatsAppNumber::toLocal((string) $state) ?? (string) $state)
+                                : null)
+                            ->rule(function (?User $record) {
+                                return function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
+                                    if (! filled($value)) {
+                                        return;
+                                    }
+
+                                    $number = WhatsAppNumber::toLocal((string) $value);
+
+                                    if (! $number) {
+                                        $fail('Format No. HP WhatsApp Indonesia tidak valid, contoh 081234567890.');
+
+                                        return;
+                                    }
+
+                                    $exists = User::withTrashed()
+                                        ->where('no_hp', $number)
+                                        ->when($record?->id, fn (Builder $query, int $id): Builder => $query->whereKeyNot($id))
+                                        ->exists();
+
+                                    if ($exists) {
+                                        $fail('No. HP sudah digunakan user lain.');
+                                    }
+                                };
+                            }),
                         TextInput::make('email')
                             ->label('Email')
                             ->email()
@@ -100,7 +134,13 @@ class UserResource extends Resource
                         Select::make('role_id')
                             ->preload()
                             ->searchable()
-                            ->relationship('role', 'name')
+                            ->relationship(
+                                'role',
+                                'name',
+                                modifyQueryUsing: fn (Builder $query): Builder => auth()->user()?->role?->name === 'ADMIN'
+                                    ? $query
+                                    : $query->where('name', '!=', 'ADMIN'),
+                            )
                             ->label('Jabatan')
                             ->required()
                             ->live()
@@ -209,6 +249,45 @@ class UserResource extends Resource
                         ->columnSpan(2),
                 ])
             ])->columns(3);
+    }
+
+    public static function mutateAuthorizedData(array $data): array
+    {
+        if (
+            auth()->user()?->role?->name !== 'ADMIN'
+            && array_key_exists('role_id', $data)
+            && Role::query()->whereKey($data['role_id'])->value('name') === 'ADMIN'
+        ) {
+            throw ValidationException::withMessages([
+                'data.role_id' => 'Hanya admin yang dapat memberikan role ADMIN.',
+            ]);
+        }
+
+        if (auth()->user()?->role?->name !== 'ADMIN') {
+            unset($data['no_hp']);
+
+            return $data;
+        }
+
+        if (array_key_exists('no_hp', $data)) {
+            if (blank($data['no_hp'])) {
+                $data['no_hp'] = null;
+
+                return $data;
+            }
+
+            $number = WhatsAppNumber::toLocal((string) $data['no_hp']);
+
+            if (! $number) {
+                throw ValidationException::withMessages([
+                    'data.no_hp' => 'Format No. HP WhatsApp Indonesia tidak valid.',
+                ]);
+            }
+
+            $data['no_hp'] = $number;
+        }
+
+        return $data;
     }
 
     public static function table(Table $table): Table

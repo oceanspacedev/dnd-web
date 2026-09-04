@@ -62,7 +62,7 @@ class UserJsonImportServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_existing_users_are_matched_by_employee_id_explicit_username_or_unique_legacy_name(): void
+    public function test_existing_users_require_a_strong_match_before_import_can_rebind_no_hp(): void
     {
         $byEmployeeId = $this->createUser([
             'employee_id' => 'EMP-001',
@@ -103,11 +103,18 @@ class UserJsonImportServiceTest extends TestCase
                 'username' => 'unknown-explicit-username',
                 'full_name' => '  nAmA    tArGeT  ',
                 'email_address' => ' Name.Target@Example.Test ',
+            ],
+            [
+                'full_name' => 'Nama Target',
                 'mobile_phone' => '0062 813 4567 8901',
             ],
         ]);
 
-        $this->assertImportCounts($result, 3, 0);
+        $this->assertImportCounts($result, 3, 1);
+        $this->assertStringContainsString(
+            'No. HP login user existing hanya boleh diubah',
+            implode(PHP_EOL, $result['errors']),
+        );
         $this->assertSame(3, User::query()->count());
 
         $byEmployeeId->refresh();
@@ -124,7 +131,7 @@ class UserJsonImportServiceTest extends TestCase
 
         $byName->refresh();
         $this->assertSame('name.target@example.test', $byName->email);
-        $this->assertSame('081345678901', $byName->no_hp);
+        $this->assertSame('083333333333', $byName->no_hp);
         $this->assertNull($byName->employee_id);
         $this->assertSame('name-target', $byName->username);
         $this->assertSame('Nama Target', $byName->nama_lengkap);
@@ -306,6 +313,32 @@ class UserJsonImportServiceTest extends TestCase
         $invalidEmailUser->refresh();
         $this->assertSame('old-email@example.test', $invalidEmailUser->email);
         $this->assertSame('082222222222', $invalidEmailUser->no_hp);
+    }
+
+    public function test_import_cannot_assign_a_no_hp_that_belongs_to_another_user(): void
+    {
+        $this->createUser([
+            'employee_id' => 'PHONE-OWNER',
+            'username' => 'phone-owner',
+            'no_hp' => '081234567890',
+        ]);
+        $target = $this->createUser([
+            'employee_id' => 'PHONE-TARGET',
+            'username' => 'phone-target',
+            'email' => 'before@example.test',
+            'no_hp' => '081398765432',
+        ]);
+
+        $result = $this->importRows([[
+            'employee_id' => 'PHONE-TARGET',
+            'email' => 'must-rollback@example.test',
+            'no_hp' => '+62 812-3456-7890',
+        ]]);
+
+        $this->assertImportCounts($result, 0, 1);
+        $target->refresh();
+        $this->assertSame('before@example.test', $target->email);
+        $this->assertSame('081398765432', $target->no_hp);
     }
 
     public function test_deleted_users_are_not_restored_updated_or_replaced(): void
@@ -958,7 +991,7 @@ class UserJsonImportServiceTest extends TestCase
             $table->string('nama_lengkap');
             $table->string('username')->unique();
             $table->string('email')->nullable();
-            $table->string('no_hp')->nullable();
+            $table->string('no_hp')->nullable()->unique();
             $table->string('password');
             $table->unsignedBigInteger('role_id');
             $table->unsignedBigInteger('area_id');

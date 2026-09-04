@@ -13,6 +13,7 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -32,6 +33,7 @@ class AdminPanelProvider extends PanelProvider
                 MekayaPlugin::make()
                     ->colors(['primary' => Color::Purple]),
             )
+            ->viteTheme('resources/css/app.css')
             // Keep username-based login after plugin so it wins over Mekaya's default auth pages
             ->login(Login::class)
             // Mekaya enables this by default; password resets are not available in this panel.
@@ -57,6 +59,10 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            ->renderHook(
+                PanelsRenderHook::AUTH_LOGIN_FORM_AFTER,
+                fn () => view('auth.login-extra'),
+            )
             ->authMiddleware([
                 Authenticate::class,
             ]);

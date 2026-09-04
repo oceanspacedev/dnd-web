@@ -48,6 +48,7 @@ class ListUsers extends ListRecords
                     ->label('Import User')
                     ->icon('heroicon-s-arrow-up-tray')
                     ->color('gray')
+                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File Excel:')
@@ -98,6 +99,8 @@ class ListUsers extends ListRecords
 
     public function processImport(array $data)
     {
+        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+
         try {
             set_time_limit(300);
             ini_set('max_execution_time', '300');

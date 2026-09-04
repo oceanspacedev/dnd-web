@@ -186,9 +186,16 @@ class UserJsonImportService
             )
             : null;
 
-        $existingUser = static::resolveExistingUser($employeeId, $explicitUsername, $fullName);
+        $resolution = static::resolveExistingUser($employeeId, $explicitUsername, $fullName);
+        $existingUser = $resolution['user'];
 
         if ($existingUser) {
+            if ($hasPhone && $resolution['matched_by'] === 'name') {
+                throw new RuntimeException(
+                    'No. HP login user existing hanya boleh diubah melalui Employee ID atau username yang cocok.',
+                );
+            }
+
             $contactData = [];
 
             if ($hasEmail) {
@@ -249,11 +256,14 @@ class UserJsonImportService
         return $passwordFingerprint;
     }
 
+    /**
+     * @return array{user: User|null, matched_by: 'employee_id'|'username'|'name'|null}
+     */
     private static function resolveExistingUser(
         string $employeeId,
         string $explicitUsername,
         string $fullName,
-    ): ?User {
+    ): array {
         $employeeMatch = $employeeId !== ''
             ? static::findUniqueUserByEmployeeId($employeeId)
             : null;
@@ -269,11 +279,14 @@ class UserJsonImportService
         if ($matchedUser) {
             static::ensureUserIsActive($matchedUser);
 
-            return $matchedUser;
+            return [
+                'user' => $matchedUser,
+                'matched_by' => $employeeMatch ? 'employee_id' : 'username',
+            ];
         }
 
         if ($fullName === '') {
-            return null;
+            return ['user' => null, 'matched_by' => null];
         }
 
         // The imported production database contains legacy active users whose
@@ -284,14 +297,14 @@ class UserJsonImportService
             throw new RuntimeException('Nama cocok dengan lebih dari satu user legacy DND.');
         }
         if ($nameMatches->count() === 1) {
-            return $nameMatches->first();
+            return ['user' => $nameMatches->first(), 'matched_by' => 'name'];
         }
 
         if (static::findLegacyUsersByCanonicalName($fullName, true)->isNotEmpty()) {
             throw new RuntimeException('User yang cocok sedang diarsipkan; data tidak diubah.');
         }
 
-        return null;
+        return ['user' => null, 'matched_by' => null];
     }
 
     private static function findUniqueUserByEmployeeId(string $employeeId): ?User

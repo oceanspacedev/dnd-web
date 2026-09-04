@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreUserRequest;
 use App\Http\Requests\Api\V1\UpdateUserRequest;
 use App\Http\Resources\Api\V1\UserResource;
+use App\Models\Role;
 use App\Models\User;
+use App\Services\ApprovalScopeService;
 use App\Services\UserJsonImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,7 +25,16 @@ class UserController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', User::class);
+
         $query = User::with(['role', 'area', 'divisi', 'position', 'approval']);
+        $actor = $request->user();
+
+        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
+            $query
+                ->whereIn('id', ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id))
+                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
+        }
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -84,9 +95,22 @@ class UserController extends Controller
             ], 404);
         }
 
-        $subordinates = User::where('approval_id', $user->id)
-            ->with(['role', 'position'])
-            ->get();
+        $this->authorize('view', $user);
+
+        $subordinatesQuery = User::where('approval_id', $user->id)
+            ->with(['role', 'position']);
+        $actor = auth()->user();
+
+        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
+            $subordinatesQuery
+                ->whereIn(
+                    'id',
+                    ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id),
+                )
+                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
+        }
+
+        $subordinates = $subordinatesQuery->get();
 
         $userData = (new UserResource($user))->toArray(request());
         $userData['subordinates'] = UserResource::collection($subordinates);
@@ -103,7 +127,10 @@ class UserController extends Controller
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
+        $this->authorize('create', User::class);
+
         $validated = $request->validated();
+        $this->ensureCanAssignRole($request, $validated);
         $validated['password'] = Hash::make($validated['password']);
 
         // Default flags to 0 if not specified
@@ -137,7 +164,10 @@ class UserController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $user);
+
         $validated = $request->validated();
+        $this->ensureCanAssignRole($request, $validated);
 
         if (!empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
@@ -178,6 +208,8 @@ class UserController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $user);
+
         $user->delete();
 
         return response()->json([
@@ -191,11 +223,24 @@ class UserController extends Controller
      */
     public function supervisors(): JsonResponse
     {
-        $supervisors = User::select('id', 'username', 'nama_lengkap', 'role_id', 'position_id')
+        $this->authorize('viewAny', User::class);
+
+        $actor = auth()->user();
+        $supervisorsQuery = User::select('id', 'username', 'nama_lengkap', 'role_id', 'position_id')
             ->with(['role', 'position'])
-            ->orderBy('nama_lengkap')
+            ->orderBy('nama_lengkap');
+
+        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
+            $visibleIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id);
+            $visibleIds[] = (int) $actor->id;
+            $supervisorsQuery
+                ->whereIn('id', array_values(array_unique($visibleIds)))
+                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
+        }
+
+        $supervisors = $supervisorsQuery
             ->get()
-            ->map(function ($u) {
+            ->map(function (User $u): array {
                 return [
                     'id' => $u->id,
                     'nama_lengkap' => $u->nama_lengkap,
@@ -218,8 +263,10 @@ class UserController extends Controller
     /**
      * Trigger batch JSON employee import.
      */
-    public function importJson(Request $request, UserJsonImportService $importService): JsonResponse
+    public function importJson(Request $request): JsonResponse
     {
+        abort_unless($request->user()?->role?->name === 'ADMIN', 403);
+
         $request->validate([
             'file' => ['required', 'file', 'max:51200'], // max 50MB
         ], [
@@ -232,7 +279,7 @@ class UserController extends Controller
         $absolutePath = Storage::disk('local')->path($storedPath);
 
         try {
-            $summary = $importService->import($absolutePath);
+            $summary = UserJsonImportService::importFromFile($absolutePath);
 
             return response()->json([
                 'success' => true,
@@ -245,5 +292,24 @@ class UserController extends Controller
                 'message' => 'Gagal mengimpor data: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function ensureCanAssignRole(Request $request, array $validated): void
+    {
+        if (
+            ! array_key_exists('role_id', $validated)
+            || $request->user()?->role?->name === 'ADMIN'
+        ) {
+            return;
+        }
+
+        abort_if(
+            Role::query()->whereKey($validated['role_id'])->value('name') === 'ADMIN',
+            403,
+            'Hanya admin yang dapat memberikan role ADMIN.',
+        );
     }
 }

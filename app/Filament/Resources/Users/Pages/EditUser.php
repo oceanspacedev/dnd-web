@@ -16,7 +16,15 @@ class EditUser extends EditRecord
     protected function beforeSave(): void
     {
         $data = $this->form->getState();
-        $recordId = (int) $this->record->id;
+        $record = $this->getRecord();
+
+        if (! $record instanceof User) {
+            $this->halt();
+
+            return;
+        }
+
+        $recordId = (int) $record->id;
         $approvalId = isset($data['approval_id']) ? (int) $data['approval_id'] : 0;
 
         if ($approvalId === 0) {
@@ -43,6 +51,11 @@ class EditUser extends EditRecord
 
             $this->halt();
         }
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        return UserResource::mutateAuthorizedData($data);
     }
 
     private function createsApprovalCycle(int $recordId, int $approvalId): bool

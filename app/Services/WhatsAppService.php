@@ -102,18 +102,23 @@ class WhatsAppService
                 ];
             }
 
-            Log::error("WagHub Gateway Error ({$response->status()}): ".$response->body());
+            Log::error('WagHub Gateway request failed.', [
+                'status' => $response->status(),
+                'request_id' => $response->header('X-Request-Id'),
+            ]);
 
             return [
                 'success' => false,
-                'message' => 'Gagal mengirim WA: HTTP '.$response->status().' - '.$response->body(),
+                'message' => 'Gagal mengirim WA: HTTP '.$response->status().'.',
             ];
         } catch (Throwable $e) {
-            Log::error('WhatsApp Service Exception: '.$e->getMessage());
+            Log::error('WhatsApp Service exception.', [
+                'exception' => $e::class,
+            ]);
 
             return [
                 'success' => false,
-                'message' => 'Exception: '.$e->getMessage(),
+                'message' => 'Layanan WhatsApp tidak dapat dihubungi.',
             ];
         }
     }

@@ -31,6 +31,10 @@ class UserPolicy
             return true;
         }
 
+        if ($model->role?->name === 'ADMIN') {
+            return false;
+        }
+
         if (! $this->canManageScoped($user)) {
             return false;
         }

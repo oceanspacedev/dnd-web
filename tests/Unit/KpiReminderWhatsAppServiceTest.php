@@ -5,6 +5,8 @@ namespace Tests\Unit;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Mockery;
 use Tests\TestCase;
 
 class KpiReminderWhatsAppServiceTest extends TestCase
@@ -68,5 +70,33 @@ class KpiReminderWhatsAppServiceTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertSame('Nomor WhatsApp Indonesia tidak valid.', $result['message']);
         Http::assertNothingSent();
+    }
+
+    public function test_gateway_failures_do_not_expose_response_bodies_in_logs_or_results(): void
+    {
+        Http::fake([
+            'https://gateway.example.test/api/v1/messages' => Http::response(
+                'gateway echoed sensitive OTP 654321',
+                502,
+                ['X-Request-Id' => 'safe-request-id'],
+            ),
+        ]);
+        Log::spy();
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send('081234567890', 'Kode OTP: 654321');
+
+        $this->assertFalse($result['success']);
+        $this->assertStringNotContainsString('654321', $result['message']);
+        Log::shouldHaveReceived('error')
+            ->once()
+            ->with(
+                'WagHub Gateway request failed.',
+                Mockery::on(fn (array $context): bool => $context === [
+                    'status' => 502,
+                    'request_id' => 'safe-request-id',
+                ]),
+            );
     }
 }

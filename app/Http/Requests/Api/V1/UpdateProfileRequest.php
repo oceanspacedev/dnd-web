@@ -11,7 +11,7 @@ class UpdateProfileRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return ! $this->exists('no_hp');
     }
 
     public function rules(): array
@@ -25,7 +25,7 @@ class UpdateProfileRequest extends FormRequest
                 'max:255',
                 Rule::unique('users', 'email')->ignore($userId),
             ],
-            'no_hp' => ['nullable', 'string', 'max:20'],
+            'no_hp' => ['prohibited'],
         ];
     }
 
@@ -34,6 +34,7 @@ class UpdateProfileRequest extends FormRequest
         return [
             'email.email' => 'Format email tidak valid.',
             'email.unique' => 'Email sudah digunakan oleh karyawan lain.',
+            'no_hp.prohibited' => 'No. HP login hanya dapat diubah oleh admin.',
         ];
     }
 

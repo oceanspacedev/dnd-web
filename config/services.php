@@ -35,6 +35,8 @@ return [
         'api_key' => env('WA_API_KEY'),
         'connect_timeout' => (int) env('WA_CONNECT_TIMEOUT', 5),
         'timeout' => (int) env('WA_API_TIMEOUT', 15),
+        'otp_expires_in' => (int) env('WA_OTP_EXPIRES_IN', 60),
+        'otp_message' => env('WA_OTP_MESSAGE', 'Kode OTP {app_name} Anda: {otp}. Berlaku {expires_in}. Jangan bagikan kode ini kepada siapa pun.'),
     ],
 
 ];
