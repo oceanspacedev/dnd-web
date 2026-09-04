@@ -14,7 +14,8 @@ class UserPolicy
 
     private function canManageScoped(User $user): bool
     {
-        return in_array($user->role?->name, ['MANAGER', 'COORDINATOR'], true);
+        return ! empty($this->getManagedUserIds($user))
+            || in_array($user->role?->name, ['MANAGER', 'COORDINATOR', 'TEAM LEADER', 'CHIEF', 'BOD'], true);
     }
 
     /**

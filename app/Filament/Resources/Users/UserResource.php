@@ -13,6 +13,7 @@ use Filament\Actions\EditAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\ForceDeleteAction;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
@@ -23,9 +24,11 @@ use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages;
 use App\Filament\Resources\Users\RelationManagers;
 use App\Models\Divisi;
+use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use Illuminate\Database\Eloquent\Collection;
 use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -306,12 +309,18 @@ class UserResource extends Resource
                 TextColumn::make('email')
                     ->label('Email')
                     ->searchable(),
-                TextColumn::make('area.name'),
-                TextColumn::make('divisi.name'),
+                TextColumn::make('area.name')
+                    ->label('Area')
+                    ->searchable(),
+                TextColumn::make('divisi.name')
+                    ->label('Divisi')
+                    ->searchable(),
                 TextColumn::make('position.name')
-                    ->label('Posisi'),
+                    ->label('Posisi')
+                    ->searchable(),
                 TextColumn::make('role.name')
-                    ->label('Jabatan'),
+                    ->label('Jabatan')
+                    ->searchable(),
                 // Tables\Columns\IconColumn::make('d')
                 //     ->boolean(),
                 // Tables\Columns\IconColumn::make('dr')
@@ -324,24 +333,36 @@ class UserResource extends Resource
                 //     ->boolean(),
                 // Tables\Columns\IconColumn::make('mr')
                 //     ->boolean(),
-                TextColumn::make('approval.nama_lengkap'),
+                TextColumn::make('approval.nama_lengkap')
+                    ->label('Approval')
+                    ->searchable(),
             ])
             ->filters([
                 SelectFilter::make('area')
                     ->label('Area')
-                    ->relationship('area', 'name'),
+                    ->relationship('area', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('divisi')
                     ->label('Divisi')
-                    ->relationship('divisi', 'name'),
+                    ->relationship('divisi', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('role')
                     ->label('Jabatan')
-                    ->relationship('role', 'name'),
+                    ->relationship('role', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('position')
                     ->label('Posisi')
-                    ->relationship('position', 'name'),
+                    ->relationship('position', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('approval')
                     ->label('Approval')
-                    ->relationship('approval', 'nama_lengkap'),
+                    ->relationship('approval', 'nama_lengkap')
+                    ->searchable()
+                    ->preload(),
             ])
             ->recordActions([
                 Action::make('send_reminder')
@@ -529,6 +550,48 @@ class UserResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('update_position')
+                        ->label('Ubah Posisi Massal')
+                        ->icon('heroicon-o-briefcase')
+                        ->color('primary')
+                        ->slideOver()
+                        ->modalWidth('md')
+                        ->modalHeading('Ubah Posisi Karyawan Terpilih')
+                        ->modalDescription('Pilih posisi baru yang akan diterapkan ke seluruh karyawan yang telah dicentang.')
+                        ->modalSubmitActionLabel('Terapkan Posisi Baru')
+                        ->authorizeIndividualRecords('update')
+                        ->form([
+                            Select::make('position_id')
+                                ->label('Posisi Baru')
+                                ->options(fn (): array => Position::orderBy('name')->pluck('name', 'id')->all())
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->createOptionForm([
+                                    TextInput::make('name')
+                                        ->label('Nama Posisi Baru')
+                                        ->required(),
+                                ])
+                                ->createOptionUsing(fn (array $data): int => (int) Position::create($data)->getKey()),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            $position = Position::find($data['position_id']);
+                            $positionName = $position?->name ?? 'posisi baru';
+                            $count = $records->count();
+
+                            $records->each(function (User $record) use ($data): void {
+                                $record->update([
+                                    'position_id' => $data['position_id'],
+                                ]);
+                            });
+
+                            Notification::make()
+                                ->title('Posisi Berhasil Diperbarui')
+                                ->body("{$count} karyawan berhasil dipindahkan ke posisi {$positionName}.")
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),
                     RestoreBulkAction::make(),
                     ForceDeleteBulkAction::make(),

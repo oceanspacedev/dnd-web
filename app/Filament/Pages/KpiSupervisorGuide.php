@@ -12,7 +12,7 @@ class KpiSupervisorGuide extends Page
 
     protected static ?string $navigationLabel = 'Panduan KPI Manajerial';
 
-    protected static string | \UnitEnum | null $navigationGroup = 'KPI';
+    protected static string | \UnitEnum | null $navigationGroup = 'Panduan';
 
     protected static ?int $navigationSort = 80;
 

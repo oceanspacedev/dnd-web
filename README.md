@@ -75,7 +75,7 @@ Ketersediaan modul pada setiap surface saat ini:
 | Kehadiran | Ya | Ya | Data per karyawan dan periode |
 | Penilaian karyawan | Ya | Ya | Empat aspek dengan nilai 0–5 |
 | Jurnal harian | Ya | Ya | Jurnal pribadi dan pemantauan tim |
-| User dan struktur organisasi | Ya | Ya | Role, area, divisi, posisi, dan atasan |
+| User dan struktur organisasi | Ya | Ya | Role, area, divisi, posisi, atasan, bulk update posisi, dan panduan mutasi |
 | Import/export | Ya | Sebagian | Excel, JSON karyawan, dan berbagai laporan |
 | Reminder email/WhatsApp | Pengaturan | Ya | Eksekusi juga tersedia melalui command scheduler |
 | Cutpoint | Ya | Ya | Mengurangi nilai leaderboard web |
@@ -101,8 +101,8 @@ Role awal dari seeder adalah `ADMIN`, `STAFF`, `TEAM LEADER`, `COORDINATOR`, `MA
 
 | Aktor | Akses utama |
 |---|---|
-| `ADMIN` | Seluruh data, master, konfigurasi, dan jurnal |
-| `MANAGER` / `COORDINATOR` | KPI, kehadiran, penilaian, dan daftar/edit user dalam scope; dapat membuat user, dengan guard field/action yang belum ketat |
+| `ADMIN` | Seluruh data, master, konfigurasi, jurnal, mutasi lintas divisi, dan seluruh user |
+| Atasan (`TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`, atau user dengan bawahan) | KPI, kehadiran, penilaian, jurnal tim, serta melihat/mengedit profil dan posisi karyawan dalam scope approval (termasuk aksi massal *Ubah Posisi Massal*) |
 | Semua user panel | Melihat leaderboard; widget Checklist KPI menawarkan KPI sendiri serta KPI user dalam approval scope jika ada |
 | Pemilik jurnal | CRUD jurnal sendiri pada panel web |
 | User yang memiliki bawahan | Dapat melihat jurnal tim sesuai scope |
@@ -145,6 +145,14 @@ User dapat dibuat manual, di-import dari Excel, atau disinkronkan dari JSON Tale
 
 Jalur import JSON yang didukung untuk operasional saat ini adalah panel admin. Lihat keterbatasan endpoint API pada bagian [Batasan dan technical debt](#batasan-dan-technical-debt).
 
+#### Manajemen dan mutasi posisi karyawan di panel
+
+- **Pencarian instan**: Kolom nama lengkap, ID karyawan, kontak, posisi, divisi, area, jabatan, dan approval dapat dicari langsung dari kotak pencarian utama (*global search* tabel).
+- **Filter dropdown searchable**: Filter Area, Divisi, Jabatan, Posisi, dan Approval pada tabel dilengkapi kotak pencarian teks langsung di dalam dropdown tanpa perlu menggulir manual.
+- **Ubah Posisi Massal (*Bulk Action*)**: Admin dan Atasan dapat mencentang beberapa karyawan sekaligus di tabel, lalu memilih menu **"Ubah Posisi Massal"** untuk memindahkan posisi mereka secara serentak melalui panel slide-over samping (`md`).
+- **Izin Atasan Berdasarkan Scope**: Atasan di setiap posisi/level (memiliki bawahan tercatat via `approval_id` / `ApprovalScopeService` atau ber-role `TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`) memiliki izin untuk melihat dan mengedit profil serta posisi karyawan bawahannya di menu *"Tim Saya"*.
+- **Panduan interaktif web**: Panduan operasional dapat dibaca langsung melalui menu sidebar kiri di `/admin/panduan-ubah-posisi` maupun melalui tombol slide-over panduan di header tabel Karyawan.
+
 ### 2. Siklus KPI
 
 1. Admin memelihara master kategori dan indikator KPI melalui resource khusus.
@@ -178,6 +186,7 @@ Panduan visual tersedia di panel:
 
 - `/admin/panduan-kpi-bawahan` untuk operasional karyawan.
 - `/admin/panduan-kpi-atasan` untuk alur manajerial.
+- `/admin/panduan-ubah-posisi` untuk alur pencarian dan mutasi posisi karyawan.
 
 ### 3. Kehadiran, review, cutpoint, dan overopen
 

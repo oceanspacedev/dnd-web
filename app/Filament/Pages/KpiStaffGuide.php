@@ -11,7 +11,7 @@ class KpiStaffGuide extends Page
 
     protected static ?string $navigationLabel = 'Panduan KPI Operasional';
 
-    protected static string | \UnitEnum | null $navigationGroup = 'KPI';
+    protected static string | \UnitEnum | null $navigationGroup = 'Panduan';
 
     protected static ?int $navigationSort = 81;
 
