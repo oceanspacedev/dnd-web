@@ -7,14 +7,14 @@ use App\Models\User;
 class ApprovalScopeService
 {
     /** @var array<int, array<int>> */
-    private static array $memo = [];
+    private array $memo = [];
 
     /**
      * Clear the per-request memo (useful for testing).
      */
     public static function clearMemo(): void
     {
-        self::$memo = [];
+        app(self::class)->memo = [];
     }
 
     /**
@@ -28,8 +28,16 @@ class ApprovalScopeService
      */
     public static function getManagedUserIdsOneLevelDown(int $supervisorId): array
     {
-        if (array_key_exists($supervisorId, self::$memo)) {
-            return self::$memo[$supervisorId];
+        return app(self::class)->managedUserIdsOneLevelDown($supervisorId);
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function managedUserIdsOneLevelDown(int $supervisorId): array
+    {
+        if (array_key_exists($supervisorId, $this->memo)) {
+            return $this->memo[$supervisorId];
         }
 
         $directIds = User::query()
@@ -40,7 +48,7 @@ class ApprovalScopeService
             ->all();
 
         if ($directIds === []) {
-            return [];
+            return $this->memo[$supervisorId] = [];
         }
 
         $secondLevelIds = User::query()
@@ -51,7 +59,7 @@ class ApprovalScopeService
             ->all();
 
         $result = array_values(array_unique(array_merge($directIds, $secondLevelIds)));
-        self::$memo[$supervisorId] = $result;
+        $this->memo[$supervisorId] = $result;
 
         return $result;
     }

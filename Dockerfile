@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG PHP_VERSION=8.3
-ARG FRANKENPHP_VERSION=1
+ARG FRANKENPHP_VERSION=1.12.7
 
 FROM dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION}-bookworm AS php-base
 
@@ -37,9 +37,21 @@ RUN apt-get update \
 
 WORKDIR /app
 
+COPY composer.json composer.lock ./
+
+RUN --mount=type=cache,target=/tmp/composer-cache,sharing=locked \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache composer install \
+        --no-dev \
+        --prefer-dist \
+        --no-interaction \
+        --no-progress \
+        --no-scripts \
+        --no-autoloader
+
 COPY . .
 
-RUN composer install \
+RUN --mount=type=cache,target=/tmp/composer-cache,sharing=locked \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache composer install \
         --no-dev \
         --prefer-dist \
         --no-interaction \
@@ -53,7 +65,8 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --no-audit --no-fund
 
 # Tailwind scans application views and the Vite inputs include files from vendor/.
 COPY --from=composer-build /app /app

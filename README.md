@@ -290,7 +290,7 @@ flowchart TB
 | API docs | Dedoc Scramble / OpenAPI |
 | Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
-| Deployment | Docker Compose, PHP 8.3, FrankenPHP/Caddy |
+| Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy, Redis 8 |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
 
@@ -378,6 +378,9 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `AWS_*_CHECKSUM_*` | Tidak | Compose memakai mode `when_required` untuk kompatibilitas provider S3 non-AWS |
 | `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek `database` |
 | `QUEUE_CONNECTION` | Ya | Backend queue; default proyek `database` |
+| `REDIS_PASSWORD` | Production Compose | Password Redis internal untuk cache, session, queue, dan maintenance mode |
+| `OCTANE_WORKERS` | Tidak | Jumlah worker web persisten; Compose default `2`, lalu sesuaikan dengan vCPU/RAM |
+| `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
 | `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori, deskripsi, dan posisi; default `300` detik |
 | `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
@@ -640,19 +643,20 @@ Konfigurasi Rector memakai level Laravel 12 (`UP_TO_LARAVEL_120`). Tetap review 
 
 ## Deployment Docker
 
-Repository menyediakan image production multi-stage dan `compose.yaml` yang sama untuk Coolify maupun Dokploy. Image memakai PHP 8.3 dengan FrankenPHP, memasang dependency Composer, membangun asset Vite dengan Node.js 24 LTS, lalu menjalankan aplikasi sebagai user non-root.
+Repository menyediakan image production multi-stage dan `compose.yaml` yang sama untuk Coolify maupun Dokploy. Image memakai PHP 8.3, Laravel Octane, dan FrankenPHP worker mode, memasang dependency Composer, membangun asset Vite dengan Node.js 24 LTS, lalu menjalankan aplikasi sebagai user non-root. Source aplikasi di-bootstrap sekali per worker, bukan sekali per request.
 
 ### Susunan service
 
 | Service | Fungsi |
 |---|---|
 | `database` | Menjalankan MariaDB 11.8 LTS pada network internal Compose |
+| `redis` | Menjalankan Redis 8 dengan autentikasi dan AOF `everysec` untuk cache, session, queue, serta maintenance mode |
 | `release` | Memverifikasi object storage, menjalankan migration, lalu menjadi readiness gate untuk service lain |
-| `web` | Menyajikan Laravel pada port internal `8080` dan healthcheck `/up` |
-| `worker` | Menjalankan database queue worker untuk export dan background job |
+| `web` | Menyajikan Laravel Octane pada port internal `8080` dan healthcheck `/up` |
+| `worker` | Menjalankan Redis queue worker untuk export dan background job |
 | `scheduler` | Menjalankan Laravel scheduler untuk reminder KPI |
 
-Service aplikasi memakai image yang sama dan bersifat stateless: upload, file private, upload sementara Livewire, dan hasil export queue disimpan pada object storage S3-compatible. Hanya MariaDB yang memakai named volume `db_data`. Framework cache, temporary file PHP/Excel, serta compiled view bersifat ephemeral per-container; log diarahkan ke `stderr`.
+Service aplikasi memakai image yang sama dan bersifat stateless: upload, file private, upload sementara Livewire, dan hasil export queue disimpan pada object storage S3-compatible. MariaDB memakai named volume `db_data`; Redis memakai `redis_data` agar session dan job antrean bertahan saat container diganti. Temporary file PHP/Excel serta compiled view bersifat ephemeral per-container; log diarahkan ke `stderr`.
 
 > [!IMPORTANT]
 > Compose sengaja memuat MariaDB agar seluruh stack memakai network yang sama tanpa konfigurasi khusus Coolify atau Dokploy. Tidak ada host port, custom network, `container_name`, label Traefik, atau volume file aplikasi. Domain tetap diatur melalui UI platform dan hanya diarahkan ke service `web`.
@@ -669,6 +673,7 @@ DB_DATABASE=dnd
 DB_USERNAME=dnd
 DB_PASSWORD=<password-kuat>
 DB_ROOT_PASSWORD=<password-root-berbeda>
+REDIS_PASSWORD=<password-redis-kuat>
 
 AWS_ACCESS_KEY_ID=<access-key-runtime>
 AWS_SECRET_ACCESS_KEY=<secret-key-runtime>
@@ -679,13 +684,35 @@ AWS_URL=https://s3.example.com/<nama-bucket>
 AWS_USE_PATH_STYLE_ENDPOINT=true
 ```
 
-Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. `DB_PASSWORD` dan `DB_ROOT_PASSWORD` harus berbeda serta dipertahankan setelah volume database terbentuk. Compose menetapkan `DB_CONNECTION=mariadb`, `DB_HOST=database`, `DB_PORT=3306`, `FILESYSTEM_DISK=s3`, serta memaksa `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, maintenance/cache/session/queue berbasis database, dan log `stderr`. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
+Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. Buat password acak terpisah untuk database, root database, dan Redis; pertahankan semuanya setelah volume terbentuk. Compose menetapkan `DB_CONNECTION=mariadb`, `DB_HOST=database`, `FILESYSTEM_DISK=s3`, serta memaksa `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, maintenance/cache/session/queue berbasis Redis, dan log `stderr`. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
 
 Jangan commit credential object storage atau menjadikannya Docker build argument. Simpan access key dan secret key hanya sebagai runtime secret di panel platform. Gunakan credential khusus aplikasi yang dibatasi ke bucket/prefix DnD dengan izin `ListBucket`, `GetObject`, `PutObject`, dan `DeleteObject`; jangan memakai credential administrator dan jangan membuat bucket publik. Disk S3 dikonfigurasi *fail-loud*, sehingga kegagalan write tidak boleh dianggap sebagai upload/export berhasil.
 
 Livewire mengunggah file sementara langsung ke S3. Atur CORS bucket hanya untuk origin `APP_URL`, method `PUT`, `GET`, dan `HEAD`, serta header `Content-Type` dan `x-amz-*`. Atur lifecycle agar prefix `livewire-tmp/` dihapus setelah sekitar 24 jam dan kebijakan retensi terpisah untuk `filament_exports/`. Saat object export kedaluwarsa, bersihkan record `exports` pada periode retensi yang sama agar UI tidak menyimpan link download yang sudah mati.
 
-Worker diberi timeout 300 detik dan `DB_QUEUE_RETRY_AFTER=360`, sehingga job tidak dilepas kembali ke queue sebelum proses lama dihentikan. Jika timeout worker diubah, pertahankan `retry_after` lebih besar daripada timeout.
+Worker diberi timeout 300 detik dan `REDIS_QUEUE_RETRY_AFTER=360`, sehingga job tidak dilepas kembali ke queue sebelum proses lama dihentikan. Jika `QUEUE_TIMEOUT` diubah, pertahankan `REDIS_QUEUE_RETRY_AFTER` lebih besar daripada timeout.
+
+### Tuning performa satu container web
+
+Default `OCTANE_WORKERS=2` adalah titik awal untuk VM 2-vCPU. Gunakan `1` pada VM 1-vCPU; untuk server lebih besar, set jumlahnya mendekati jatah vCPU container lalu ukur pemakaian RAM dan latency. Jangan memakai `auto` bila container tidak diberi CPU quota karena FrankenPHP dapat membuat worker lebih banyak dari kapasitas RAM. Pertahankan ruang untuk satu thread non-worker, MariaDB, Redis, queue worker, dan sistem operasi. `OCTANE_MAX_REQUESTS=500` mendaur ulang worker secara berkala, sementara `FRANKENPHP_MAX_WAIT_TIME=5s` menolak overload yang terlalu lama mengantre agar latency tidak menumpuk.
+
+OPcache production sudah memakai 256 MB/32.531 file, timestamp validation dimatikan, dan asset Vite fingerprinted dikirim dengan cache browser immutable. Setiap deploy harus membuat ulang image agar kode dan cache konfigurasi baru ikut terpasang.
+
+Ukur dari mesin lain dengan route yang mewakili trafik nyata, bukan hanya `/up`. Contoh uji awal 100 RPS selama 60 detik memakai k6:
+
+```bash
+docker run --rm -i \
+  -e BASE_URL=https://dnd.example.com \
+  -e TARGET_PATH=/api/v1/route-yang-diuji \
+  -e BEARER_TOKEN=masukkan-token-test \
+  -e RPS=100 \
+  -e DURATION=60s \
+  grafana/k6 run - < tests/load/k6-smoke.js
+```
+
+Naikkan RPS bertahap sambil melihat p95/p99, error rate, CPU, RAM, slow query MariaDB, dan panjang antrean Redis. Ulangi sesudah mengubah `OCTANE_WORKERS`; angka RPS maksimum tidak dapat ditentukan hanya dari konfigurasi karena route, data, dan spesifikasi server ikut menentukan.
+
+Web diberi graceful shutdown 25 detik agar deploy tidak menggantung. Pekerjaan yang dapat melampaui durasi itu harus dijalankan sebagai queue job; queue worker mempunyai timeout 300 detik dan grace period 330 detik.
 
 `bootstrap/app.php` mengikuti API middleware Laravel 12 dan mempercayai forwarded header dari reverse proxy. Karena itu service `web` sengaja hanya memakai `expose`; jangan membuka origin melalui host port atau bypass proxy platform.
 
@@ -697,7 +724,7 @@ Setelah `.env` production tersedia:
 docker compose config --quiet
 docker compose up --detach --build
 docker compose ps
-docker compose logs --follow web worker scheduler release
+docker compose logs --follow web worker scheduler release redis
 ```
 
 Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk S3 lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi.
@@ -706,19 +733,19 @@ Pada setiap recreate image, service `release` melakukan probe write/read/delete 
 
 1. Buat Application dari repository Git dan pilih build pack **Docker Compose**.
 2. Pilih `compose.yaml`, lalu masukkan seluruh environment production di UI. Tandai credential S3 sebagai runtime secret, bukan build variable.
-3. Kaitkan domain hanya ke service `web` pada port internal `8080`.
-4. Pastikan `db_data` terdeteksi, aktifkan backup database-aware/logical dump MariaDB, dan atur versioning/replication serta lifecycle pada bucket object storage.
+3. Kaitkan domain hanya ke service `web`; masukkan domain sebagai `https://domain-anda:8080` agar Coolify memakai port internal 8080.
+4. Pastikan `db_data` dan `redis_data` terdeteksi, aktifkan logical dump MariaDB, dan atur versioning/replication serta lifecycle pada bucket object storage.
 
 ### Dokploy
 
 1. Buat service **Docker Compose** biasa, bukan Docker Stack, dari repository Git.
 2. Pilih `compose.yaml` dan masukkan environment production. Compose memetakan variabel Laravel secara eksplisit ke container yang membutuhkannya; `DB_ROOT_PASSWORD` hanya diberikan kepada MariaDB.
 3. Pada tab Domains, pilih service `web` dan container port `8080`; jangan menambahkan host port atau label Traefik manual.
-4. Aktifkan Isolated Deployments. Buat backup database-aware/logical dump MariaDB serta atur versioning/replication dan lifecycle bucket object storage.
+4. Aktifkan Isolated Deployments. Pastikan volume `db_data` dan `redis_data` persisten, buat logical dump MariaDB, serta atur versioning/replication dan lifecycle bucket object storage.
 
 ### Checklist setelah deploy
 
-1. Pastikan seluruh service healthy/running dan migration `release` berhasil.
+1. Pastikan seluruh service healthy/running, Redis menjawab healthcheck, migration `release` berhasil, dan `php artisan octane:status --server=frankenphp` di terminal service `web` melaporkan server aktif.
 2. Verifikasi `/up`, login panel, upload/import S3, download export queue, serta reminder dengan `php artisan kpi:send-reminders --dry-run`.
 3. Aktifkan logical `mariadb-dump` atau backup database-aware terjadwal, versioning/replication bucket, lalu uji restore keduanya. Raw backup `db_data` hanya aman saat database berhenti atau melalui snapshot yang konsisten; selalu ambil logical dump sebelum migration berisiko atau upgrade MariaDB.
 4. Pantau log `web`, `worker`, dan `scheduler`; hubungkan kegagalan/restart ke notifikasi platform.
@@ -730,7 +757,7 @@ Pada setiap recreate image, service `release` melakukan probe write/read/delete 
 
 - Migration kompatibilitas mengganti nama tabel `password_resets` menjadi `password_reset_tokens`, menetapkan `email` sebagai primary key, dan menyelaraskan kolom nama token Sanctum dengan schema Laravel 12/Sanctum 4. Karena reset password dinonaktifkan, token reset lama dibersihkan saat constraint primary key diterapkan.
 - Migration baru menyediakan tabel cache (`cache` dan `cache_locks`), `sessions`, serta `jobs` sesuai default Laravel 12. Pastikan tabel bernama sama belum dibuat manual sebelum migration dijalankan.
-- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Verifikasi juga `SESSION_DRIVER=database` dan `QUEUE_CONNECTION=database` beserta worker queue.
+- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Deployment Compose baru memakai `CACHE_STORE=redis`, `SESSION_DRIVER=redis`, dan `QUEUE_CONNECTION=redis`; pengguna dari session database akan perlu login kembali satu kali.
 - Default prefix cache/Redis dan nama cookie session sekarang mengikuti skeleton Laravel 12. Pengguna akan login ulang dan cache lama tidak lagi terbaca setelah deploy, kecuali nilai lama dipertahankan eksplisit melalui `CACHE_PREFIX`, `REDIS_PREFIX`, dan `SESSION_COOKIE`.
 - Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Sebelum menghapus volume/mount lama, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
 - Bila histori export lama harus tetap dapat diunduh, pindahkan object `filament_exports/{export-id}` ke S3 dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.

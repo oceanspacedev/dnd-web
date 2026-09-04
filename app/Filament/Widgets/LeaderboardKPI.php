@@ -3,11 +3,11 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Area;
-use App\Models\Cutpoint;
 use App\Models\Divisi;
 use App\Models\User;
 use App\Services\KpiScoringService;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Facades\Date;
 
 class LeaderboardKPI extends Widget
 {
@@ -47,28 +47,42 @@ class LeaderboardKPI extends Widget
 
     protected function getLeaderboardData()
     {
+        $period = is_string($this->month)
+            && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $this->month)
+                ? $this->month
+                : Date::now()->format('Y-m');
+        $periodStart = Date::createFromFormat('!Y-m', $period)->startOfMonth();
+        $periodEnd = $periodStart->copy()->addMonth();
+
         $query = User::query()
+            ->select(['id', 'nama_lengkap', 'divisi_id', 'area_id'])
             ->with([
-                'divisi.area',
-                'area',
-                'kpi' => function ($query) {
+                'divisi:id,name',
+                'area:id,name',
+                'kpi' => function ($query) use ($periodStart, $periodEnd) {
                     $query->select('id', 'user_id', 'percentage', 'date')
                         ->where('kpi_type_id', 3)
-                        ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$this->month])
+                        ->where('date', '>=', $periodStart)
+                        ->where('date', '<', $periodEnd)
                         ->orderBy('date', 'DESC')
                         ->with(['kpi_detail' => function ($query) {
-                            $query->whereNotNull('value_result')->where('value_result', '>=', 0);
+                            $query->select('id', 'kpi_id', 'value_result')
+                                ->whereNotNull('value_result')
+                                ->where('value_result', '>=', 0);
                         }]);
                 },
-                'attendance' => function ($query) {
+                'attendance' => function ($query) use ($period) {
                     $query->select('user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days', 'periode')
-                        ->where('periode', $this->month);
+                        ->where('periode', $period);
                 },
-                'employeeReview' => function ($query) {
+                'employeeReview' => function ($query) use ($period) {
                     $query->select('user_id', 'responsiveness', 'problem_solver', 'helpfulness', 'initiative', 'periode')
-                        ->where('periode', $this->month);
+                        ->where('periode', $period);
                 },
-            ]);
+            ])
+            ->withSum([
+                'cutpoint as period_cutpoint' => fn ($query) => $query->where('periode', $period),
+            ], 'point');
 
         if ($this->area) {
             $query->where('area_id', $this->area);
@@ -88,11 +102,7 @@ class LeaderboardKPI extends Widget
 
             $totalScore = ($kpiScore + $attendanceScore + $activityScore);
 
-            // Kurangi totalScore dengan cutpoint user jika ada
-            // Jika ada lebih dari satu cutpoint untuk user dan periode, jumlahkan semua point
-            $cutpointValue = Cutpoint::where('user_id', $user->id)
-                ->where('periode', $this->month)
-                ->sum('point');
+            $cutpointValue = (int) ($user->period_cutpoint ?? 0);
             $totalScore = max(0, $totalScore - $cutpointValue);
 
             $leaderboardData[] = [

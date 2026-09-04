@@ -19,6 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 
 /**
@@ -31,11 +32,12 @@ class AnalyticsController extends Controller
      */
     private function computeScoresForPeriod(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null): array
     {
-        $parts = explode('-', $periode);
-        $year = (int) ($parts[0] ?? date('Y'));
-        $month = isset($parts[1]) ? (int) $parts[1] : (int) date('m');
+        $periodStart = Date::createFromFormat('!Y-m', $periode)->startOfMonth();
+        $periodEnd = $periodStart->copy()->addMonth();
 
-        $userQuery = User::with(['role', 'divisi', 'area', 'position'])
+        $userQuery = User::query()
+            ->select(['id', 'nama_lengkap', 'username', 'area_id', 'divisi_id', 'position_id'])
+            ->with(['divisi:id,name', 'area:id,name', 'position:id,name'])
             ->whereNull('deleted_at');
 
         if ($areaId) {
@@ -58,36 +60,36 @@ class AnalyticsController extends Controller
         // Eager load records for the period
         $userIds = $users->pluck('id')->all();
 
-        $kpis = Kpi::whereIn('user_id', $userIds)
-            ->whereYear('date', $year)
-            ->whereMonth('date', $month)
-            ->with('kpi_detail.kpi_description')
-            ->get()
-            ->groupBy('user_id');
+        if ($userIds === []) {
+            return [];
+        }
+
+        $rawKpiScores = DB::table('kpis')
+            ->join('kpi_details', 'kpi_details.kpi_id', '=', 'kpis.id')
+            ->whereIn('kpis.user_id', $userIds)
+            ->whereNull('kpis.deleted_at')
+            ->whereNull('kpi_details.deleted_at')
+            ->where('kpis.date', '>=', $periodStart)
+            ->where('kpis.date', '<', $periodEnd)
+            ->selectRaw('kpis.user_id, COALESCE(SUM(kpi_details.value_result), 0) as raw_score')
+            ->groupBy('kpis.user_id')
+            ->pluck('raw_score', 'kpis.user_id');
 
         $attendances = Attendance::whereIn('user_id', $userIds)
             ->where('periode', $periode)
-            ->get()
+            ->get(['user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days'])
             ->keyBy('user_id');
 
         $reviews = EmployeeReview::whereIn('user_id', $userIds)
             ->where('periode', $periode)
-            ->get()
+            ->get(['user_id', 'responsiveness', 'problem_solver', 'helpfulness', 'initiative'])
             ->keyBy('user_id');
 
         $leaderboard = [];
 
         foreach ($users as $user) {
             // 1. KPI (Max 70%)
-            $userKpis = $kpis->get($user->id, collect());
-            $rawKpiScore = 0;
-            foreach ($userKpis as $kpi) {
-                if ($kpi->kpi_detail) {
-                    foreach ($kpi->kpi_detail as $detail) {
-                        $rawKpiScore += (float) ($detail->value_result ?? 0);
-                    }
-                }
-            }
+            $rawKpiScore = (float) ($rawKpiScores->get($user->id) ?? 0);
             $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore);
 
             // 2. Attendance (Max 15%)
@@ -154,7 +156,7 @@ class AnalyticsController extends Controller
      */
     public function leaderboard(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Date::now()->format('Y-m'));
+        $periode = $this->validatedPeriod($request);
         $areaId = $request->query('area_id') ? (int) $request->query('area_id') : null;
         $divisiId = $request->query('divisi_id') ? (int) $request->query('divisi_id') : null;
         $search = $request->query('search');
@@ -204,7 +206,7 @@ class AnalyticsController extends Controller
      */
     public function dashboard(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Date::now()->format('Y-m'));
+        $periode = $this->validatedPeriod($request);
         $scores = $this->computeScoresForPeriod($periode);
 
         $totalEmployees = count($scores);
@@ -229,10 +231,16 @@ class AnalyticsController extends Controller
         };
 
         // Today's daily tasks
-        $today = Date::now()->toDateString();
-        $dailyToday = Daily::whereDate('date', $today)->get();
-        $dailyTotal = $dailyToday->count();
-        $dailyCompleted = $dailyToday->where('status', 'Completed')->count();
+        $todayStart = Date::now()->startOfDay();
+        $todayEnd = $todayStart->copy()->addDay();
+        $today = $todayStart->toDateString();
+        $dailyStats = Daily::query()
+            ->where('date', '>=', $todayStart)
+            ->where('date', '<', $todayEnd)
+            ->selectRaw('COUNT(*) as total, COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END), 0) as completed')
+            ->first();
+        $dailyTotal = (int) ($dailyStats->total ?? 0);
+        $dailyCompleted = (int) ($dailyStats->completed ?? 0);
         $dailyPending = $dailyTotal - $dailyCompleted;
         $dailyRate = $dailyTotal > 0 ? ($dailyCompleted / $dailyTotal) * 100 : 0;
 
@@ -268,7 +276,7 @@ class AnalyticsController extends Controller
      */
     public function departmentStats(Request $request): JsonResponse
     {
-        $periode = $request->query('periode', Date::now()->format('Y-m'));
+        $periode = $this->validatedPeriod($request);
         $scores = $this->computeScoresForPeriod($periode);
 
         // Group by Division
@@ -333,10 +341,10 @@ class AnalyticsController extends Controller
             ], 404);
         }
 
-        $periode = $request->query('periode', Date::now()->format('Y-m'));
-        $parts = explode('-', $periode);
-        $year = (int) ($parts[0] ?? date('Y'));
-        $month = isset($parts[1]) ? (int) $parts[1] : (int) date('m');
+        $periode = $this->validatedPeriod($request);
+        $periodDate = Date::createFromFormat('!Y-m', $periode);
+        $year = $periodDate->year;
+        $month = $periodDate->month;
 
         // Check checklist lock days
         $lockDays = max(0, (int) config('kpi.checklist_lock_days', 5));
@@ -419,5 +427,14 @@ class AnalyticsController extends Controller
             'message' => 'Matriks checklist KPI karyawan berhasil diambil.',
             'data' => new KpiChecklistResource($checklistData),
         ]);
+    }
+
+    private function validatedPeriod(Request $request): string
+    {
+        $validated = $request->validate([
+            'periode' => ['sometimes', 'string', 'date_format:Y-m'],
+        ]);
+
+        return $validated['periode'] ?? Date::now()->format('Y-m');
     }
 }

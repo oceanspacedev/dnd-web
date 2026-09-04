@@ -6,8 +6,6 @@ use App\Filament\Resources\Kpis\KpiResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class EditKpi extends EditRecord
 {
@@ -34,20 +32,5 @@ class EditKpi extends EditRecord
     protected function mutateFormDataBeforeFill(array $data): array
     {
         return $data;
-    }
-
-    public function mount($record): void
-    {
-        // Enable query logging untuk debugging
-        DB::enableQueryLog();
-
-        parent::mount($record);
-
-        // Log queries untuk debugging
-        $queries = DB::getQueryLog();
-        Log::info('KPI Edit Queries', [
-            'count' => count($queries),
-            'queries' => $queries,
-        ]);
     }
 }

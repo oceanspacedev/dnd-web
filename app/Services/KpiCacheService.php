@@ -11,16 +11,18 @@ use Illuminate\Support\Facades\Cache;
 
 class KpiCacheService
 {
+    private const VERSION_CACHE_KEY = 'kpi_options_version';
+
     public static function getKpiCategories(): array
     {
-        return Cache::remember('kpi_categories', self::getCacheTtl('categories', 300), function () {
+        return Cache::remember(self::versionedKey('categories'), self::getCacheTtl('categories', 300), function () {
             return KpiCategory::pluck('name', 'id')->toArray();
         });
     }
 
     public static function getKpiDescriptionsByCategory(int $categoryId): array
     {
-        return Cache::remember("kpi_descriptions_category_{$categoryId}", self::getCacheTtl('descriptions', 300), function () use ($categoryId) {
+        return Cache::remember(self::versionedKey("descriptions_category_{$categoryId}"), self::getCacheTtl('descriptions', 300), function () use ($categoryId) {
             return KpiDescription::where('kpi_category_id', $categoryId)
                 ->pluck('description', 'id')
                 ->toArray();
@@ -32,7 +34,7 @@ class KpiCacheService
         $userId = Auth::id();
         $userRoleName = Auth::user()->role?->name;
 
-        $cacheKey = "positions_user_{$userId}_{$userRoleName}";
+        $cacheKey = self::versionedKey("positions_user_{$userId}_{$userRoleName}");
 
         return Cache::remember($cacheKey, self::getCacheTtl('positions', 300), function () use ($userRoleName, $userId) {
             $usersQuery = User::query()
@@ -74,21 +76,19 @@ class KpiCacheService
 
     public static function clearKpiCache(): void
     {
-        Cache::forget('kpi_categories');
-        Cache::forget('kpi_descriptions_category_1');
-        Cache::forget('kpi_descriptions_category_2');
-        Cache::forget('kpi_descriptions_category_3');
+        Cache::add(self::VERSION_CACHE_KEY, 1, now()->addYears(10));
 
-        // Clear user-specific position cache only if user is authenticated
-        if (Auth::check()) {
-            $userId = Auth::id();
-            $userRoleName = Auth::user()->role?->name;
-
-            Cache::forget("positions_user_{$userId}_{$userRoleName}");
+        // Old versioned entries expire naturally; unrelated application cache survives.
+        if (Cache::increment(self::VERSION_CACHE_KEY) === false) {
+            Cache::forever(self::VERSION_CACHE_KEY, 2);
         }
+    }
 
-        // Clear all position cache patterns
-        Cache::flush();
+    private static function versionedKey(string $key): string
+    {
+        $version = (int) Cache::get(self::VERSION_CACHE_KEY, 1);
+
+        return "kpi:v{$version}:{$key}";
     }
 
     protected static function getCacheTtl(string $key, int $default): int

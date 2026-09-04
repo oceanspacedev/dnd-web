@@ -11,15 +11,25 @@ optimize_laravel() {
 case "${1:-web}" in
     web)
         optimize_laravel
-        exec frankenphp run --config /etc/frankenphp/Caddyfile
+        exec php artisan octane:frankenphp \
+            --host=0.0.0.0 \
+            --port=8080 \
+            --admin-host=127.0.0.1 \
+            --admin-port=2019 \
+            --workers="${OCTANE_WORKERS:-2}" \
+            --max-requests="${OCTANE_MAX_REQUESTS:-500}" \
+            --caddyfile=/etc/frankenphp/Caddyfile \
+            --log-level="${OCTANE_LOG_LEVEL:-WARN}" \
+            --no-interaction
         ;;
     worker)
         optimize_laravel
         exec php artisan queue:work \
-            --sleep=3 \
-            --tries=3 \
-            --timeout=300 \
-            --max-time=3600 \
+            --sleep="${QUEUE_SLEEP:-1}" \
+            --tries="${QUEUE_TRIES:-3}" \
+            --timeout="${QUEUE_TIMEOUT:-300}" \
+            --max-time="${QUEUE_MAX_TIME:-3600}" \
+            --memory="${QUEUE_MEMORY:-384}" \
             --no-interaction
         ;;
     scheduler)
