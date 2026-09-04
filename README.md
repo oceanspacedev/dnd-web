@@ -59,7 +59,7 @@ DnD menyatukan proses pengelolaan performa dan pekerjaan karyawan dalam satu sis
 
 - Payroll, reimbursement, saldo cuti, dan proses HRIS penuh.
 - Aplikasi mobile atau frontend publik terpisah; repository ini berisi panel Filament dan API backend.
-- SSO dan reset password mandiri. Reset password pada halaman login sengaja dinonaktifkan.
+- SSO, registrasi publik, dan reset password mandiri. Registrasi serta reset password pada panel sengaja dinonaktifkan.
 - Approval khusus jurnal harian. Jurnal tidak memiliki status `PENDING`, `APPROVED`, atau `REJECTED`.
 - File PDF/DOCX native untuk rekap jurnal. Format saat ini dijelaskan pada bagian [Jurnal harian](#4-jurnal-harian).
 - Pipeline CI/CD lintas platform; repository menyediakan image dan Compose production, sedangkan pemicu deployment tetap dikelola Coolify, Dokploy, atau CI eksternal.

@@ -36,7 +36,8 @@ class AdminPanelProvider extends PanelProvider
             ->viteTheme('resources/css/app.css')
             // Keep username-based login after plugin so it wins over Mekaya's default auth pages
             ->login(Login::class)
-            // Mekaya enables this by default; password resets are not available in this panel.
+            // Mekaya enables these by default; both are disabled for this internal panel.
+            ->registration(null)
             ->passwordReset(null, null)
             ->databaseNotifications()
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
