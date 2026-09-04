@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -131,6 +132,19 @@ class KpiReminderCommandTest extends TestCase
         $user = $this->createUser('Penerima Log', email: 'recipient@example.test');
         $setting = $this->createSetting(sendEmail: true);
 
+        $admin = new User([
+            'nama_lengkap' => 'Admin Reminder',
+            'approval_id' => null,
+            'email' => 'admin-test@example.test',
+            'no_hp' => null,
+        ]);
+        $admin->setAttribute('id', -1);
+        $admin->setRelation('role', new class
+        {
+            public string $name = 'ADMIN';
+        });
+        Auth::login($admin);
+
         $matchingLog = KpiReminderLog::create([
             'kpi_reminder_setting_id' => $setting->id,
             'user_id' => $user->id,
@@ -154,6 +168,8 @@ class KpiReminderCommandTest extends TestCase
             'search' => 'recipient@example.test',
         ]);
         $payload = (new ReminderController)->logs($request)->getData(true);
+
+        Auth::logout();
 
         $this->assertSame(1, $payload['meta']['total']);
         $this->assertSame($matchingLog->id, $payload['data'][0]['id']);

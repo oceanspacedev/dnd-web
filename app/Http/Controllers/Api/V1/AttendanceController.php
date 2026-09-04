@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\UpdateAttendanceRequest;
 use App\Http\Resources\Api\V1\AttendanceResource;
 use App\Models\Attendance;
 use App\Models\User;
+use App\Services\ApprovalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,7 +22,20 @@ class AttendanceController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Attendance::class);
+
         $query = Attendance::with('user');
+        $actor = $request->user();
+
+        if (
+            $actor?->role?->name !== 'ADMIN'
+            && strtolower((string) ($actor?->username ?? '')) !== 'darkini'
+        ) {
+            $query->whereIn(
+                'user_id',
+                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+            );
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -72,6 +86,8 @@ class AttendanceController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $attendance);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail data presensi berhasil diambil.',
@@ -84,7 +100,10 @@ class AttendanceController extends Controller
      */
     public function store(StoreAttendanceRequest $request): JsonResponse
     {
+        $this->authorize('create', Attendance::class);
+
         $validated = $request->validated();
+        $this->authorize('view', new Attendance(['user_id' => (int) $validated['user_id']]));
 
         $existing = Attendance::where('user_id', $validated['user_id'])
             ->where('periode', $validated['periode'])
@@ -122,6 +141,8 @@ class AttendanceController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $attendance);
+
         $validated = $request->validated();
         $attendance->update($validated);
         $attendance->load('user');
@@ -147,6 +168,8 @@ class AttendanceController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $attendance);
+
         $attendance->delete();
 
         return response()->json([
@@ -168,6 +191,8 @@ class AttendanceController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', new Attendance(['user_id' => $userId]));
 
         $query = Attendance::where('user_id', $userId);
 

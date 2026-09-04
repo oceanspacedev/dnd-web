@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\StoreOveropenRequest;
 use App\Http\Requests\Api\V1\UpdateOveropenRequest;
 use App\Http\Resources\Api\V1\OveropenResource;
 use App\Models\Overopen;
+use App\Services\ApprovalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,6 +22,15 @@ class OveropenController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Overopen::with(['user', 'leader']);
+        $actor = $request->user();
+
+        if ($actor?->role?->name !== 'ADMIN') {
+            $visibleUserIds = array_merge(
+                [(int) ($actor?->id ?? 0)],
+                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+            );
+            $query->whereIn('user_id', array_values(array_unique($visibleUserIds)));
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -68,6 +78,8 @@ class OveropenController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $overopen);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail data overopen berhasil diambil.',
@@ -80,10 +92,15 @@ class OveropenController extends Controller
      */
     public function store(StoreOveropenRequest $request): JsonResponse
     {
+        $this->authorize('create', Overopen::class);
+
         $validated = $request->validated();
         $currentUser = auth()->user();
 
-        $validated['atasan'] = $validated['atasan'] ?? $currentUser?->approval_id ?? $currentUser?->id;
+        $this->authorize('view', new Overopen(['user_id' => (int) $validated['user_id']]));
+        $validated['atasan'] = $currentUser?->role?->name === 'ADMIN'
+            ? ($validated['atasan'] ?? $currentUser?->id)
+            : $currentUser?->id;
 
         $overopen = Overopen::create($validated);
         $overopen->load(['user', 'leader']);
@@ -109,7 +126,13 @@ class OveropenController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $overopen);
+
         $validated = $request->validated();
+        unset($validated['user_id']);
+        if (auth()->user()?->role?->name !== 'ADMIN') {
+            $validated['atasan'] = auth()->id();
+        }
         $overopen->update($validated);
         $overopen->load(['user', 'leader']);
 
@@ -133,6 +156,8 @@ class OveropenController extends Controller
                 'message' => 'Data overopen tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $overopen);
 
         $overopen->delete();
 

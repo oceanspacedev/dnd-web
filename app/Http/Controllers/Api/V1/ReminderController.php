@@ -23,11 +23,18 @@ use Throwable;
  */
 class ReminderController extends Controller
 {
+    private function ensureAdminOnly(): void
+    {
+        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403, 'Hanya admin yang dapat mengakses pengaturan dan trigger reminder.');
+    }
+
     /**
      * Get paginated list of KPI reminder settings.
      */
     public function settings(Request $request): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $query = KpiReminderSetting::query();
 
         if ($type = $request->query('type')) {
@@ -53,6 +60,8 @@ class ReminderController extends Controller
      */
     public function showSetting(int $id): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $setting = KpiReminderSetting::find($id);
 
         if (! $setting) {
@@ -74,6 +83,8 @@ class ReminderController extends Controller
      */
     public function storeSetting(StoreReminderSettingRequest $request): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $validated = $request->validated();
         $validated['is_active'] = $validated['is_active'] ?? true;
 
@@ -91,6 +102,8 @@ class ReminderController extends Controller
      */
     public function updateSetting(UpdateReminderSettingRequest $request, int $id): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $setting = KpiReminderSetting::find($id);
 
         if (! $setting) {
@@ -115,6 +128,8 @@ class ReminderController extends Controller
      */
     public function destroySetting(int $id): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $setting = KpiReminderSetting::find($id);
 
         if (! $setting) {
@@ -137,6 +152,8 @@ class ReminderController extends Controller
      */
     public function toggleSetting(int $id): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $setting = KpiReminderSetting::find($id);
 
         if (! $setting) {
@@ -161,6 +178,8 @@ class ReminderController extends Controller
      */
     public function logs(Request $request): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $query = KpiReminderLog::with(['user', 'setting']);
 
         if ($userId = $request->query('user_id')) {
@@ -221,6 +240,8 @@ class ReminderController extends Controller
      */
     public function showLog(int $id): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $log = KpiReminderLog::with(['user', 'setting'])->find($id);
 
         if (! $log) {
@@ -242,6 +263,8 @@ class ReminderController extends Controller
      */
     public function trigger(TriggerReminderRequest $request): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $validated = $request->validated();
         $isDryRun = filter_var($validated['dry_run'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $settingId = $validated['setting_id'] ?? null;
@@ -283,6 +306,8 @@ class ReminderController extends Controller
      */
     public function sendTest(SendTestReminderRequest $request): JsonResponse
     {
+        $this->ensureAdminOnly();
+
         $validated = $request->validated();
         $channel = strtolower($validated['channel']);
         $destination = $validated['destination'];

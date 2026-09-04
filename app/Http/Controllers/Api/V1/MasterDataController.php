@@ -75,6 +75,8 @@ class MasterDataController extends Controller
      */
     public function storeArea(Request $request): JsonResponse
     {
+        $this->authorize('create', Area::class);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255', 'unique:areas,name'],
         ], [
@@ -107,6 +109,8 @@ class MasterDataController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $area);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('areas', 'name')->ignore($area->id)],
         ], [
@@ -138,6 +142,8 @@ class MasterDataController extends Controller
                 'message' => 'Area tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $area);
 
         $area->delete();
 
@@ -204,6 +210,8 @@ class MasterDataController extends Controller
      */
     public function storeDivisi(Request $request): JsonResponse
     {
+        $this->authorize('create', Divisi::class);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'area_id' => ['required', 'exists:areas,id'],
@@ -241,6 +249,8 @@ class MasterDataController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $divisi);
+
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'area_id' => ['sometimes', 'required', 'exists:areas,id'],
@@ -273,6 +283,8 @@ class MasterDataController extends Controller
                 'message' => 'Divisi tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $divisi);
 
         $divisi->delete();
 
@@ -335,6 +347,8 @@ class MasterDataController extends Controller
      */
     public function storePosition(Request $request): JsonResponse
     {
+        $this->authorize('create', Position::class);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255', 'unique:positions,name'],
         ], [
@@ -367,6 +381,8 @@ class MasterDataController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $position);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('positions', 'name')->ignore($position->id)],
         ]);
@@ -395,6 +411,8 @@ class MasterDataController extends Controller
                 'message' => 'Posisi tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $position);
 
         $position->delete();
 

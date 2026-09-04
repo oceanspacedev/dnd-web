@@ -14,7 +14,7 @@ class ApprovalScopeService
      */
     public static function clearMemo(): void
     {
-        app(self::class)->memo = [];
+        resolve(self::class)->memo = [];
     }
 
     /**
@@ -28,7 +28,7 @@ class ApprovalScopeService
      */
     public static function getManagedUserIdsOneLevelDown(int $supervisorId): array
     {
-        return app(self::class)->managedUserIdsOneLevelDown($supervisorId);
+        return resolve(self::class)->managedUserIdsOneLevelDown($supervisorId);
     }
 
     /**

@@ -17,7 +17,10 @@ use App\Http\Resources\Api\V1\WeeklyResource;
 use App\Models\Daily;
 use App\Models\DailyLog;
 use App\Models\Monthly;
+use App\Models\User;
 use App\Models\Weekly;
+use App\Services\ApprovalScopeService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -38,6 +41,7 @@ class ActivityController extends Controller
     {
         $query = Daily::with(['user', 'taskcategory', 'taskstatus', 'tag', 'add'])
             ->withCount('dailyLog');
+        $this->applyVisibleUserScope($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -101,6 +105,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $daily);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail tugas harian berhasil diambil.',
@@ -113,10 +119,13 @@ class ActivityController extends Controller
      */
     public function storeDaily(StoreDailyRequest $request): JsonResponse
     {
+        $this->authorize('create', Daily::class);
+
         $validated = $request->validated();
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+        $this->authorize('view', new Daily(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'daily';
         $validated['ontime'] = $validated['ontime'] ?? true;
@@ -148,6 +157,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $daily);
+
         $validated = $request->validated();
         $validated['isupdate'] = true;
 
@@ -174,6 +185,8 @@ class ActivityController extends Controller
                 'message' => 'Tugas harian tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $daily);
 
         $daily->dailyLog()->delete();
         $daily->delete();
@@ -202,6 +215,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $daily);
+
         $logs = DailyLog::with('user')
             ->where('task_id', $dailyId)->oldest()
             ->get();
@@ -226,6 +241,8 @@ class ActivityController extends Controller
                 'message' => 'Tugas harian tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', $daily);
 
         $log = DailyLog::create([
             'user_id' => auth()->id(),
@@ -252,6 +269,7 @@ class ActivityController extends Controller
     public function weeklies(Request $request): JsonResponse
     {
         $query = Weekly::with(['user', 'taskcategory', 'taskstatus', 'tag', 'add']);
+        $this->applyVisibleUserScope($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -307,6 +325,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $weekly);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail tugas mingguan berhasil diambil.',
@@ -319,10 +339,13 @@ class ActivityController extends Controller
      */
     public function storeWeekly(StoreWeeklyRequest $request): JsonResponse
     {
+        $this->authorize('create', Weekly::class);
+
         $validated = $request->validated();
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+        $this->authorize('view', new Weekly(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'weekly';
         $validated['is_add'] = true;
@@ -352,6 +375,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $weekly);
+
         $validated = $request->validated();
         $validated['is_update'] = true;
 
@@ -379,6 +404,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $weekly);
+
         $weekly->delete();
 
         return response()->json([
@@ -397,6 +424,7 @@ class ActivityController extends Controller
     public function monthlies(Request $request): JsonResponse
     {
         $query = Monthly::with(['user', 'tag', 'add']);
+        $this->applyVisibleUserScope($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -444,6 +472,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $monthly);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail tugas bulanan berhasil diambil.',
@@ -456,10 +486,13 @@ class ActivityController extends Controller
      */
     public function storeMonthly(StoreMonthlyRequest $request): JsonResponse
     {
+        $this->authorize('create', Monthly::class);
+
         $validated = $request->validated();
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+        $this->authorize('view', new Monthly(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'monthly';
         $validated['is_add'] = true;
@@ -489,6 +522,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $monthly);
+
         $validated = $request->validated();
         $validated['is_update'] = true;
 
@@ -516,6 +551,8 @@ class ActivityController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $monthly);
+
         $monthly->delete();
 
         return response()->json([
@@ -534,6 +571,7 @@ class ActivityController extends Controller
     public function summary(Request $request): JsonResponse
     {
         $userId = $request->query('user_id', auth()->id());
+        $this->authorize('view', new Daily(['user_id' => (int) $userId]));
         $today = Date::today()->format('Y-m-d');
 
         $dailyQuery = Daily::where('user_id', $userId);
@@ -571,5 +609,25 @@ class ActivityController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Restrict activity list queries to the authenticated user's own records
+     * and the one-level approval scope. Admins retain company-wide visibility.
+     *
+     * @param  Builder<Daily|Weekly|Monthly>  $query
+     */
+    private function applyVisibleUserScope($query, ?User $actor): void
+    {
+        if ($actor?->role?->name === 'ADMIN') {
+            return;
+        }
+
+        $visibleUserIds = array_merge(
+            [(int) ($actor?->id ?? 0)],
+            ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+        );
+
+        $query->whereIn('user_id', array_values(array_unique($visibleUserIds)));
     }
 }

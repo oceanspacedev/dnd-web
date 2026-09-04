@@ -10,7 +10,7 @@ class TriggerReminderRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return (bool) (auth()->user()?->role?->name === 'ADMIN');
     }
 
     public function rules(): array

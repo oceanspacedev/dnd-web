@@ -21,6 +21,7 @@ class StoreRequestRequest extends FormRequest
             'todo_request' => ['required', 'string'],
             'todo_replace' => ['nullable', 'string'],
             'approval_id' => ['nullable', 'exists:users,id'],
+            'status' => ['nullable', 'in:PENDING,APPROVED,REJECTED'],
         ];
     }
 

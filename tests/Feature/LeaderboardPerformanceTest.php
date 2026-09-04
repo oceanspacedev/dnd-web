@@ -60,7 +60,7 @@ class LeaderboardPerformanceTest extends TestCase
             $queries[] = strtolower($query->sql);
         });
 
-        $widget = app(LeaderboardKPI::class);
+        $widget = resolve(LeaderboardKPI::class);
         $widget->mount(month: '2026-02');
         $method = new ReflectionMethod($widget, 'getLeaderboardData');
         $leaderboard = $method->invoke($widget);

@@ -15,6 +15,7 @@ use App\Models\KpiDescription;
 use App\Models\KpiDetail;
 use App\Models\KpiType;
 use App\Models\User;
+use App\Services\ApprovalScopeService;
 use App\Services\KpiScoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,18 @@ class KpiController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Kpi::class);
+
         $query = Kpi::with(['user', 'kpi_category', 'kpi_type', 'kpi_detail.kpi_description']);
+        $actor = $request->user();
+
+        if ($actor?->role?->name !== 'ADMIN') {
+            $visibleUserIds = array_merge(
+                [(int) ($actor?->id ?? 0)],
+                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+            );
+            $query->whereIn('user_id', array_values(array_unique($visibleUserIds)));
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -81,6 +93,8 @@ class KpiController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $kpi);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail KPI berhasil diambil.',
@@ -93,7 +107,11 @@ class KpiController extends Controller
      */
     public function store(StoreKpiRequest $request): JsonResponse
     {
+        $this->authorize('create', Kpi::class);
+
         $validated = $request->validated();
+        $target = new Kpi(['user_id' => (int) $validated['user_id']]);
+        $this->authorize('view', $target);
 
         $kpi = Kpi::create([
             'user_id' => $validated['user_id'],
@@ -151,7 +169,15 @@ class KpiController extends Controller
             ], 404);
         }
 
-        $kpi->update($request->validated());
+        $this->authorize('update', $kpi);
+
+        $validated = $request->validated();
+
+        if (array_key_exists('user_id', $validated)) {
+            $this->authorize('view', new Kpi(['user_id' => (int) $validated['user_id']]));
+        }
+
+        $kpi->update($validated);
         $kpi->load(['user', 'kpi_category', 'kpi_type', 'kpi_detail.kpi_description']);
 
         return response()->json([
@@ -174,6 +200,8 @@ class KpiController extends Controller
                 'message' => 'KPI tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $kpi);
 
         $kpi->kpi_detail()->delete();
         $kpi->delete();
@@ -201,6 +229,8 @@ class KpiController extends Controller
                 'message' => 'KPI tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('update', $kpi);
 
         $validated = $request->validated();
         $description = KpiDescription::find($validated['kpi_description_id']);
@@ -246,6 +276,9 @@ class KpiController extends Controller
             ], 404);
         }
 
+        $detail->loadMissing('kpi');
+        $this->authorize('update', $detail->kpi);
+
         $validated = $request->validated();
 
         $descId = $validated['kpi_description_id'] ?? $detail->kpi_description_id;
@@ -287,6 +320,9 @@ class KpiController extends Controller
                 'message' => 'Detail KPI tidak ditemukan.',
             ], 404);
         }
+
+        $detail->loadMissing('kpi');
+        $this->authorize('delete', $detail->kpi);
 
         $detail->delete();
 
@@ -375,6 +411,8 @@ class KpiController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', new Kpi(['user_id' => $userId]));
 
         $query = Kpi::with(['kpi_category', 'kpi_type', 'kpi_detail.kpi_description'])
             ->where('user_id', $userId);

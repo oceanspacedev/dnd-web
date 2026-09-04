@@ -54,7 +54,7 @@ class AnalyticsPerformanceTest extends TestCase
             $queries[] = strtolower($query->sql);
         });
 
-        $controller = app(AnalyticsController::class);
+        $controller = resolve(AnalyticsController::class);
         $method = new ReflectionMethod($controller, 'computeScoresForPeriod');
         $scores = $method->invoke($controller, '2026-02');
 

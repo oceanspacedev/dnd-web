@@ -341,6 +341,8 @@ class AnalyticsController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', new Kpi(['user_id' => $userId]));
+
         $periode = $this->validatedPeriod($request);
         $periodDate = Date::createFromFormat('!Y-m', $periode);
         $year = $periodDate->year;

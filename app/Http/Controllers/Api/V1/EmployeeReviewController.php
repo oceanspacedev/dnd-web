@@ -11,6 +11,7 @@ use App\Models\Attendance;
 use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
+use App\Services\ApprovalScopeService;
 use App\Services\KpiScoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,17 @@ class EmployeeReviewController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', EmployeeReview::class);
+
         $query = EmployeeReview::with('user');
+        $actor = $request->user();
+
+        if ($actor?->role?->name !== 'ADMIN') {
+            $query->whereIn(
+                'user_id',
+                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+            );
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -73,6 +84,8 @@ class EmployeeReviewController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $review);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail review karyawan berhasil diambil.',
@@ -85,7 +98,10 @@ class EmployeeReviewController extends Controller
      */
     public function store(StoreEmployeeReviewRequest $request): JsonResponse
     {
+        $this->authorize('create', EmployeeReview::class);
+
         $validated = $request->validated();
+        $this->authorize('view', new EmployeeReview(['user_id' => (int) $validated['user_id']]));
 
         $existing = EmployeeReview::where('user_id', $validated['user_id'])
             ->where('periode', $validated['periode'])
@@ -123,6 +139,8 @@ class EmployeeReviewController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $review);
+
         $validated = $request->validated();
         $review->update($validated);
         $review->load('user');
@@ -148,6 +166,8 @@ class EmployeeReviewController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $review);
+
         $review->delete();
 
         return response()->json([
@@ -169,6 +189,8 @@ class EmployeeReviewController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', new EmployeeReview(['user_id' => $userId]));
 
         $reviews = EmployeeReview::where('user_id', $userId)
             ->orderByDesc('periode')
@@ -194,6 +216,8 @@ class EmployeeReviewController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', new EmployeeReview(['user_id' => $userId]));
 
         $periode = $request->query('periode', Date::now()->format('Y-m'));
         $parts = explode('-', $periode);

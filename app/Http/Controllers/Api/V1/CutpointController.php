@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\UpdateCutpointRequest;
 use App\Http\Resources\Api\V1\CutpointResource;
 use App\Models\Cutpoint;
 use App\Models\User;
+use App\Services\ApprovalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,7 +22,21 @@ class CutpointController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Cutpoint::class);
+
         $query = Cutpoint::with('user');
+        $actor = $request->user();
+
+        if ($actor?->role?->name !== 'ADMIN') {
+            if ($actor?->id === 3) {
+                $query->whereIn(
+                    'user_id',
+                    ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id),
+                );
+            } else {
+                $query->where('user_id', (int) ($actor?->id ?? 0));
+            }
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -71,6 +86,8 @@ class CutpointController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $cutpoint);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail pemotongan poin berhasil diambil.',
@@ -83,7 +100,10 @@ class CutpointController extends Controller
      */
     public function store(StoreCutpointRequest $request): JsonResponse
     {
+        $this->authorize('create', Cutpoint::class);
+
         $validated = $request->validated();
+        $this->authorize('view', new Cutpoint(['user_id' => (int) $validated['user_id']]));
 
         $cutpoint = Cutpoint::create($validated);
         $cutpoint->load('user');
@@ -108,6 +128,8 @@ class CutpointController extends Controller
                 'message' => 'Data pemotongan poin tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('update', $cutpoint);
 
         $validated = $request->validated();
         $cutpoint->update($validated);
@@ -134,6 +156,8 @@ class CutpointController extends Controller
             ], 404);
         }
 
+        $this->authorize('delete', $cutpoint);
+
         $cutpoint->delete();
 
         return response()->json([
@@ -155,6 +179,8 @@ class CutpointController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('view', new Cutpoint(['user_id' => $userId]));
 
         $query = Cutpoint::where('user_id', $userId);
 

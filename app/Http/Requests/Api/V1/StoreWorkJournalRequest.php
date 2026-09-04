@@ -16,7 +16,9 @@ class StoreWorkJournalRequest extends FormRequest
 
     public function rules(): array
     {
-        $userId = $this->input('user_id', auth()->id());
+        $userId = auth()->user()?->role?->name === 'ADMIN' && $this->filled('user_id')
+            ? $this->input('user_id')
+            : auth()->id();
 
         return [
             'user_id' => ['nullable', 'exists:users,id'],

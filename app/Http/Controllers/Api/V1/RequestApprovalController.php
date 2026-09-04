@@ -17,12 +17,66 @@ use Illuminate\Support\Facades\Date;
  */
 class RequestApprovalController extends Controller
 {
+    private function actorIsAdmin(): bool
+    {
+        return (bool) (auth()->user()?->role?->name === 'ADMIN');
+    }
+
+    private function assertCanReview(TodoRequest $todoRequest): void
+    {
+        $actor = auth()->user();
+
+        abort_if($actor === null, 401);
+
+        if ($actor->role?->name === 'ADMIN') {
+            return;
+        }
+
+        abort_if(
+            (int) $todoRequest->approval_id !== (int) $actor->id,
+            403,
+            'Anda tidak memiliki akses untuk menyetujui pengajuan ini.',
+        );
+    }
+
+    private function assertCanModify(TodoRequest $todoRequest): void
+    {
+        $actor = auth()->user();
+
+        abort_if($actor === null, 401);
+
+        if ($actor->role?->name === 'ADMIN') {
+            return;
+        }
+
+        if ((int) $todoRequest->user_id === (int) $actor->id) {
+            return;
+        }
+
+        abort(403, 'Anda tidak memiliki akses untuk memodifikasi pengajuan ini.');
+    }
+
+    private function scopedRequestQuery()
+    {
+        $actor = auth()->user();
+
+        $query = TodoRequest::with(['user', 'approveId', 'approvedBy']);
+
+        if ($this->actorIsAdmin() || ! $actor) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($actor) {
+            $q->where('user_id', $actor->id)->orWhere('approval_id', $actor->id);
+        });
+    }
+
     /**
      * Get paginated list of task requests with filters.
      */
     public function index(Request $request): JsonResponse
     {
-        $query = TodoRequest::with(['user', 'approveId', 'approvedBy']);
+        $query = $this->scopedRequestQuery();
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -68,7 +122,7 @@ class RequestApprovalController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $todoRequest = TodoRequest::with(['user', 'approveId', 'approvedBy'])->find($id);
+        $todoRequest = $this->scopedRequestQuery()->find($id);
 
         if (! $todoRequest) {
             return response()->json([
@@ -92,9 +146,9 @@ class RequestApprovalController extends Controller
         $validated = $request->validated();
         $currentUser = auth()->user();
 
-        $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+        $validated['user_id'] = $currentUser?->id;
         $validated['jenistodo'] = strtolower($validated['jenistodo']);
-        $validated['approval_id'] = $validated['approval_id'] ?? $currentUser?->approval_id;
+        $validated['approval_id'] = $currentUser?->approval_id;
         $validated['status'] = 'PENDING';
 
         $todoRequest = TodoRequest::create($validated);
@@ -121,6 +175,8 @@ class RequestApprovalController extends Controller
             ], 404);
         }
 
+        $this->assertCanModify($todoRequest);
+
         if ($todoRequest->status !== 'PENDING') {
             return response()->json([
                 'success' => false,
@@ -129,6 +185,7 @@ class RequestApprovalController extends Controller
         }
 
         $validated = $request->validated();
+        unset($validated['approval_id']);
         if (isset($validated['jenistodo'])) {
             $validated['jenistodo'] = strtolower($validated['jenistodo']);
         }
@@ -155,6 +212,17 @@ class RequestApprovalController extends Controller
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
             ], 404);
+        }
+
+        if (! $this->actorIsAdmin()) {
+            $this->assertCanModify($todoRequest);
+        }
+
+        if ($todoRequest->status !== 'PENDING') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Pengajuan yang sudah diproses tidak dapat dihapus.',
+            ], 422);
         }
 
         $todoRequest->delete();
@@ -210,6 +278,15 @@ class RequestApprovalController extends Controller
             ], 404);
         }
 
+        $this->assertCanReview($todoRequest);
+
+        if ($todoRequest->status !== 'PENDING') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya pengajuan dengan status PENDING yang dapat disetujui.',
+            ], 422);
+        }
+
         $todoRequest->update([
             'status' => 'APPROVED',
             'approved_by' => auth()->id(),
@@ -237,6 +314,15 @@ class RequestApprovalController extends Controller
                 'success' => false,
                 'message' => 'Data pengajuan izin tidak ditemukan.',
             ], 404);
+        }
+
+        $this->assertCanReview($todoRequest);
+
+        if ($todoRequest->status !== 'PENDING') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya pengajuan dengan status PENDING yang dapat ditolak.',
+            ], 422);
         }
 
         $todoRequest->update([

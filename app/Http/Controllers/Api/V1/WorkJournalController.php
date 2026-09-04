@@ -23,7 +23,18 @@ class WorkJournalController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', WorkJournal::class);
+
         $query = WorkJournal::with(['user.divisi', 'user.area', 'user.position']);
+        $actor = $request->user();
+
+        if ($actor?->role?->name !== 'ADMIN') {
+            $visibleUserIds = array_merge(
+                [(int) ($actor?->id ?? 0)],
+                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
+            );
+            $query->whereIn('user_id', array_values(array_unique($visibleUserIds)));
+        }
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -186,6 +197,8 @@ class WorkJournalController extends Controller
             ], 404);
         }
 
+        $this->authorize('view', $journal);
+
         return response()->json([
             'success' => true,
             'message' => 'Detail jurnal harian berhasil diambil.',
@@ -198,8 +211,15 @@ class WorkJournalController extends Controller
      */
     public function store(StoreWorkJournalRequest $request): JsonResponse
     {
+        $this->authorize('create', WorkJournal::class);
+
         $validated = $request->validated();
-        $validated['user_id'] = $validated['user_id'] ?? auth()->id();
+        $currentUser = auth()->user();
+        if ($currentUser?->role?->name !== 'ADMIN') {
+            $validated['user_id'] = $currentUser?->id;
+        } else {
+            $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+        }
         $validated['date'] = $validated['date'] ?? Date::now()->toDateString();
 
         $journal = WorkJournal::create($validated);
@@ -226,6 +246,8 @@ class WorkJournalController extends Controller
             ], 404);
         }
 
+        $this->authorize('update', $journal);
+
         $validated = $request->validated();
         $journal->update($validated);
         $journal->load(['user.divisi', 'user.area', 'user.position']);
@@ -250,6 +272,8 @@ class WorkJournalController extends Controller
                 'message' => 'Data jurnal harian tidak ditemukan.',
             ], 404);
         }
+
+        $this->authorize('delete', $journal);
 
         $journal->delete();
 

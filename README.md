@@ -17,7 +17,7 @@ DnD menyediakan dua jalur penggunaan:
 Bahasa utama aplikasi adalah Bahasa Indonesia dan seluruh perhitungan waktu menggunakan zona waktu `Asia/Jakarta`.
 
 > [!IMPORTANT]
-> DnD adalah aplikasi internal. API sudah memakai autentikasi Sanctum, tetapi sebagian besar endpoint bisnis belum menerapkan pemeriksaan role dan ownership per objek. Resource Filament umumnya memakai policy dan scoped query, tetapi custom widget, action, import, dan export belum semuanya memiliki guard yang setara. Jangan membuka aplikasi ke klien yang tidak tepercaya sebelum audit authorization selesai.
+> DnD adalah aplikasi internal. API memakai autentikasi Sanctum dan endpoint domain utama menerapkan pemeriksaan role/scope untuk resource yang dapat mengubah atau menampilkan data per karyawan. Resource Filament umumnya memakai policy dan scoped query, tetapi custom widget, action, import, dan export belum semuanya memiliki guard yang setara. Jangan membuka aplikasi ke klien yang tidak tepercaya sebelum audit authorization selesai.
 
 ## Daftar isi
 
@@ -162,7 +162,7 @@ Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tan
 5. Pada widget panel, non-admin dapat mengubah checklist sampai akhir bulan ditambah grace period `KPI_CHECKLIST_LOCK_DAYS`.
 6. Nilai KPI, kehadiran, review, dan cutpoint dirangkum pada leaderboard web.
 
-Deadline tersebut belum ditegakkan oleh endpoint mutasi KPI API. Widget panel juga belum melakukan authorization ulang terhadap ID objek saat mutasi, sehingga keduanya perlu di-hardening sebelum dianggap sebagai boundary keamanan.
+Deadline tersebut belum ditegakkan oleh endpoint mutasi KPI API. Widget panel juga belum melakukan authorization ulang terhadap ID objek saat mutasi, sehingga keduanya tetap perlu di-hardening sebelum dianggap sebagai boundary keamanan.
 
 Jenis indikator KPI:
 
@@ -212,13 +212,13 @@ Perilaku berikut adalah aturan pada panel web:
 
 Opsi “PDF” saat ini menghasilkan halaman HTML siap cetak yang dapat disimpan sebagai PDF dari browser. Opsi Word menghasilkan dokumen HTML-compatible dengan ekstensi `.doc`, bukan `.docx` native.
 
-API jurnal belum menegakkan ownership secara konsisten, dapat menerima `user_id` lain, dan validasi satu jurnal per tanggal dapat terlewati pada jalur tertentu. Jangan mengandalkan aturan panel sebagai jaminan authorization API.
+API jurnal kini membatasi list/detail/mutasi ke pemilik atau scope atasan dan mengabaikan `user_id` yang mencoba mengubah pemilik saat create. Validasi satu jurnal per tanggal masih perlu constraint database serta pengecekan ulang pada jalur update.
 
 ### 5. Request approval
 
 Request API secara normal dibuat dengan status `PENDING` dan approver default dari `approval_id` user yang sedang login, bukan dari user lain yang mungkin dikirim melalui payload. Endpoint approve/reject mencatat status `APPROVED` atau `REJECTED`, user pemroses, dan waktu pemrosesan.
 
-Endpoint tersebut ditujukan untuk approver, tetapi implementasi saat ini belum memastikan pemanggil sama dengan `approval_id`, belum mewajibkan status awal `PENDING`, dan endpoint create masih menerima `user_id`/`approval_id` dari request. Anggap alur ini belum aman untuk client yang tidak tepercaya.
+Endpoint tersebut ditujukan untuk approver. API kini memaksa requester/approver dari user terautentikasi, memastikan hanya approver assigned (atau admin) yang dapat approve/reject, dan membatasi perubahan/penghapusan pada pemilik/admin serta status `PENDING`.
 
 Workflow ini berbeda dari `requires_approval` pada role dan berbeda dari jurnal harian.
 
@@ -767,7 +767,7 @@ Pada setiap recreate image, service `release` melakukan probe write/read/delete 
 
 Daftar ini adalah batas perilaku aktual, bukan fitur yang dijanjikan:
 
-1. **Authorization API belum setara dengan panel.** Mayoritas controller API hanya bergantung pada token Sanctum. Mutasi jurnal, request approval, KPI, dan domain lain belum konsisten memanggil policy/ownership check; request approval juga belum memverifikasi assigned approver atau transisi dari `PENDING`.
+1. **Authorization API belum setara dengan panel.** KPI, kehadiran, review, cutpoint, activity, overopen, jurnal, request approval, user, dan reminder sudah memiliki guard role/scope pada endpoint utama. Residual audit masih diperlukan untuk leaderboard/export analytics, custom widget, import/export, dan endpoint domain lama lainnya.
 2. **Guard custom panel belum seragam.** Widget `ChecklistKPI` belum meng-authorize ID objek ketika mutasi. Form user memungkinkan `MANAGER`/`COORDINATOR` membuat user atau mengubah bawahan ke role berprivilege termasuk `ADMIN`; import Excel dapat memperbarui/restore user secara luas dan membuat master organisasi. Nested create pada form KPI/User juga dapat membuat indikator/posisi tanpa mengikuti policy resource master. UI visibility bukan pengganti authorization action.
 3. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service.
 4. **API KPI hanya mendukung sebagian workflow.** API belum membuat relasi `parent_id` untuk roll-up extra task dan belum menegakkan lock periode pada endpoint mutasi.
