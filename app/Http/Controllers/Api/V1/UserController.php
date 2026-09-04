@@ -12,8 +12,8 @@ use App\Services\ApprovalScopeService;
 use App\Services\UserJsonImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * @tags Users / Karyawan
@@ -275,11 +275,19 @@ class UserController extends Controller
         ]);
 
         $file = $request->file('file');
-        $storedPath = $file->store('imports/json', 'local');
-        $absolutePath = Storage::disk('local')->path($storedPath);
 
         try {
-            $summary = UserJsonImportService::importFromFile($absolutePath);
+            if (! $file instanceof UploadedFile) {
+                throw new \RuntimeException('File upload tidak valid.');
+            }
+
+            $content = $file->get();
+
+            if (! is_string($content)) {
+                throw new \RuntimeException('File upload tidak dapat dibaca.');
+            }
+
+            $summary = UserJsonImportService::importFromContent($content);
 
             return response()->json([
                 'success' => true,

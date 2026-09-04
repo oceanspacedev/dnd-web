@@ -7,6 +7,7 @@ use App\Filament\Exports\UserExporter;
 use App\Filament\Resources\Users\UserResource;
 use App\Imports\UsersImport;
 use App\Services\UserJsonImportService;
+use App\Support\StoredSpreadsheetUpload;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\CreateAction;
@@ -17,7 +18,6 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Log;
 use Maatwebsite\Excel\Facades\Excel;
@@ -61,6 +61,10 @@ class ListUsers extends ListRecords
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File Excel:')
+                            ->required()
+                            ->directory('imports/users')
+                            ->visibility('private')
+                            ->preventFilePathTampering()
                             ->acceptedFileTypes([
                                 'application/vnd.ms-excel',
                                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -86,7 +90,6 @@ class ListUsers extends ListRecords
                                 'text/plain',
                             ])
                             ->maxSize(12 * 1024)
-                            ->disk('local')
                             ->visibility('private')
                             ->storeFiles(false)
                             ->helperText('Setiap user baru wajib memiliki field initial_password/password yang unik (minimal 12 karakter, maksimal 72 byte). Field ini diabaikan untuk user existing.'),
@@ -124,46 +127,8 @@ class ListUsers extends ListRecords
                 return;
             }
 
-            Log::info('User import file data:', ['file' => $data['file']]);
-
-            if (is_array($data['file']) && count($data['file']) > 0) {
-                $filePath = $data['file'][0];
-            } else {
-                $filePath = $data['file'];
-            }
-
-            if (Storage::disk('public')->exists($filePath)) {
-                $fullPath = Storage::disk('public')->path($filePath);
-            } elseif (Storage::disk('local')->exists($filePath)) {
-                $fullPath = Storage::disk('local')->path($filePath);
-            } else {
-                $fullPath = $filePath;
-
-                if (filter_var($filePath, FILTER_VALIDATE_URL) || strpos($filePath, 'livewire-tmp') !== false) {
-                    $import = new UsersImport;
-                    Excel::import($import, $filePath);
-
-                    goto summarize_import;
-                }
-            }
-
-            if (! file_exists($fullPath)) {
-                Log::error('User import file not found at path: '.$fullPath);
-                Log::info('Original file data: ', ['data' => $data['file']]);
-
-                Notification::make()
-                    ->title('Error: File not found. Please try uploading again.')
-                    ->body('Technical details: File path could not be resolved correctly.')
-                    ->danger()
-                    ->send();
-
-                return;
-            }
-
             $import = new UsersImport;
-            Excel::import($import, $fullPath);
-
-            summarize_import:
+            StoredSpreadsheetUpload::import($import, $data['file'], 'imports/users');
 
             $errors = method_exists($import, 'getErrors') ? $import->getErrors() : [];
             $errorCount = count($errors);
@@ -319,5 +284,3 @@ class ListUsers extends ListRecords
         ];
     }
 }
-
-// user/export

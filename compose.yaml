@@ -1,0 +1,160 @@
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: production
+  init: true
+  environment: &app-environment
+    APP_NAME: ${APP_NAME:-DnD}
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_KEY: ${APP_KEY:?APP_KEY wajib diisi}
+    APP_PREVIOUS_KEYS: ${APP_PREVIOUS_KEYS:-}
+    APP_URL: ${APP_URL:?APP_URL wajib diisi}
+    APP_LOCALE: ${APP_LOCALE:-id}
+    APP_FALLBACK_LOCALE: ${APP_FALLBACK_LOCALE:-en}
+    APP_FAKER_LOCALE: ${APP_FAKER_LOCALE:-id_ID}
+    APP_MAINTENANCE_DRIVER: cache
+    APP_MAINTENANCE_STORE: database
+    BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+    LOG_CHANNEL: stderr
+    LOG_DEPRECATIONS_CHANNEL: ${LOG_DEPRECATIONS_CHANNEL:-null}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    DB_CONNECTION: mariadb
+    DB_HOST: database
+    DB_PORT: "3306"
+    DB_DATABASE: ${DB_DATABASE:?DB_DATABASE wajib diisi}
+    DB_USERNAME: ${DB_USERNAME:?DB_USERNAME wajib diisi}
+    DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi}
+    DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-360}
+    SESSION_DRIVER: database
+    SESSION_LIFETIME: ${SESSION_LIFETIME:-120}
+    SESSION_ENCRYPT: ${SESSION_ENCRYPT:-false}
+    SESSION_PATH: ${SESSION_PATH:-/}
+    SESSION_DOMAIN: ${SESSION_DOMAIN:-null}
+    SESSION_SECURE_COOKIE: "true"
+    BROADCAST_CONNECTION: ${BROADCAST_CONNECTION:-log}
+    CACHE_STORE: database
+    QUEUE_CONNECTION: database
+    FILESYSTEM_DISK: s3
+    CACHE_PREFIX: ${CACHE_PREFIX:-dnd-cache-}
+    REDIS_CLIENT: ${REDIS_CLIENT:-phpredis}
+    REDIS_HOST: ${REDIS_HOST:-127.0.0.1}
+    REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+    REDIS_PORT: ${REDIS_PORT:-6379}
+    MAIL_MAILER: ${MAIL_MAILER:-log}
+    MAIL_SCHEME: ${MAIL_SCHEME:-null}
+    MAIL_HOST: ${MAIL_HOST:-127.0.0.1}
+    MAIL_PORT: ${MAIL_PORT:-2525}
+    MAIL_USERNAME: ${MAIL_USERNAME:-null}
+    MAIL_PASSWORD: ${MAIL_PASSWORD:-null}
+    MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-hello@example.com}
+    MAIL_FROM_NAME: "${MAIL_FROM_NAME:-${APP_NAME:-DnD}}"
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID wajib diisi}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY wajib diisi}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    AWS_BUCKET: ${AWS_BUCKET:?AWS_BUCKET wajib diisi}
+    AWS_ENDPOINT: ${AWS_ENDPOINT:?AWS_ENDPOINT wajib diisi}
+    AWS_URL: ${AWS_URL:?AWS_URL wajib diisi}
+    AWS_USE_PATH_STYLE_ENDPOINT: ${AWS_USE_PATH_STYLE_ENDPOINT:-true}
+    AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}
+    AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}
+    KPI_CHECKLIST_LOCK_DAYS: ${KPI_CHECKLIST_LOCK_DAYS:-5}
+    KPI_CACHE_TTL_CATEGORIES_SECONDS: ${KPI_CACHE_TTL_CATEGORIES_SECONDS:-300}
+    KPI_CACHE_TTL_DESCRIPTIONS_SECONDS: ${KPI_CACHE_TTL_DESCRIPTIONS_SECONDS:-300}
+    KPI_CACHE_TTL_POSITIONS_SECONDS: ${KPI_CACHE_TTL_POSITIONS_SECONDS:-300}
+    KPI_REMINDER_CACHE_STORE: kpi_reminders
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    OPENAI_URL: ${OPENAI_URL:-https://api.openai.com/v1}
+    OPENAI_STORE: ${OPENAI_STORE:-true}
+    API_VERSION: ${API_VERSION:-0.0.1}
+    SCRAMBLE_DEV_TOOLS: ${SCRAMBLE_DEV_TOOLS:-false}
+    SCRAMBLE_CACHE_STORE: ${SCRAMBLE_CACHE_STORE:-null}
+    MEKAYA_DOCS_ENABLED: ${MEKAYA_DOCS_ENABLED:-false}
+    MEKAYA_DOCS_URL: ${MEKAYA_DOCS_URL:-null}
+    MEKAYA_DOCS_LABEL: ${MEKAYA_DOCS_LABEL:-null}
+    MEKAYA_DOCS_NEW_TAB: ${MEKAYA_DOCS_NEW_TAB:-true}
+    WA_API_URL: ${WA_API_URL:-https://waghub.mekayastudio.com/api/v1/messages}
+    WA_API_KEY: ${WA_API_KEY:-}
+    WA_CONNECT_TIMEOUT: ${WA_CONNECT_TIMEOUT:-5}
+    WA_API_TIMEOUT: ${WA_API_TIMEOUT:-15}
+    WA_OTP_EXPIRES_IN: ${WA_OTP_EXPIRES_IN:-60}
+    WA_OTP_MESSAGE: "${WA_OTP_MESSAGE:-Kode OTP {app_name} Anda: {otp}. Berlaku {expires_in}. Jangan bagikan kode ini kepada siapa pun.}"
+services:
+  database:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE:?DB_DATABASE wajib diisi}
+      MARIADB_USER: ${DB_USERNAME:?DB_USERNAME wajib diisi}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD wajib diisi}
+      MARIADB_AUTO_UPGRADE: "1"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    stop_grace_period: 1m
+
+  release:
+    <<: *app
+    restart: "on-failure:5"
+    command: ["release"]
+    environment:
+      <<: *app-environment
+      LARAVEL_OPTIMIZE: "false"
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/dnd-release-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5m
+
+  web:
+    <<: *app
+    restart: unless-stopped
+    command: ["web"]
+    depends_on:
+      release:
+        condition: service_healthy
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:8080/up') === false ? 1 : 0);"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
+  worker:
+    <<: *app
+    restart: unless-stopped
+    command: ["worker"]
+    depends_on:
+      release:
+        condition: service_healthy
+    stop_grace_period: 330s
+
+  scheduler:
+    <<: *app
+    restart: unless-stopped
+    command: ["scheduler"]
+    depends_on:
+      release:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+volumes:
+  db_data:

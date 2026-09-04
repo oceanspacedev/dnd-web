@@ -14,6 +14,7 @@
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
+        "league/flysystem-aws-s3-v3": "^3.25.1",
         "livewire/livewire": "^3.6.4",
         "maatwebsite/excel": "^4.0",
         "phpoffice/phpspreadsheet": "^5.8.1"
@@ -48,6 +49,7 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
+            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --force",
             "npm install",
             "npm run build"

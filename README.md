@@ -34,7 +34,7 @@ Bahasa utama aplikasi adalah Bahasa Indonesia dan seluruh perhitungan waktu meng
 - [Scheduler dan reminder KPI](#scheduler-dan-reminder-kpi)
 - [Workflow development](#workflow-development)
 - [Testing dan quality check](#testing-dan-quality-check)
-- [Deployment checklist](#deployment-checklist)
+- [Deployment Docker](#deployment-docker)
 - [Batasan dan technical debt](#batasan-dan-technical-debt)
 - [Troubleshooting](#troubleshooting)
 
@@ -62,7 +62,7 @@ DnD menyatukan proses pengelolaan performa dan pekerjaan karyawan dalam satu sis
 - SSO dan reset password mandiri. Reset password pada halaman login sengaja dinonaktifkan.
 - Approval khusus jurnal harian. Jurnal tidak memiliki status `PENDING`, `APPROVED`, atau `REJECTED`.
 - File PDF/DOCX native untuk rekap jurnal. Format saat ini dijelaskan pada bagian [Jurnal harian](#4-jurnal-harian).
-- Pipeline CI/CD dan environment Docker siap pakai; keduanya belum tersedia di repository.
+- Pipeline CI/CD lintas platform; repository menyediakan image dan Compose production, sedangkan pemicu deployment tetap dikelola Coolify, Dokploy, atau CI eksternal.
 
 ## Fitur utama
 
@@ -135,7 +135,7 @@ flowchart LR
 3. Setiap user dihubungkan ke atasan melalui `approval_id`.
 4. Policy dan scoped query menggunakan hierarchy tersebut untuk membatasi resource panel web; custom action tetap harus melakukan authorization eksplisit.
 
-User dapat dibuat manual, di-import dari Excel, atau disinkronkan dari JSON Talenta melalui panel admin. Import JSON memiliki perilaku khusus:
+User dapat dibuat manual, di-import dari Excel, atau disinkronkan dari JSON Talenta melalui panel admin. Endpoint `POST /api/v1/users/import-json` menyediakan alur JSON yang sama khusus untuk user ber-role `ADMIN`. Import JSON memiliki perilaku khusus:
 
 - User yang sudah ada hanya diperbarui pada email dan nomor HP yang dikirim eksplisit.
 - User baru wajib memiliki employee ID, nama, posisi, dan password awal minimal 12 karakter serta maksimal 72 byte. Password hanya diwajibkan unik antar-user baru dalam file import yang sama, bukan terhadap seluruh user di database.
@@ -143,7 +143,7 @@ User dapat dibuat manual, di-import dari Excel, atau disinkronkan dari JSON Tale
 - Import ditolak bila profil peer ambigu, supervisor sudah diarsipkan, identifier konflik, atau nomor kontak tidak valid.
 - Nomor HP dinormalisasi ke format WhatsApp Indonesia `08...`.
 
-Jalur import JSON yang didukung untuk operasional saat ini adalah panel admin. Lihat keterbatasan endpoint API pada bagian [Batasan dan technical debt](#batasan-dan-technical-debt).
+Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tanpa menyimpan file bisnis pada filesystem container.
 
 #### Manajemen dan mutasi posisi karyawan di panel
 
@@ -253,6 +253,9 @@ flowchart TB
     Reminder --> Models
     Models --> DB[(MySQL / MariaDB)]
     Services --> AI[Laravel AI / OpenAI opsional]
+    Filament --> ObjectStorage[(S3-compatible object storage)]
+    Controllers --> ObjectStorage
+    Worker[Queue worker] --> ObjectStorage
 ```
 
 ### Peta source code
@@ -281,11 +284,13 @@ flowchart TB
 | Backend | PHP >=8.3, Laravel 12 |
 | Admin UI | Filament 4, Livewire 3, Mekaya Theme |
 | Frontend build | Vite 7, Tailwind CSS 4, Axios |
-| Database utama | MySQL/MariaDB |
+| Database | SQLite untuk local default; MySQL/MariaDB untuk deployment utama |
+| Object storage | Laravel Flysystem S3; mendukung endpoint S3-compatible |
 | API auth | Laravel Sanctum 4 |
 | API docs | Dedoc Scramble / OpenAPI |
 | Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
+| Deployment | Docker Compose, PHP 8.3, FrankenPHP/Caddy |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
 
@@ -297,8 +302,8 @@ flowchart TB
 - PHP 8.3 atau lebih baru.
 - Composer 2.
 - Node.js 24 LTS direkomendasikan; Node.js 22 LTS masih didukung. Jangan memakai Node.js 20 yang sudah EOL.
-- MySQL 8+ atau MariaDB yang kompatibel.
-- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `pdo_mysql`, `pdo_sqlite` (untuk test), `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`.
+- SQLite untuk setup local default; MySQL 8+ atau MariaDB yang kompatibel untuk deployment utama.
+- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`; gunakan `pdo_sqlite` untuk local/test atau `pdo_mysql` untuk MySQL/MariaDB.
 
 SMTP, WhatsApp gateway, dan OpenAI bersifat opsional untuk development dasar.
 
@@ -319,7 +324,13 @@ Jangan menjalankan `composer update` hanya untuk setup; gunakan versi dependency
 
 ### Konfigurasi database
 
-Buat database lokal dan isi koneksinya di `.env`:
+Seperti skeleton Laravel 12, `.env.example` memakai SQLite agar setup local tidak membutuhkan server database. Buat file database bila menjalankan langkah setup secara manual:
+
+```bash
+php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
+```
+
+Untuk memakai MySQL/MariaDB, ganti koneksi di `.env` dan buat database kosong:
 
 ```dotenv
 APP_NAME=DnD
@@ -357,9 +368,14 @@ Jangan commit `.env` atau credential apa pun ke Git.
 |---|:---:|---|
 | `APP_KEY` | Ya | Kunci enkripsi Laravel; dibuat dengan `php artisan key:generate` |
 | `APP_URL` | Ya | Base URL aplikasi dan link pada reminder |
-| `DB_*` | Ya | Koneksi database |
+| `DB_CONNECTION` / `DB_*` | Ya | Driver dan koneksi database; `DB_HOST` dan credential hanya diperlukan untuk database server |
 | `CACHE_STORE` | Ya | Cache default Laravel; default proyek `database` |
-| `FILESYSTEM_DISK` | Ya | Disk filesystem default; `local` memakai `storage/app/private` |
+| `FILESYSTEM_DISK` | Ya | Disk filesystem default; local development memakai `local`, sedangkan Compose production memakai `s3` |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Untuk S3 | Credential runtime dengan akses minimum ke bucket aplikasi |
+| `AWS_BUCKET` / `AWS_DEFAULT_REGION` | Untuk S3 | Bucket dan region object storage |
+| `AWS_ENDPOINT` / `AWS_URL` | Untuk S3-compatible | Endpoint API dan base URL bucket |
+| `AWS_USE_PATH_STYLE_ENDPOINT` | Untuk S3-compatible | Aktifkan bila provider memerlukan URL path-style; default Compose `true` |
+| `AWS_*_CHECKSUM_*` | Tidak | Compose memakai mode `when_required` untuk kompatibilitas provider S3 non-AWS |
 | `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek `database` |
 | `QUEUE_CONNECTION` | Ya | Backend queue; default proyek `database` |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
@@ -375,7 +391,7 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `API_VERSION` | Tidak | Versi yang tampil pada OpenAPI; default `0.0.1` |
 | `SCRAMBLE_DEV_TOOLS` | Tidak | Menyalakan developer tools pada halaman dokumentasi API |
 
-Gunakan nama konfigurasi Laravel 12 `CACHE_STORE` dan `FILESYSTEM_DISK`. Nama lama `CACHE_DRIVER` dan `FILESYSTEM_DRIVER` tidak lagi digunakan oleh konfigurasi proyek.
+Blok inti `.env.example` mengikuti skeleton Laravel 12, termasuk `DB_CONNECTION=sqlite`, `CACHE_STORE`, `FILESYSTEM_DISK`, `BROADCAST_CONNECTION`, dan `QUEUE_CONNECTION`. Nama lama `CACHE_DRIVER`, `FILESYSTEM_DRIVER`, dan `BROADCAST_DRIVER` tidak digunakan oleh konfigurasi proyek.
 
 Variabel opsional OpenAI dan Scramble sudah tersedia di `.env.example`; biarkan API key kosong bila fitur AI tidak digunakan dan jangan memasukkan credential ke Git.
 
@@ -459,7 +475,6 @@ Referensi API:
 - UI OpenAPI: `/docs/api`
 - Spesifikasi JSON: `/docs/api.json`
 - Route source: [`routes/api.php`](routes/api.php)
-- Postman collection: [`dnd_auth_api_postman_collection.json`](dnd_auth_api_postman_collection.json) — koleksi parsial; metadata lama masih menyebut “Modul 1” dan isinya belum mencakup seluruh route API
 
 Dokumentasi Scramble otomatis dapat diakses pada `APP_ENV=local`. Pada production, route dokumentasi saat ini mengembalikan 403 karena belum ada Gate `viewApiDocs`; konfigurasi akses harus dibuat secara eksplisit jika dokumentasi production memang dibutuhkan.
 
@@ -506,7 +521,7 @@ php artisan kpi:send-reminders --setting-id=<id> --dry-run
 
 Hapus `--dry-run` hanya setelah mail, WhatsApp, recipient, template, dan tanggal trigger sudah diverifikasi.
 
-### Production cron
+### Production scheduler
 
 Laravel scheduler harus dipanggil setiap menit:
 
@@ -515,6 +530,8 @@ Laravel scheduler harus dipanggil setiap menit:
 ```
 
 Temukan dan verifikasi path binary PHP dengan `command -v php` pada server. Pastikan log scheduler dipantau dan dirotasi, atau arahkan stdout/stderr ke sistem logging deployment. Jangan membuang error scheduler tanpa monitoring.
+
+Deployment Docker tidak memerlukan cron host. Service `scheduler` pada `compose.yaml` menjalankan `php artisan schedule:work` dan harus dipertahankan tepat satu replica.
 
 Pada deployment multi-server, `KPI_REMINDER_CACHE_STORE` harus menunjuk cache store bersama yang mendukung atomic lock. Migration repository sudah menyediakan tabel cache khusus untuk default store `kpi_reminders`.
 
@@ -621,35 +638,93 @@ npm audit
 
 Konfigurasi Rector memakai level Laravel 12 (`UP_TO_LARAVEL_120`). Tetap review diff sebelum menerapkan refactor otomatis secara massal.
 
-## Deployment checklist
+## Deployment Docker
 
-Repository belum menyediakan pipeline deployment. Minimum checklist untuk server:
+Repository menyediakan image production multi-stage dan `compose.yaml` yang sama untuk Coolify maupun Dokploy. Image memakai PHP 8.3 dengan FrankenPHP, memasang dependency Composer, membangun asset Vite dengan Node.js 24 LTS, lalu menjalankan aplikasi sebagai user non-root.
 
-1. Gunakan PHP 8.3 atau lebih baru, aktifkan extension yang disyaratkan termasuk `ext-intl` dan `ext-iconv`, lalu jalankan preflight `composer check-platform-reqs --lock --no-dev`.
-2. Set `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL`, database, mail, WhatsApp, dan secret lain dengan benar. Gunakan `CACHE_STORE` serta `FILESYSTEM_DISK`, bukan nama environment lama `CACHE_DRIVER`/`FILESYSTEM_DRIVER`.
-3. Jadikan folder `public/` sebagai document root web server.
-4. Pastikan `storage/` dan `bootstrap/cache/` writable oleh user web server.
-5. Backup database dan file storage, periksa `php artisan migrate:status`, lalu review migration pending. Fresh database maupun database existing didukung.
-6. Install dan build:
+### Susunan service
 
-   ```bash
-   composer install --no-dev --prefer-dist --optimize-autoloader
-   npm ci --include=dev
-   npm run build
-   php artisan migrate --force
-   php artisan storage:link
-   php artisan optimize
-   php artisan filament:optimize
-   ```
+| Service | Fungsi |
+|---|---|
+| `database` | Menjalankan MariaDB 11.8 LTS pada network internal Compose |
+| `release` | Memverifikasi object storage, menjalankan migration, lalu menjadi readiness gate untuk service lain |
+| `web` | Menyajikan Laravel pada port internal `8080` dan healthcheck `/up` |
+| `worker` | Menjalankan database queue worker untuk export dan background job |
+| `scheduler` | Menjalankan Laravel scheduler untuk reminder KPI |
 
-   Jalankan `php artisan storage:link` pada first deploy atau verifikasi link yang sudah ada sebelum melewati langkah ini.
+Service aplikasi memakai image yang sama dan bersifat stateless: upload, file private, upload sementara Livewire, dan hasil export queue disimpan pada object storage S3-compatible. Hanya MariaDB yang memakai named volume `db_data`. Framework cache, temporary file PHP/Excel, serta compiled view bersifat ephemeral per-container; log diarahkan ke `stderr`.
 
-7. Pasang cron Laravel scheduler setiap menit dan hubungkan error ke monitoring.
-8. Verifikasi `/up`, login panel, asset, export, dan reminder dengan dry-run.
-9. Review `config/cors.php`; konfigurasi saat ini mengizinkan origin `*`.
-10. `bootstrap/app.php` mempercayai forwarded headers dari semua proxy. Pastikan origin hanya dapat diakses melalui reverse proxy/load balancer tepercaya, atau batasi daftar proxy sebelum production.
-11. Jangan menjalankan seeder data contoh di production.
-12. Jangan membuka `/api/v1` ke klien tak tepercaya sebelum authorization audit selesai.
+> [!IMPORTANT]
+> Compose sengaja memuat MariaDB agar seluruh stack memakai network yang sama tanpa konfigurasi khusus Coolify atau Dokploy. Tidak ada host port, custom network, `container_name`, label Traefik, atau volume file aplikasi. Domain tetap diatur melalui UI platform dan hanya diarahkan ke service `web`.
+
+### Environment production
+
+Gunakan `.env.example` hanya sebagai daftar variabel dan default development Laravel 12. Jangan menyalin nilai development mentah ke production. Minimum nilai yang harus dibuat di panel deployment:
+
+```dotenv
+APP_KEY=base64:<kunci-yang-dibuat-sekali>
+APP_URL=https://dnd.example.com
+
+DB_DATABASE=dnd
+DB_USERNAME=dnd
+DB_PASSWORD=<password-kuat>
+DB_ROOT_PASSWORD=<password-root-berbeda>
+
+AWS_ACCESS_KEY_ID=<access-key-runtime>
+AWS_SECRET_ACCESS_KEY=<secret-key-runtime>
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=<nama-bucket>
+AWS_ENDPOINT=https://s3.example.com
+AWS_URL=https://s3.example.com/<nama-bucket>
+AWS_USE_PATH_STYLE_ENDPOINT=true
+```
+
+Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. `DB_PASSWORD` dan `DB_ROOT_PASSWORD` harus berbeda serta dipertahankan setelah volume database terbentuk. Compose menetapkan `DB_CONNECTION=mariadb`, `DB_HOST=database`, `DB_PORT=3306`, `FILESYSTEM_DISK=s3`, serta memaksa `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, maintenance/cache/session/queue berbasis database, dan log `stderr`. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
+
+Jangan commit credential object storage atau menjadikannya Docker build argument. Simpan access key dan secret key hanya sebagai runtime secret di panel platform. Gunakan credential khusus aplikasi yang dibatasi ke bucket/prefix DnD dengan izin `ListBucket`, `GetObject`, `PutObject`, dan `DeleteObject`; jangan memakai credential administrator dan jangan membuat bucket publik. Disk S3 dikonfigurasi *fail-loud*, sehingga kegagalan write tidak boleh dianggap sebagai upload/export berhasil.
+
+Livewire mengunggah file sementara langsung ke S3. Atur CORS bucket hanya untuk origin `APP_URL`, method `PUT`, `GET`, dan `HEAD`, serta header `Content-Type` dan `x-amz-*`. Atur lifecycle agar prefix `livewire-tmp/` dihapus setelah sekitar 24 jam dan kebijakan retensi terpisah untuk `filament_exports/`. Saat object export kedaluwarsa, bersihkan record `exports` pada periode retensi yang sama agar UI tidak menyimpan link download yang sudah mati.
+
+Worker diberi timeout 300 detik dan `DB_QUEUE_RETRY_AFTER=360`, sehingga job tidak dilepas kembali ke queue sebelum proses lama dihentikan. Jika timeout worker diubah, pertahankan `retry_after` lebih besar daripada timeout.
+
+`bootstrap/app.php` mengikuti API middleware Laravel 12 dan mempercayai forwarded header dari reverse proxy. Karena itu service `web` sengaja hanya memakai `expose`; jangan membuka origin melalui host port atau bypass proxy platform.
+
+### Menjalankan Compose secara langsung
+
+Setelah `.env` production tersedia:
+
+```bash
+docker compose config --quiet
+docker compose up --detach --build
+docker compose ps
+docker compose logs --follow web worker scheduler release
+```
+
+Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk S3 lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi.
+
+### Coolify
+
+1. Buat Application dari repository Git dan pilih build pack **Docker Compose**.
+2. Pilih `compose.yaml`, lalu masukkan seluruh environment production di UI. Tandai credential S3 sebagai runtime secret, bukan build variable.
+3. Kaitkan domain hanya ke service `web` pada port internal `8080`.
+4. Pastikan `db_data` terdeteksi, aktifkan backup database-aware/logical dump MariaDB, dan atur versioning/replication serta lifecycle pada bucket object storage.
+
+### Dokploy
+
+1. Buat service **Docker Compose** biasa, bukan Docker Stack, dari repository Git.
+2. Pilih `compose.yaml` dan masukkan environment production. Compose memetakan variabel Laravel secara eksplisit ke container yang membutuhkannya; `DB_ROOT_PASSWORD` hanya diberikan kepada MariaDB.
+3. Pada tab Domains, pilih service `web` dan container port `8080`; jangan menambahkan host port atau label Traefik manual.
+4. Aktifkan Isolated Deployments. Buat backup database-aware/logical dump MariaDB serta atur versioning/replication dan lifecycle bucket object storage.
+
+### Checklist setelah deploy
+
+1. Pastikan seluruh service healthy/running dan migration `release` berhasil.
+2. Verifikasi `/up`, login panel, upload/import S3, download export queue, serta reminder dengan `php artisan kpi:send-reminders --dry-run`.
+3. Aktifkan logical `mariadb-dump` atau backup database-aware terjadwal, versioning/replication bucket, lalu uji restore keduanya. Raw backup `db_data` hanya aman saat database berhenti atau melalui snapshot yang konsisten; selalu ambil logical dump sebelum migration berisiko atau upgrade MariaDB.
+4. Pantau log `web`, `worker`, dan `scheduler`; hubungkan kegagalan/restart ke notifikasi platform.
+5. Review `config/cors.php`; konfigurasi saat ini mengizinkan origin `*`.
+6. Jangan membuka `/api/v1` ke klien tak tepercaya sebelum authorization audit selesai.
+7. Jangan menaikkan replica `scheduler` di atas satu. Web dan worker sudah tidak menyimpan data bisnis pada filesystem container; untuk deployment multi-node, gunakan database eksternal/shared dan pertahankan cache lock bersama.
 
 ### Catatan upgrade deployment existing
 
@@ -657,8 +732,9 @@ Repository belum menyediakan pipeline deployment. Minimum checklist untuk server
 - Migration baru menyediakan tabel cache (`cache` dan `cache_locks`), `sessions`, serta `jobs` sesuai default Laravel 12. Pastikan tabel bernama sama belum dibuat manual sebelum migration dijalankan.
 - Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Verifikasi juga `SESSION_DRIVER=database` dan `QUEUE_CONNECTION=database` beserta worker queue.
 - Default prefix cache/Redis dan nama cookie session sekarang mengikuti skeleton Laravel 12. Pengguna akan login ulang dan cache lama tidak lagi terbaca setelah deploy, kecuali nilai lama dipertahankan eksplisit melalui `CACHE_PREFIX`, `REDIS_PREFIX`, dan `SESSION_COOKIE`.
-- Root disk `local` sekarang `storage/app/private`. Inventarisasi dan pindahkan file private lama dari `storage/app` ke `storage/app/private` dengan backup terlebih dahulu; jangan memindahkan isi `storage/app/public`.
-- Setelah migration dan pemindahan storage, jalankan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
+- Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Sebelum menghapus volume/mount lama, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
+- Bila histori export lama harus tetap dapat diunduh, pindahkan object `filament_exports/{export-id}` ke S3 dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.
+- Setelah migration data ke S3, jalankan `php artisan app:storage-probe` dan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
 
 ## Batasan dan technical debt
 
@@ -668,15 +744,14 @@ Daftar ini adalah batas perilaku aktual, bukan fitur yang dijanjikan:
 2. **Guard custom panel belum seragam.** Widget `ChecklistKPI` belum meng-authorize ID objek ketika mutasi. Form user memungkinkan `MANAGER`/`COORDINATOR` membuat user atau mengubah bawahan ke role berprivilege termasuk `ADMIN`; import Excel dapat memperbarui/restore user secara luas dan membuat master organisasi. Nested create pada form KPI/User juga dapat membuat indikator/posisi tanpa mengikuti policy resource master. UI visibility bukan pengganti authorization action.
 3. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service.
 4. **API KPI hanya mendukung sebagian workflow.** API belum membuat relasi `parent_id` untuk roll-up extra task dan belum menegakkan lock periode pada endpoint mutasi.
-5. **API import JSON belum menjadi jalur operasional.** `UserController::importJson()` masih memanggil method service yang tidak tersedia. Gunakan import JSON dari panel admin sampai diperbaiki dan diberi authorization.
-6. **Scope export belum konsisten.** Export kehadiran mengambil seluruh tabel, sedangkan export review non-admin hanya mengambil bawahan langsung, bukan seluruh approval scope. Audit sebagai potensi kebocoran data.
-7. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database.
-8. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`.
-9. **Ada rule bisnis berbasis ID/username.** Beberapa policy dan master KPI masih bergantung pada ID atau username tertentu. Jangan mengurutkan ulang seed/master ID tanpa audit.
-10. **Role tidak otomatis berarti permission.** Beberapa role organisasi belum dipetakan ke kemampuan manajerial pada policy.
-11. **Queue dan infra belum dipaketkan penuh.** Default queue database dan migration tabel `jobs` tersedia, tetapi supervisor/monitoring worker, Docker setup, dan CI pipeline belum tersedia.
-12. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat.
-13. **Target reminder belum diselaraskan dengan permission.** Reminder pembuatan KPI dapat dikirim kepada user yang menjadi approver tetapi tidak diizinkan oleh `KpiPolicy` untuk membuat KPI.
+5. **Scope export belum konsisten.** Export kehadiran mengambil seluruh tabel, sedangkan export review non-admin hanya mengambil bawahan langsung, bukan seluruh approval scope. Audit sebagai potensi kebocoran data.
+6. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database.
+7. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`.
+8. **Ada rule bisnis berbasis ID/username.** Beberapa policy dan master KPI masih bergantung pada ID atau username tertentu. Jangan mengurutkan ulang seed/master ID tanpa audit.
+9. **Role tidak otomatis berarti permission.** Beberapa role organisasi belum dipetakan ke kemampuan manajerial pada policy.
+10. **CI dan monitoring infra belum dipaketkan penuh.** Docker sudah menjalankan queue worker serta scheduler, tetapi automated quality gate sebelum deployment, alert worker, dan backup off-site tetap harus dikonfigurasi pada platform.
+11. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat.
+12. **Target reminder belum diselaraskan dengan permission.** Reminder pembuatan KPI dapat dikirim kepada user yang menjadi approver tetapi tidak diizinkan oleh `KpiPolicy` untuk membuat KPI.
 
 Gunakan bagian ini sebagai checklist pertama ketika mengerjakan hardening dan onboarding teknis.
 

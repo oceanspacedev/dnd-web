@@ -7,6 +7,7 @@ use App\Exports\AttendanceImportTemplateExport;
 use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Imports\AttendanceImport;
 use App\Services\ApprovalScopeService;
+use App\Support\StoredSpreadsheetUpload;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\CreateAction;
@@ -14,7 +15,6 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Facades\Date;
-use Illuminate\Support\Facades\Storage;
 use Log;
 use Maatwebsite\Excel\Facades\Excel;
 use Throwable;
@@ -52,6 +52,10 @@ class ListAttendances extends ListRecords
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File Excel:')
+                            ->required()
+                            ->directory('imports/attendances')
+                            ->visibility('private')
+                            ->preventFilePathTampering()
                             ->acceptedFileTypes(['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']),
                     ])
                     ->action(function (array $data) {
@@ -76,7 +80,6 @@ class ListAttendances extends ListRecords
                 $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
             }
 
-            // Check if file exists in the data
             if (! isset($data['file']) || empty($data['file'])) {
                 Notification::make()
                     ->title('Error: No file was uploaded')
@@ -86,57 +89,9 @@ class ListAttendances extends ListRecords
                 return;
             }
 
-            // Debug the file data - Fix: Pass as array context
-            Log::info('File data:', ['file' => $data['file']]);
-
-            // Try a few different approaches to get the file path
-            if (is_array($data['file']) && count($data['file']) > 0) {
-                // If it's an array of files, take the first one
-                $filePath = $data['file'][0];
-            } else {
-                // Otherwise use the value directly
-                $filePath = $data['file'];
-            }
-
-            // Try different methods to get the actual file
-            if (Storage::disk('public')->exists($filePath)) {
-                $fullPath = Storage::disk('public')->path($filePath);
-            } elseif (Storage::disk('local')->exists($filePath)) {
-                $fullPath = Storage::disk('local')->path($filePath);
-            } else {
-                // If all else fails, try to use the path directly
-                $fullPath = $filePath;
-
-                // Check if it looks like a URL/uploaded path and get the file directly
-                if (filter_var($filePath, FILTER_VALIDATE_URL) || strpos($filePath, 'livewire-tmp') !== false) {
-                    $import = new AttendanceImport($allowedUserIds);
-                    Excel::import($import, $filePath);
-
-                    // If we make it here, we successfully imported without using a local file path
-                    goto summarize_import;
-                }
-            }
-
-            // Check if file exists at the path
-            if (! file_exists($fullPath)) {
-                Log::error('File not found at path: '.$fullPath);
-                Log::info('Original file data: ', ['data' => $data['file']]);
-
-                Notification::make()
-                    ->title('Error: File not found. Please try uploading again.')
-                    ->body('Technical details: File path could not be resolved correctly.')
-                    ->danger()
-                    ->send();
-
-                return;
-            }
-
             $import = new AttendanceImport($allowedUserIds);
-            Excel::import($import, $fullPath);
+            StoredSpreadsheetUpload::import($import, $data['file'], 'imports/attendances');
 
-            summarize_import:
-
-            // Check if getImportSummary method exists
             if (! method_exists($import, 'getImportSummary')) {
                 Notification::make()
                     ->title('Error: Import summary method not found')
@@ -162,15 +117,12 @@ class ListAttendances extends ListRecords
                     ->send();
             }
 
-            // Store skipped details in session for reference if needed
             session()->flash('skippedDetails', $summary['skippedDetails']);
 
         } catch (Throwable $e) {
-            // Log the error for debugging
             Log::error('Import Error: '.$e->getMessage());
             Log::error($e->getTraceAsString());
 
-            // Send a notification with the error message
             Notification::make()
                 ->title('Error during import: '.$e->getMessage())
                 ->danger()
