@@ -2,9 +2,10 @@
 
 namespace App\Exports;
 
+use Maatwebsite\Excel\Concerns\Export;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
-class KpiPerDivisionExport implements WithMultipleSheets
+class KpiPerDivisionExport implements Export, WithMultipleSheets
 {
     protected string $month;
 

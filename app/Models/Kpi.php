@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Date;
 
 class Kpi extends Model
 {
@@ -45,6 +46,25 @@ class Kpi extends Model
     public function kpi_detail(): HasMany
     {
         return $this->hasMany(KpiDetail::class, 'kpi_id');
+    }
+
+    public function isChecklistLockedFor(?User $user = null): bool
+    {
+        $user ??= auth()->user();
+
+        if ($user?->role?->name === 'ADMIN') {
+            return false;
+        }
+
+        if (! $this->date) {
+            return false;
+        }
+
+        $kpiMonth = Date::parse($this->date)->startOfMonth();
+        $lockDays = max(0, (int) config('kpi.checklist_lock_days', 5));
+        $deadline = $kpiMonth->copy()->endOfMonth()->addDays($lockDays)->endOfDay();
+
+        return Date::now()->greaterThan($deadline);
     }
 
     /**

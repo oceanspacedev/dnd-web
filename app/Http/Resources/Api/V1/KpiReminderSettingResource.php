@@ -25,7 +25,7 @@ class KpiReminderSettingResource extends JsonResource
             'send_overdue_reminder' => (bool) $this->send_overdue_reminder,
             'send_email' => (bool) $this->send_email,
             'send_whatsapp' => (bool) $this->send_whatsapp,
-            'email_template' => $this->email_template ?? $this->getDefaultEmailTemplate($this->type ?? 'pengisian_kpi'),
+            'email_template' => $this->email_body ?? $this->email_template ?? KpiReminderSetting::getDefaultEmailTemplate($this->type ?? 'pengisian_kpi'),
             'whatsapp_template' => $this->whatsapp_template ?? $this->getDefaultWhatsappTemplate($this->type ?? 'pengisian_kpi'),
             'is_active' => (bool) $this->is_active,
             'created_at' => $this->created_at?->toIso8601String(),

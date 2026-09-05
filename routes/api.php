@@ -126,6 +126,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('dailies/{id}', [ActivityController::class, 'destroyDaily']);
             Route::get('dailies/{dailyId}/logs', [ActivityController::class, 'dailyLogs']);
             Route::post('dailies/{dailyId}/logs', [ActivityController::class, 'storeDailyLog']);
+            Route::put('dailies/{dailyId}/logs/{id}', [ActivityController::class, 'updateDailyLog']);
+            Route::delete('dailies/{dailyId}/logs/{id}', [ActivityController::class, 'destroyDailyLog']);
 
             // Weekly Tasks
             Route::get('weeklies', [ActivityController::class, 'weeklies']);

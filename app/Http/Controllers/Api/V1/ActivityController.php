@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\StoreDailyLogRequest;
 use App\Http\Requests\Api\V1\StoreDailyRequest;
 use App\Http\Requests\Api\V1\StoreMonthlyRequest;
 use App\Http\Requests\Api\V1\StoreWeeklyRequest;
+use App\Http\Requests\Api\V1\UpdateDailyLogRequest;
 use App\Http\Requests\Api\V1\UpdateDailyRequest;
 use App\Http\Requests\Api\V1\UpdateMonthlyRequest;
 use App\Http\Requests\Api\V1\UpdateWeeklyRequest;
@@ -257,6 +258,78 @@ class ActivityController extends Controller
             'message' => 'Log aktivitas berhasil dicatat.',
             'data' => new DailyLogResource($log),
         ], 201);
+    }
+
+    /**
+     * Update an activity log entry on a daily task.
+     */
+    public function updateDailyLog(UpdateDailyLogRequest $request, int $dailyId, int $id): JsonResponse
+    {
+        $daily = Daily::find($dailyId);
+
+        if (! $daily) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tugas harian tidak ditemukan.',
+            ], 404);
+        }
+
+        $this->authorize('update', $daily);
+
+        $log = DailyLog::query()
+            ->where('task_id', $dailyId)
+            ->find($id);
+
+        if (! $log) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Log aktivitas tidak ditemukan.',
+            ], 404);
+        }
+
+        $log->update($request->validated());
+        $log->load('user');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Log aktivitas berhasil diperbarui.',
+            'data' => new DailyLogResource($log),
+        ]);
+    }
+
+    /**
+     * Delete an activity log entry from a daily task.
+     */
+    public function destroyDailyLog(int $dailyId, int $id): JsonResponse
+    {
+        $daily = Daily::find($dailyId);
+
+        if (! $daily) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tugas harian tidak ditemukan.',
+            ], 404);
+        }
+
+        $this->authorize('update', $daily);
+
+        $log = DailyLog::query()
+            ->where('task_id', $dailyId)
+            ->find($id);
+
+        if (! $log) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Log aktivitas tidak ditemukan.',
+            ], 404);
+        }
+
+        $log->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Log aktivitas berhasil dihapus.',
+        ]);
     }
 
     // ==========================================

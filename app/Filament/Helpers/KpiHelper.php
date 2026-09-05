@@ -109,10 +109,11 @@ class KpiHelper
             ->with([
                 'divisi.area',
                 'area',
-                'kpi' => function ($query) use ($month) {
+                'kpi' => function ($query) use ($date) {
                     $query->select('id', 'user_id', 'percentage', 'date')
                         ->where('kpi_type_id', 3)
-                        ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$month])
+                        ->whereYear('date', $date->year)
+                        ->whereMonth('date', $date->month)
                         ->orderBy('date', 'DESC')
                         ->with(['kpi_detail' => function ($query) {
                             $query->whereNotNull('value_result')->where('value_result', '>=', 0);

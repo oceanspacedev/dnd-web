@@ -133,13 +133,14 @@ class KpiController extends Controller
 
                 KpiDetail::create([
                     'kpi_id' => $kpi->id,
+                    'parent_id' => $detailData['parent_id'] ?? null,
                     'kpi_description_id' => $detailData['kpi_description_id'],
-                    'count_type' => $detailData['count_type'] ?? null,
+                    'count_type' => $detailData['count_type'] ?? 'NON',
                     'value_plan' => $plan,
                     'value_actual' => $actual,
                     'value_result' => $result,
                     'subtasks' => $detailData['subtasks'] ?? null,
-                    'is_extra_task' => $detailData['is_extra_task'] ?? false,
+                    'is_extra_task' => (bool) ($detailData['is_extra_task'] ?? false) || ! empty($detailData['parent_id']),
                     'start' => $detailData['start'] ?? null,
                     'end' => $detailData['end'] ?? null,
                 ]);
@@ -231,24 +232,31 @@ class KpiController extends Controller
         }
 
         $this->authorize('update', $kpi);
+        $this->assertKpiChecklistEditable($kpi);
 
         $validated = $request->validated();
+        $parentId = isset($validated['parent_id']) ? (int) $validated['parent_id'] : null;
+        $this->assertDetailBelongsToKpi($parentId, (int) $kpi->id);
+
         $description = KpiDescription::find($validated['kpi_description_id']);
         $isNegative = (bool) ($description?->is_negative ?? false);
 
-        $plan = (float) $validated['value_plan'];
+        $plan = array_key_exists('value_plan', $validated) && $validated['value_plan'] !== null
+            ? (float) $validated['value_plan']
+            : null;
         $actual = isset($validated['value_actual']) ? (float) $validated['value_actual'] : null;
         $result = KpiScoringService::calculateResultValue($plan, $actual, $isNegative);
 
         $detail = KpiDetail::create([
             'kpi_id' => $kpi->id,
+            'parent_id' => $parentId,
             'kpi_description_id' => $validated['kpi_description_id'],
-            'count_type' => $validated['count_type'] ?? null,
+            'count_type' => $validated['count_type'] ?? 'NON',
             'value_plan' => $plan,
             'value_actual' => $actual,
             'value_result' => $result,
             'subtasks' => $validated['subtasks'] ?? null,
-            'is_extra_task' => $validated['is_extra_task'] ?? false,
+            'is_extra_task' => (bool) ($validated['is_extra_task'] ?? false) || $parentId !== null,
             'start' => $validated['start'] ?? null,
             'end' => $validated['end'] ?? null,
         ]);
@@ -278,8 +286,17 @@ class KpiController extends Controller
 
         $detail->loadMissing('kpi');
         $this->authorize('update', $detail->kpi);
+        $this->assertKpiChecklistEditable($detail->kpi);
 
         $validated = $request->validated();
+
+        if (array_key_exists('parent_id', $validated)) {
+            $parentId = $validated['parent_id'] !== null ? (int) $validated['parent_id'] : null;
+            $this->assertDetailBelongsToKpi($parentId, (int) $detail->kpi_id);
+            if ($parentId !== null) {
+                $validated['is_extra_task'] = true;
+            }
+        }
 
         $descId = $validated['kpi_description_id'] ?? $detail->kpi_description_id;
         $description = KpiDescription::find($descId);
@@ -323,6 +340,7 @@ class KpiController extends Controller
 
         $detail->loadMissing('kpi');
         $this->authorize('delete', $detail->kpi);
+        $this->assertKpiChecklistEditable($detail->kpi);
 
         $detail->delete();
 
@@ -467,5 +485,29 @@ class KpiController extends Controller
                 'kpi_items' => $kpiSummaries,
             ],
         ]);
+    }
+
+    private function assertKpiChecklistEditable(Kpi $kpi): void
+    {
+        abort_if(
+            $kpi->isChecklistLockedFor(auth()->user()),
+            422,
+            'Periode checklist KPI sudah ditutup.',
+        );
+    }
+
+    private function assertDetailBelongsToKpi(?int $parentId, int $kpiId): void
+    {
+        if ($parentId === null) {
+            return;
+        }
+
+        $parent = KpiDetail::query()->find($parentId);
+
+        abort_if(
+            $parent === null || (int) $parent->kpi_id !== $kpiId,
+            422,
+            'parent_id harus merujuk ke detail pada KPI yang sama.',
+        );
     }
 }

@@ -101,6 +101,10 @@ class OveropenController extends Controller
         $validated['atasan'] = $currentUser?->role?->name === 'ADMIN'
             ? ($validated['atasan'] ?? $currentUser?->id)
             : $currentUser?->id;
+        $validated['point'] = $validated['point'] ?? 0;
+        $validated['daily'] = $validated['daily'] ?? 0;
+        $validated['weekly'] = $validated['weekly'] ?? 0;
+        $validated['monthly'] = $validated['monthly'] ?? 0;
 
         $overopen = Overopen::create($validated);
         $overopen->load(['user', 'leader']);

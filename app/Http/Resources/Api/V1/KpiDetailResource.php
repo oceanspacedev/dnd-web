@@ -21,6 +21,7 @@ class KpiDetailResource extends JsonResource
         return [
             'id' => $this->id,
             'kpi_id' => $this->kpi_id,
+            'parent_id' => $this->parent_id,
             'kpi_description' => $this->whenLoaded('kpi_description', fn () => [
                 'id' => $this->kpi_description->id,
                 'description' => $this->kpi_description->description,

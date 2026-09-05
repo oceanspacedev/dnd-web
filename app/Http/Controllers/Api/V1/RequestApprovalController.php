@@ -148,7 +148,8 @@ class RequestApprovalController extends Controller
 
         $validated['user_id'] = $currentUser?->id;
         $validated['jenistodo'] = strtolower($validated['jenistodo']);
-        $validated['approval_id'] = $currentUser?->approval_id;
+        $validated['todo_replace'] = $validated['todo_replace'] ?? '';
+        $validated['approval_id'] = $currentUser?->approval_id ?: $currentUser?->id;
         $validated['status'] = 'PENDING';
 
         $todoRequest = TodoRequest::create($validated);

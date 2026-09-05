@@ -85,7 +85,7 @@ class ReminderController extends Controller
     {
         $this->ensureAdminOnly();
 
-        $validated = $request->validated();
+        $validated = $this->normalizedSettingPayload($request->validated());
         $validated['is_active'] = $validated['is_active'] ?? true;
 
         $setting = KpiReminderSetting::create($validated);
@@ -113,7 +113,7 @@ class ReminderController extends Controller
             ], 404);
         }
 
-        $validated = $request->validated();
+        $validated = $this->normalizedSettingPayload($request->validated());
         $setting->update($validated);
 
         return response()->json([
@@ -355,5 +355,19 @@ class ReminderController extends Controller
             'success' => false,
             'message' => 'Channel tidak valid.',
         ], 422);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function normalizedSettingPayload(array $validated): array
+    {
+        if (array_key_exists('email_template', $validated)) {
+            $validated['email_body'] = $validated['email_body'] ?? $validated['email_template'];
+            unset($validated['email_template']);
+        }
+
+        return $validated;
     }
 }

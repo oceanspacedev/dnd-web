@@ -23,6 +23,7 @@ class StoreKpiRequest extends FormRequest
             'percentage' => ['required', 'numeric', 'min:1', 'max:100'],
             'details' => ['nullable', 'array'],
             'details.*.kpi_description_id' => ['required_with:details', 'exists:kpi_descriptions,id'],
+            'details.*.parent_id' => ['nullable', 'exists:kpi_details,id'],
             'details.*.count_type' => ['nullable', 'string', 'max:50'],
             'details.*.value_plan' => ['nullable', 'numeric', 'min:0'],
             'details.*.value_actual' => ['nullable', 'numeric', 'min:0'],

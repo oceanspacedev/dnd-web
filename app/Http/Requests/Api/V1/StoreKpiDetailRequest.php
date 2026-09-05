@@ -17,8 +17,9 @@ class StoreKpiDetailRequest extends FormRequest
     {
         return [
             'kpi_description_id' => ['required', 'exists:kpi_descriptions,id'],
+            'parent_id' => ['nullable', 'exists:kpi_details,id'],
             'count_type' => ['nullable', 'string', 'max:50'],
-            'value_plan' => ['required', 'numeric', 'min:0'],
+            'value_plan' => ['required_without:parent_id', 'nullable', 'numeric', 'min:0'],
             'value_actual' => ['nullable', 'numeric', 'min:0'],
             'subtasks' => ['nullable', 'array'],
             'is_extra_task' => ['boolean'],

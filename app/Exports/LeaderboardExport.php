@@ -2,9 +2,10 @@
 
 namespace App\Exports;
 
+use Maatwebsite\Excel\Concerns\Export;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
-class LeaderboardExport implements WithMultipleSheets
+class LeaderboardExport implements Export, WithMultipleSheets
 {
     protected array $leaderboardData;
 

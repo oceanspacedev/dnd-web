@@ -179,7 +179,7 @@ class LeaderboardExportController extends Controller
                 'kpi' => function ($query) use ($selectedPeriod) {
                     $query->select('id', 'user_id', 'percentage', 'date')
                         ->where('kpi_type_id', 3)
-                        ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$selectedPeriod])
+                        ->tap(fn ($kpiQuery) => $this->constrainKpiPeriod($kpiQuery, $selectedPeriod))
                         ->orderBy('date', 'DESC')
                         ->with(['kpi_detail' => function ($query) {
                             $query->whereNotNull('value_result')->where('value_result', '>=', 0);
@@ -258,7 +258,7 @@ class LeaderboardExportController extends Controller
                     'user.position',
                 ])
                     ->where('kpi_type_id', 3)
-                    ->whereRaw("DATE_FORMAT(date, '%Y-%m') = ?", [$selectedPeriod])
+                    ->tap(fn ($kpiQuery) => $this->constrainKpiPeriod($kpiQuery, $selectedPeriod))
                     ->whereIn('user_id', $detailScopeUserIds)
                     ->get();
 
@@ -326,5 +326,20 @@ class LeaderboardExportController extends Controller
         return array_values(array_filter($teamUserIds, function ($userId) use ($leaderId) {
             return (int) $userId !== $leaderId;
         }));
+    }
+
+    private function constrainKpiPeriod($query, string $period)
+    {
+        if (preg_match('/^(?<year>\d{4})-(?<month>0[1-9]|1[0-2])$/', $period, $matches)) {
+            return $query
+                ->whereYear('date', (int) $matches['year'])
+                ->whereMonth('date', (int) $matches['month']);
+        }
+
+        if (preg_match('/^\d{4}$/', $period)) {
+            return $query->whereYear('date', (int) $period);
+        }
+
+        return $query;
     }
 }

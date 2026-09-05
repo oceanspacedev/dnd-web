@@ -70,6 +70,10 @@ class AnalyticsController extends Controller
      */
     public function exportLeaderboard(Request $request)
     {
+        if (! $request->filled('month') && $request->filled('periode')) {
+            $request->merge(['month' => $request->input('periode')]);
+        }
+
         $exporter = new LeaderboardExportController;
 
         return $exporter->export($request);
