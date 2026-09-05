@@ -1,0 +1,39 @@
+# Overlay 1Panel. Coolify dan Dokploy tetap memakai compose.yaml saja.
+# Satu instance: Redis dan S3 tidak wajib (driver Laravel database + local).
+#
+# Satu server boleh menjalankan beberapa stack Compose yang sama, asal
+# COMPOSE_PROJECT_NAME, WEB_CONTAINER_NAME, dan ONEPANEL_WEB_PORT unik
+# per aplikasi. Jangan meniru nilai default DnD di aplikasi kedua.
+#
+# Jalankan dari root repository:
+#   docker compose -f compose.1panel.yaml up --detach --build
+#
+# Reverse proxy 1Panel (Website → Reverse proxy):
+#   http://${WEB_CONTAINER_NAME:-dnd-web}:8080
+# Jangan http://web:8080 (nama service tabrakan antar aplikasi).
+# Jangan http://127.0.0.1:8080 (itu OpenResty, biasanya 502).
+#
+# Fallback:
+#   http://172.17.0.1:${ONEPANEL_WEB_PORT:-8080}
+
+name: ${COMPOSE_PROJECT_NAME:-dnd-web}
+
+include:
+  - path: compose.yaml
+
+services:
+  web:
+    container_name: ${WEB_CONTAINER_NAME:-dnd-web}
+    hostname: ${WEB_CONTAINER_NAME:-dnd-web}
+    ports:
+      - "${ONEPANEL_WEB_BIND:-127.0.0.1}:${ONEPANEL_WEB_PORT:-8080}:8080"
+    networks:
+      default: {}
+      1panel-network:
+        aliases:
+          - ${WEB_CONTAINER_NAME:-dnd-web}
+
+networks:
+  1panel-network:
+    name: 1panel-network
+    external: true

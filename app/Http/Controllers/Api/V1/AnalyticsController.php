@@ -7,149 +7,23 @@ use App\Http\Controllers\LeaderboardExportController;
 use App\Http\Resources\Api\V1\DashboardStatsResource;
 use App\Http\Resources\Api\V1\KpiChecklistResource;
 use App\Http\Resources\Api\V1\LeaderboardResource;
-use App\Models\Area;
-use App\Models\Attendance;
 use App\Models\Daily;
-use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\Request as TodoRequest;
 use App\Models\User;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Date;
-use Illuminate\Support\Facades\DB;
-use Maatwebsite\Excel\Facades\Excel;
 
 /**
  * @tags Leaderboard, Analitik & Dashboard (Analytics & Dashboard)
  */
 class AnalyticsController extends Controller
 {
-    /**
-     * Helper to compute evaluation score for all users in a given period.
-     */
-    private function computeScoresForPeriod(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null): array
-    {
-        $periodStart = Date::createFromFormat('!Y-m', $periode)->startOfMonth();
-        $periodEnd = $periodStart->copy()->addMonth();
-
-        $userQuery = User::query()
-            ->select(['id', 'nama_lengkap', 'username', 'area_id', 'divisi_id', 'position_id'])
-            ->with(['divisi:id,name', 'area:id,name', 'position:id,name'])
-            ->whereNull('deleted_at');
-
-        if ($areaId) {
-            $userQuery->where('area_id', $areaId);
-        }
-
-        if ($divisiId) {
-            $userQuery->where('divisi_id', $divisiId);
-        }
-
-        if ($search) {
-            $userQuery->where(function ($q) use ($search) {
-                $q->where('nama_lengkap', 'like', "%{$search}%")
-                    ->orWhere('username', 'like', "%{$search}%");
-            });
-        }
-
-        $users = $userQuery->get();
-
-        // Eager load records for the period
-        $userIds = $users->pluck('id')->all();
-
-        if ($userIds === []) {
-            return [];
-        }
-
-        $rawKpiScores = DB::table('kpis')
-            ->join('kpi_details', 'kpi_details.kpi_id', '=', 'kpis.id')
-            ->whereIn('kpis.user_id', $userIds)
-            ->whereNull('kpis.deleted_at')
-            ->whereNull('kpi_details.deleted_at')
-            ->where('kpis.date', '>=', $periodStart)
-            ->where('kpis.date', '<', $periodEnd)
-            ->selectRaw('kpis.user_id, COALESCE(SUM(kpi_details.value_result), 0) as raw_score')
-            ->groupBy('kpis.user_id')
-            ->pluck('raw_score', 'kpis.user_id');
-
-        $attendances = Attendance::whereIn('user_id', $userIds)
-            ->where('periode', $periode)
-            ->get(['user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days'])
-            ->keyBy('user_id');
-
-        $reviews = EmployeeReview::whereIn('user_id', $userIds)
-            ->where('periode', $periode)
-            ->get(['user_id', 'responsiveness', 'problem_solver', 'helpfulness', 'initiative'])
-            ->keyBy('user_id');
-
-        $leaderboard = [];
-
-        foreach ($users as $user) {
-            // 1. KPI (Max 70%)
-            $rawKpiScore = (float) ($rawKpiScores->get($user->id) ?? 0);
-            $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore);
-
-            // 2. Attendance (Max 15%)
-            $att = $attendances->get($user->id);
-            $attScore15 = 0;
-            if ($att && (int) $att->work_days > 0) {
-                $workDays = (int) $att->work_days;
-                $lateLess = (int) ($att->late_less_30 ?? 0);
-                $lateMore = (int) ($att->late_more_30 ?? 0);
-                $sick = (int) ($att->sick_days ?? 0);
-
-                $initialAchv = (($workDays - $lateLess - $lateMore - $sick) / $workDays) * 100;
-                $penalty = ($lateLess * 1) + ($lateMore * 3) + ($sick * 5);
-                $finalAchv = max(0, $initialAchv - $penalty);
-                $attScore15 = ($finalAchv / 100) * 15;
-            }
-
-            // 3. Employee Review (Max 15%)
-            $rev = $reviews->get($user->id);
-            $revScore15 = 0;
-            if ($rev) {
-                $totPoints = (int) ($rev->responsiveness ?? 0)
-                    + (int) ($rev->problem_solver ?? 0)
-                    + (int) ($rev->helpfulness ?? 0)
-                    + (int) ($rev->initiative ?? 0);
-                $revScore15 = ($totPoints / 20) * 15;
-            }
-
-            $totalScore = $kpiScore70 + $attScore15 + $revScore15;
-
-            $grade = match (true) {
-                $totalScore >= 85 => 'A (Istimewa / Outstanding)',
-                $totalScore >= 75 => 'B (Baik / Good)',
-                $totalScore >= 60 => 'C (Cukup / Satisfactory)',
-                $totalScore >= 50 => 'D (Kurang / Needs Improvement)',
-                default => 'E (Sangat Kurang / Poor)',
-            };
-
-            $leaderboard[] = [
-                'user' => $user,
-                'kpi_raw' => $rawKpiScore,
-                'kpi_score_70pct' => $kpiScore70,
-                'attendance_score_15pct' => $attScore15,
-                'review_score_15pct' => $revScore15,
-                'total_score' => $totalScore,
-                'grade' => $grade,
-            ];
-        }
-
-        // Sort by total_score descending
-        usort($leaderboard, fn ($a, $b) => $b['total_score'] <=> $a['total_score']);
-
-        // Assign ranks
-        foreach ($leaderboard as $idx => &$item) {
-            $item['rank'] = $idx + 1;
-        }
-        unset($item);
-
-        return $leaderboard;
-    }
+    public function __construct(private readonly LeaderboardScoreService $leaderboardScores) {}
 
     /**
      * Get paginated leaderboard rankings.
@@ -161,13 +35,13 @@ class AnalyticsController extends Controller
         $divisiId = $request->query('divisi_id') ? (int) $request->query('divisi_id') : null;
         $search = $request->query('search');
 
-        $scores = $this->computeScoresForPeriod($periode, $areaId, $divisiId, $search);
+        $scores = $this->leaderboardScores->rankedScores($periode, $areaId, $divisiId, $search);
 
         $perPage = max(1, min(100, (int) $request->query('per_page', 15)));
         $page = max(1, (int) $request->query('page', 1));
 
         $offset = ($page - 1) * $perPage;
-        $itemsForCurrentPage = array_slice($scores, $offset, $perPage);
+        $itemsForCurrentPage = $this->leaderboardScores->hydrateUsers(array_slice($scores, $offset, $perPage));
 
         $paginator = new LengthAwarePaginator(
             $itemsForCurrentPage,
@@ -207,7 +81,7 @@ class AnalyticsController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $periode = $this->validatedPeriod($request);
-        $scores = $this->computeScoresForPeriod($periode);
+        $scores = $this->leaderboardScores->rankedScores($periode);
 
         $totalEmployees = count($scores);
         $avgKpi = $totalEmployees > 0 ? array_sum(array_column($scores, 'kpi_score_70pct')) / $totalEmployees : 0;
@@ -215,9 +89,8 @@ class AnalyticsController extends Controller
         $avgRev = $totalEmployees > 0 ? array_sum(array_column($scores, 'review_score_15pct')) / $totalEmployees : 0;
         $avgTotal = $totalEmployees > 0 ? array_sum(array_column($scores, 'total_score')) / $totalEmployees : 0;
 
-        // Top 5 & Bottom 5 performers
-        $top5 = array_slice($scores, 0, 5);
-        $bottom5 = array_slice(array_reverse($scores), 0, 5);
+        $top5 = $this->leaderboardScores->hydrateUsers(array_slice($scores, 0, 5));
+        $bottom5 = $this->leaderboardScores->hydrateUsers(array_slice(array_reverse($scores), 0, 5));
 
         $formatRankList = function ($list) {
             return array_map(fn ($item) => [
@@ -277,43 +150,9 @@ class AnalyticsController extends Controller
     public function departmentStats(Request $request): JsonResponse
     {
         $periode = $this->validatedPeriod($request);
-        $scores = $this->computeScoresForPeriod($periode);
-
-        // Group by Division
-        $divisiGroups = [];
-        $areaGroups = [];
-
-        foreach ($scores as $s) {
-            $divName = $s['user']->divisi?->name ?? 'Unassigned';
-            $areaName = $s['user']->area?->name ?? 'Unassigned';
-
-            $divisiGroups[$divName][] = $s['total_score'];
-            $areaGroups[$areaName][] = $s['total_score'];
-        }
-
-        $divisiStats = [];
-        foreach ($divisiGroups as $name => $vals) {
-            $divisiStats[] = [
-                'name' => $name,
-                'employee_count' => count($vals),
-                'average_score' => round(array_sum($vals) / count($vals), 2),
-                'highest_score' => round(max($vals), 2),
-                'lowest_score' => round(min($vals), 2),
-            ];
-        }
-        usort($divisiStats, fn ($a, $b) => $b['average_score'] <=> $a['average_score']);
-
-        $areaStats = [];
-        foreach ($areaGroups as $name => $vals) {
-            $areaStats[] = [
-                'name' => $name,
-                'employee_count' => count($vals),
-                'average_score' => round(array_sum($vals) / count($vals), 2),
-                'highest_score' => round(max($vals), 2),
-                'lowest_score' => round(min($vals), 2),
-            ];
-        }
-        usort($areaStats, fn ($a, $b) => $b['average_score'] <=> $a['average_score']);
+        $scores = $this->leaderboardScores->rankedScores($periode);
+        $divisiStats = $this->leaderboardScores->groupAverages($scores, 'divisi');
+        $areaStats = $this->leaderboardScores->groupAverages($scores, 'area');
 
         return response()->json([
             'success' => true,

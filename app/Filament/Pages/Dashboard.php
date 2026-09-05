@@ -2,8 +2,6 @@
 
 namespace App\Filament\Pages;
 
-use App\Filament\Widgets\ChecklistKPI;
-use App\Filament\Widgets\LeaderboardKPI;
 use Filament\Pages\Dashboard as BaseDashboard;
 
 class Dashboard extends BaseDashboard
@@ -28,9 +26,6 @@ class Dashboard extends BaseDashboard
 
     public function getWidgets(): array
     {
-        return [
-            ChecklistKPI::class,
-            LeaderboardKPI::class,
-        ];
+        return [];
     }
 }

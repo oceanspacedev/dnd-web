@@ -2,6 +2,41 @@
 
 set -eu
 
+prepare_writable_storage() {
+    mkdir -p \
+        /app/bootstrap/cache \
+        /app/storage/app/private \
+        /app/storage/app/public \
+        /app/storage/framework/cache/data \
+        /app/storage/framework/cache/laravel-excel \
+        /app/storage/framework/sessions \
+        /app/storage/framework/views \
+        /app/storage/logs \
+        /config/caddy \
+        /data/caddy
+
+    if [ ! -e /app/public/storage ]; then
+        ln -s ../storage/app/public /app/public/storage
+    fi
+}
+
+if [ "$(id -u)" = "0" ]; then
+    prepare_writable_storage
+
+    if [ "$(stat -c '%U' /app/storage)" != "www-data" ]; then
+        chown -R www-data:www-data /app/storage
+    fi
+
+    chown www-data:www-data \
+        /app/bootstrap/cache \
+        /config/caddy \
+        /data/caddy
+
+    exec gosu www-data "$0" "$@"
+fi
+
+prepare_writable_storage
+
 optimize_laravel() {
     if [ "${LARAVEL_OPTIMIZE:-true}" = "true" ]; then
         php artisan optimize

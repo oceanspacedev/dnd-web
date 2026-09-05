@@ -91,7 +91,11 @@ COPY docker/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/php.ini /usr/local/etc/php/conf.d/99-dnd.ini
 COPY docker/entrypoint.sh /usr/local/bin/dnd-entrypoint
 
-RUN setcap -r /usr/local/bin/frankenphp \
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && gosu nobody true \
+    && setcap -r /usr/local/bin/frankenphp \
     && chmod +x /usr/local/bin/dnd-entrypoint \
     && mkdir -p \
         bootstrap/cache \
@@ -110,8 +114,6 @@ RUN setcap -r /usr/local/bin/frankenphp \
         storage \
         /config/caddy \
         /data/caddy
-
-USER www-data
 
 EXPOSE 8080
 

@@ -4,8 +4,6 @@ namespace App\Providers\Filament;
 
 use App\Filament\Pages\Auth\Login;
 use App\Filament\Pages\Dashboard;
-use App\Filament\Widgets\ChecklistKPI;
-use App\Filament\Widgets\LeaderboardKPI;
 use Apriansyahrs\MekayaTheme\MekayaPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -46,10 +44,7 @@ class AdminPanelProvider extends PanelProvider
                 Dashboard::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
-            ->widgets([
-                ChecklistKPI::class,
-                LeaderboardKPI::class,
-            ])
+            ->widgets([])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

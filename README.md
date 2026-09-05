@@ -253,9 +253,9 @@ flowchart TB
     Reminder --> Models
     Models --> DB[(MySQL / MariaDB)]
     Services --> AI[Laravel AI / OpenAI opsional]
-    Filament --> ObjectStorage[(S3-compatible object storage)]
-    Controllers --> ObjectStorage
-    Worker[Queue worker] --> ObjectStorage
+    Filament --> Files[(Filesystem disk: local, public, atau S3)]
+    Controllers --> Files
+    Worker[Queue worker] --> Files
 ```
 
 ### Peta source code
@@ -285,12 +285,12 @@ flowchart TB
 | Admin UI | Filament 4, Livewire 3, Mekaya Theme |
 | Frontend build | Vite 7, Tailwind CSS 4, Axios |
 | Database | SQLite untuk local default; MySQL/MariaDB untuk deployment utama |
-| Object storage | Laravel Flysystem S3; mendukung endpoint S3-compatible |
+| Filesystem | Disk Laravel `local` / `public` (default) atau Flysystem S3-compatible |
 | API auth | Laravel Sanctum 4 |
 | API docs | Dedoc Scramble / OpenAPI |
 | Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
-| Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy, Redis 8 |
+| Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy; Redis 8 opsional |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
 
@@ -369,20 +369,20 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `APP_KEY` | Ya | Kunci enkripsi Laravel; dibuat dengan `php artisan key:generate` |
 | `APP_URL` | Ya | Base URL aplikasi dan link pada reminder |
 | `DB_CONNECTION` / `DB_*` | Ya | Driver dan koneksi database; `DB_HOST` dan credential hanya diperlukan untuk database server |
-| `CACHE_STORE` | Ya | Cache default Laravel; default proyek `database` |
-| `FILESYSTEM_DISK` | Ya | Disk filesystem default; local development memakai `local`, sedangkan Compose production memakai `s3` |
+| `CACHE_STORE` | Ya | Cache default Laravel; default proyek dan Compose satu instance `database` |
+| `FILESYSTEM_DISK` | Ya | Disk filesystem default; `local` (private), `public` (`/storage`), atau `s3` |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Untuk S3 | Credential runtime dengan akses minimum ke bucket aplikasi |
 | `AWS_BUCKET` / `AWS_DEFAULT_REGION` | Untuk S3 | Bucket dan region object storage |
 | `AWS_ENDPOINT` / `AWS_URL` | Untuk S3-compatible | Endpoint API dan base URL bucket |
 | `AWS_USE_PATH_STYLE_ENDPOINT` | Untuk S3-compatible | Aktifkan bila provider memerlukan URL path-style; default Compose `true` |
 | `AWS_*_CHECKSUM_*` | Tidak | Compose memakai mode `when_required` untuk kompatibilitas provider S3 non-AWS |
-| `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek `database` |
-| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek `database` |
-| `REDIS_PASSWORD` | Production Compose | Password Redis internal untuk cache, session, queue, dan maintenance mode |
+| `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek dan Compose satu instance `database` |
+| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek dan Compose satu instance `database` |
+| `REDIS_PASSWORD` | Jika Redis dijalankan | Password Redis internal; tidak wajib pada satu instance tanpa `COMPOSE_PROFILES=redis` |
 | `OCTANE_WORKERS` | Tidak | Jumlah worker web persisten; Compose default `2`, lalu sesuaikan dengan vCPU/RAM |
 | `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
-| `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori, deskripsi, dan posisi; default `300` detik |
+| `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori/deskripsi/posisi (`300` dtk) dan skor leaderboard (`60` dtk) |
 | `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
 | `WA_API_URL` | Untuk WhatsApp | Endpoint gateway WhatsApp |
 | `WA_API_KEY` | Untuk WhatsApp | Bearer credential gateway WhatsApp |
@@ -643,27 +643,39 @@ Konfigurasi Rector memakai level Laravel 12 (`UP_TO_LARAVEL_120`). Tetap review 
 
 ## Deployment Docker
 
-Repository menyediakan image production multi-stage dan `compose.yaml` yang sama untuk Coolify maupun Dokploy. Image memakai PHP 8.3, Laravel Octane, dan FrankenPHP worker mode, memasang dependency Composer, membangun asset Vite dengan Node.js 24 LTS, lalu menjalankan aplikasi sebagai user non-root. Source aplikasi di-bootstrap sekali per worker, bukan sekali per request.
+Repository menyediakan image production multi-stage dan beberapa file Compose menurut cara deploy, bukan menurut fitur aplikasi:
+
+| File | Kapan dipakai |
+|---|---|
+| `compose.yaml` | Satu instance; Coolify/Dokploy (scale `web` di UI bila perlu) |
+| `compose.1panel.yaml` | Satu instance di 1Panel |
+| `compose.scale.yaml` | Banyak container `web`/`worker` di **satu** server |
+| `compose.app.yaml` | Server tambahan; MariaDB/Redis tetap di node utama |
+| `compose.data-expose.yaml` | Node utama, publish DB/Redis ke IP privat untuk node `compose.app.yaml` |
+
+Image memakai PHP 8.3, Laravel Octane, dan FrankenPHP worker mode, memasang dependency Composer, membangun asset Vite dengan Node.js 24 LTS, lalu menjalankan aplikasi sebagai user non-root. Source aplikasi di-bootstrap sekali per worker, bukan sekali per request. Scale dilakukan di Compose/proxy/mesin, bukan dengan menggandakan stack utuh.
 
 ### Susunan service
 
 | Service | Fungsi |
 |---|---|
 | `database` | Menjalankan MariaDB 11.8 LTS pada network internal Compose |
-| `redis` | Menjalankan Redis 8 dengan autentikasi dan AOF `everysec` untuk cache, session, queue, serta maintenance mode |
-| `release` | Memverifikasi object storage, menjalankan migration, lalu menjadi readiness gate untuk service lain |
+| `redis` | Opsional (profile `redis`); cache, session, queue, dan maintenance mode bersama saat replica/multi-server |
+| `release` | Memverifikasi disk default (`local`/`public`/`s3`), menjalankan migration, lalu menjadi readiness gate |
 | `web` | Menyajikan Laravel Octane pada port internal `8080` dan healthcheck `/up` |
-| `worker` | Menjalankan Redis queue worker untuk export dan background job |
+| `worker` | Menjalankan queue worker (database atau Redis, mengikuti `QUEUE_CONNECTION`) |
 | `scheduler` | Menjalankan Laravel scheduler untuk reminder KPI |
 
-Service aplikasi memakai image yang sama dan bersifat stateless: upload, file private, upload sementara Livewire, dan hasil export queue disimpan pada object storage S3-compatible. MariaDB memakai named volume `db_data`; Redis memakai `redis_data` agar session dan job antrean bertahan saat container diganti. Temporary file PHP/Excel serta compiled view bersifat ephemeral per-container; log diarahkan ke `stderr`.
+Driver mengikuti Laravel: satu instance memakai session/cache/queue `database` dan filesystem `local` pada volume `storage_data` yang dibagi `web`, `worker`, `scheduler`, dan `release`. Redis tidak dijalankan kecuali `COMPOSE_PROFILES=redis` atau overlay scale/multi-server. Object storage S3 hanya dipakai bila `FILESYSTEM_DISK=s3`. MariaDB memakai named volume `db_data`. Log diarahkan ke `stderr`.
 
 > [!IMPORTANT]
-> Compose sengaja memuat MariaDB agar seluruh stack memakai network yang sama tanpa konfigurasi khusus Coolify atau Dokploy. Tidak ada host port, custom network, `container_name`, label Traefik, atau volume file aplikasi. Domain tetap diatur melalui UI platform dan hanya diarahkan ke service `web`.
+> `compose.yaml` sengaja memuat MariaDB agar seluruh stack memakai network yang sama tanpa konfigurasi khusus Coolify atau Dokploy. File itu tidak memasang host port, custom network, `container_name`, atau label Traefik. Volume aplikasi hanya `storage_data` (disk local/public) plus data MariaDB/Redis. Domain tetap diatur melalui UI platform dan hanya diarahkan ke service `web`. 1Panel memakai overlay terpisah [`compose.1panel.yaml`](compose.1panel.yaml) karena OpenResty panel berjalan di container dan tidak bisa mem-proxy `127.0.0.1`.
 
 ### Environment production
 
-Gunakan `.env.example` hanya sebagai daftar variabel dan default development Laravel 12. Jangan menyalin nilai development mentah ke production. Minimum nilai yang harus dibuat di panel deployment:
+Gunakan `.env.example` hanya sebagai daftar variabel dan default development Laravel 12. Jangan menyalin nilai development mentah ke production. Compose production menetapkan `DB_CONNECTION=mariadb`, `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, dan log `stderr`. Session, cache, queue, dan filesystem **tidak dikunci** ke Redis/S3; default-nya sama seperti skeleton Laravel.
+
+Minimum satu instance (tanpa Redis, storage local):
 
 ```dotenv
 APP_KEY=base64:<kunci-yang-dibuat-sekali>
@@ -673,8 +685,26 @@ DB_DATABASE=dnd
 DB_USERNAME=dnd
 DB_PASSWORD=<password-kuat>
 DB_ROOT_PASSWORD=<password-root-berbeda>
-REDIS_PASSWORD=<password-redis-kuat>
+```
 
+`FILESYSTEM_DISK` default `local` (file private di `storage/app/private`). Set `public` bila file harus diunggah lewat URL `/storage`. Volume Compose `storage_data` dibagi semua container aplikasi pada host yang sama, sehingga export queue dan upload Livewire tetap terlihat worker.
+
+Opsional — nyalakan Redis (performa, atau persiapan replica):
+
+```dotenv
+COMPOSE_PROFILES=redis
+REDIS_PASSWORD=<password-redis-kuat>
+SESSION_DRIVER=redis
+SESSION_CONNECTION=session
+CACHE_STORE=redis
+QUEUE_CONNECTION=redis
+APP_MAINTENANCE_STORE=redis
+```
+
+Opsional — object storage (wajib antar server; disarankan jika volume lokal tidak di-backup):
+
+```dotenv
+FILESYSTEM_DISK=s3
 AWS_ACCESS_KEY_ID=<access-key-runtime>
 AWS_SECRET_ACCESS_KEY=<secret-key-runtime>
 AWS_DEFAULT_REGION=us-east-1
@@ -684,17 +714,17 @@ AWS_URL=https://s3.example.com/<nama-bucket>
 AWS_USE_PATH_STYLE_ENDPOINT=true
 ```
 
-Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. Buat password acak terpisah untuk database, root database, dan Redis; pertahankan semuanya setelah volume terbentuk. Compose menetapkan `DB_CONNECTION=mariadb`, `DB_HOST=database`, `FILESYSTEM_DISK=s3`, serta memaksa `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, maintenance/cache/session/queue berbasis Redis, dan log `stderr`. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
+Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. Buat password acak terpisah untuk database dan root database; tambahkan password Redis hanya jika service Redis dijalankan. Pertahankan secret itu setelah volume terbentuk. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
 
 Jangan commit credential object storage atau menjadikannya Docker build argument. Simpan access key dan secret key hanya sebagai runtime secret di panel platform. Gunakan credential khusus aplikasi yang dibatasi ke bucket/prefix DnD dengan izin `ListBucket`, `GetObject`, `PutObject`, dan `DeleteObject`; jangan memakai credential administrator dan jangan membuat bucket publik. Disk S3 dikonfigurasi *fail-loud*, sehingga kegagalan write tidak boleh dianggap sebagai upload/export berhasil.
 
-Livewire mengunggah file sementara langsung ke S3. Atur CORS bucket hanya untuk origin `APP_URL`, method `PUT`, `GET`, dan `HEAD`, serta header `Content-Type` dan `x-amz-*`. Atur lifecycle agar prefix `livewire-tmp/` dihapus setelah sekitar 24 jam dan kebijakan retensi terpisah untuk `filament_exports/`. Saat object export kedaluwarsa, bersihkan record `exports` pada periode retensi yang sama agar UI tidak menyimpan link download yang sudah mati.
+Bila `FILESYSTEM_DISK=s3`, Livewire mengunggah file sementara ke S3. Atur CORS bucket hanya untuk origin `APP_URL`, method `PUT`, `GET`, dan `HEAD`, serta header `Content-Type` dan `x-amz-*`. Atur lifecycle agar prefix `livewire-tmp/` dihapus setelah sekitar 24 jam dan kebijakan retensi terpisah untuk `filament_exports/`. Saat object export kedaluwarsa, bersihkan record `exports` pada periode retensi yang sama agar UI tidak menyimpan link download yang sudah mati.
 
-Worker diberi timeout 300 detik dan `REDIS_QUEUE_RETRY_AFTER=360`, sehingga job tidak dilepas kembali ke queue sebelum proses lama dihentikan. Jika `QUEUE_TIMEOUT` diubah, pertahankan `REDIS_QUEUE_RETRY_AFTER` lebih besar daripada timeout.
+Worker diberi timeout 300 detik. `DB_QUEUE_RETRY_AFTER` dan `REDIS_QUEUE_RETRY_AFTER` default 360, sehingga job tidak dilepas kembali ke queue sebelum proses lama dihentikan. Jika `QUEUE_TIMEOUT` diubah, pertahankan nilai `*_QUEUE_RETRY_AFTER` lebih besar daripada timeout.
 
 ### Tuning performa satu container web
 
-Default `OCTANE_WORKERS=2` adalah titik awal untuk VM 2-vCPU. Gunakan `1` pada VM 1-vCPU; untuk server lebih besar, set jumlahnya mendekati jatah vCPU container lalu ukur pemakaian RAM dan latency. Jangan memakai `auto` bila container tidak diberi CPU quota karena FrankenPHP dapat membuat worker lebih banyak dari kapasitas RAM. Pertahankan ruang untuk satu thread non-worker, MariaDB, Redis, queue worker, dan sistem operasi. `OCTANE_MAX_REQUESTS=500` mendaur ulang worker secara berkala, sementara `FRANKENPHP_MAX_WAIT_TIME=5s` menolak overload yang terlalu lama mengantre agar latency tidak menumpuk.
+Default `OCTANE_WORKERS=2` adalah titik awal untuk VM 2-vCPU. Gunakan `1` pada VM 1-vCPU; untuk server lebih besar, set jumlahnya mendekati jatah vCPU container lalu ukur pemakaian RAM dan latency. Jangan memakai `auto` bila container tidak diberi CPU quota karena FrankenPHP dapat membuat worker lebih banyak dari kapasitas RAM. Pertahankan ruang untuk satu thread non-worker, MariaDB, queue worker, sistem operasi, dan Redis bila dijalankan. `OCTANE_MAX_REQUESTS=500` mendaur ulang worker secara berkala, sementara `FRANKENPHP_MAX_WAIT_TIME=5s` menolak overload yang terlalu lama mengantre agar latency tidak menumpuk.
 
 OPcache production sudah memakai 256 MB/32.531 file, timestamp validation dimatikan, dan asset Vite fingerprinted dikirim dengan cache browser immutable. Setiap deploy harus membuat ulang image agar kode dan cache konfigurasi baru ikut terpasang.
 
@@ -710,7 +740,7 @@ docker run --rm -i \
   grafana/k6 run - < tests/load/k6-smoke.js
 ```
 
-Naikkan RPS bertahap sambil melihat p95/p99, error rate, CPU, RAM, slow query MariaDB, dan panjang antrean Redis. Ulangi sesudah mengubah `OCTANE_WORKERS`; angka RPS maksimum tidak dapat ditentukan hanya dari konfigurasi karena route, data, dan spesifikasi server ikut menentukan.
+Naikkan RPS bertahap sambil melihat p95/p99, error rate, CPU, RAM, slow query MariaDB, dan panjang antrean (tabel `jobs` atau Redis). Ulangi sesudah mengubah `OCTANE_WORKERS`; angka RPS maksimum tidak dapat ditentukan hanya dari konfigurasi karena route, data, dan spesifikasi server ikut menentukan.
 
 Web diberi graceful shutdown 25 detik agar deploy tidak menggantung. Pekerjaan yang dapat melampaui durasi itu harus dijalankan sebagai queue job; queue worker mempunyai timeout 300 detik dan grace period 330 detik.
 
@@ -724,44 +754,197 @@ Setelah `.env` production tersedia:
 docker compose config --quiet
 docker compose up --detach --build
 docker compose ps
-docker compose logs --follow web worker scheduler release redis
+docker compose logs --follow web worker scheduler release
 ```
 
-Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk S3 lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi.
+Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk default (`local`, `public`, atau `s3`) lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi. Redis hanya muncul di `docker compose ps` bila profile `redis` aktif.
 
 ### Coolify
 
 1. Buat Application dari repository Git dan pilih build pack **Docker Compose**.
-2. Pilih `compose.yaml`, lalu masukkan seluruh environment production di UI. Tandai credential S3 sebagai runtime secret, bukan build variable.
+2. Pilih `compose.yaml`, lalu masukkan environment production di UI. Satu instance cukup `APP_KEY`, `APP_URL`, dan credential MariaDB. Tandai credential S3 sebagai runtime secret hanya bila `FILESYSTEM_DISK=s3`.
 3. Kaitkan domain hanya ke service `web`; masukkan domain sebagai `https://domain-anda:8080` agar Coolify memakai port internal 8080.
-4. Pastikan `db_data` dan `redis_data` terdeteksi, aktifkan logical dump MariaDB, dan atur versioning/replication serta lifecycle pada bucket object storage.
+4. Pastikan `db_data` dan `storage_data` terdeteksi. `redis_data` hanya muncul jika `COMPOSE_PROFILES=redis`. Aktifkan logical dump MariaDB; backup volume `storage_data` atau bucket S3 sesuai disk yang dipakai.
 
 ### Dokploy
 
 1. Buat service **Docker Compose** biasa, bukan Docker Stack, dari repository Git.
 2. Pilih `compose.yaml` dan masukkan environment production. Compose memetakan variabel Laravel secara eksplisit ke container yang membutuhkannya; `DB_ROOT_PASSWORD` hanya diberikan kepada MariaDB.
 3. Pada tab Domains, pilih service `web` dan container port `8080`; jangan menambahkan host port atau label Traefik manual.
-4. Aktifkan Isolated Deployments. Pastikan volume `db_data` dan `redis_data` persisten, buat logical dump MariaDB, serta atur versioning/replication dan lifecycle bucket object storage.
+4. Aktifkan Isolated Deployments. Pastikan volume `db_data` dan `storage_data` persisten (`redis_data` hanya jika Redis dijalankan), buat logical dump MariaDB, serta backup storage lokal atau bucket sesuai `FILESYSTEM_DISK`.
+
+### 1Panel
+
+1Panel bukan runtime PHP untuk DnD. Jangan membuat situs bertipe **运行环境 / runtime PHP**. Stack tetap Docker Compose (Octane/FrankenPHP); 1Panel hanya mengorkestrasi container, TLS, dan reverse proxy.
+
+OpenResty 1Panel berjalan di container pada jaringan `1panel-network`. Proxy ke `http://127.0.0.1:8080` menunjuk ke OpenResty sendiri dan biasanya 502. Overlay menempelkan service `web` ke jaringan itu dengan alias `WEB_CONTAINER_NAME` (default `dnd-web`).
+
+1. Pasang OpenResty dari App Store 1Panel bila belum ada, lalu pastikan jaringan Docker `1panel-network` muncul.
+2. Clone repository (branch `dev-azka`) ke server, atau salin `compose.yaml` dan `compose.1panel.yaml` ke folder orkestrasi yang sama. File overlay mengimpor `compose.yaml`; jangan hanya menempel overlay.
+3. Buat **Kontainer → Orkestrasi**. Compose file yang dijalankan adalah `compose.1panel.yaml` (bila 1Panel memaksa nama `docker-compose.yml`, salin isi overlay ke nama itu dan biarkan `compose.yaml` tetap di folder yang sama).
+4. Isi environment production di UI 1Panel, termasuk `APP_URL=https://domain-anda`. Jangan mematikan `SESSION_SECURE_COOKIE` atau `OCTANE_HTTPS`. Satu instance tidak membutuhkan Redis atau S3. Tandai credential S3 sebagai secret hanya bila `FILESYSTEM_DISK=s3`.
+5. Jangan mengganti MariaDB Compose dengan MySQL App Store kecuali `DB_HOST` diubah sadar. Redis App Store tidak diperlukan; default overlay tidak menjalankan service `redis` sampai `COMPOSE_PROFILES=redis`.
+6. Nyalakan orkestrasi, lalu tunggu `release` sehat (probe storage + migrate) sebelum menguji web.
+7. **Website → Buat → Reverse proxy**. Domain ke aplikasi; alamat proxy:
+
+   ```text
+   http://dnd-web:8080
+   ```
+
+   Ganti `dnd-web` bila `WEB_CONTAINER_NAME` diubah. Bila alias tidak resolve, pakai gateway Docker host, misalnya `http://172.17.0.1:8080` (port mengikuti `ONEPANEL_WEB_PORT`). Jangan `http://127.0.0.1:8080` dan jangan `http://web:8080` bila ada lebih dari satu aplikasi di `1panel-network`.
+8. Aktifkan HTTPS pada situs itu. Di konfigurasi reverse proxy, teruskan `Host`, `X-Forwarded-Proto`, `X-Forwarded-For`, serta header `Upgrade`/`Connection` untuk Livewire. Naikkan `proxy_read_timeout` mendekati 300 detik agar export/import besar tidak putus.
+9. Jangan men-publish `8080` ke `0.0.0.0`. Overlay hanya bind loopback sebagai cadangan.
+
+Perbarui aplikasi dengan rebuild image dari folder yang sama, bukan dengan runtime PHP 1Panel:
+
+```bash
+docker compose -f compose.1panel.yaml up --detach --build
+```
+
+### Satu server, beberapa aplikasi
+
+Satu VPS boleh menjalankan DnD bersama aplikasi lain yang memakai pola Compose yang sama. Yang diisolasi per aplikasi adalah **proyek Compose**, bukan mesin. Jangan menumpuk dua stack dengan nama container, port loopback, atau domain yang sama.
+
+Alur yang konsisten untuk semua jalur (manual, Coolify, Dokploy, 1Panel):
+
+1. Satu aplikasi = satu proyek Compose = satu domain = satu `APP_KEY`.
+2. Biarkan setiap stack membawa MariaDB (dan Redis, bila dijalankan) sendiri. Jangan memakai ulang service `database`/`redis` milik aplikasi lain.
+3. Bila memakai S3, bucket boleh sama tetapi prefix/kredensial per aplikasi; `APP_URL` dan cookie session tidak boleh bentrok.
+4. `CACHE_PREFIX` default DnD adalah `dnd-cache-`. Aplikasi lain harus memakai prefix berbeda bila suatu saat cache/Redis terpaksa dibagi.
+5. Satu replica `scheduler` **per aplikasi**, bukan satu scheduler untuk seluruh server.
+
+Yang sudah aman tanpa ubah apa pun:
+
+| Bagian | Perilaku |
+|---|---|
+| Network default Compose | Unik per nama proyek (folder orkestrasi / `COMPOSE_PROJECT_NAME`) |
+| Volume `db_data` / `storage_data` / `redis_data` | Diprefiks nama proyek, tidak saling timpa |
+| Port MariaDB/Redis | Hanya internal, tidak dipublish ke host |
+| Coolify / Dokploy + `compose.yaml` | Tidak ada host port dan tidak ada `container_name`; isolasi mengikuti nama aplikasi di panel |
+
+Yang **tabrakan** bila diduplikasi mentah di 1Panel:
+
+| Bagian | Default DnD | Aplikasi kedua |
+|---|---|---|
+| Nama proyek | `dnd-web` | nilai `COMPOSE_PROJECT_NAME` lain |
+| Container / alias proxy | `dnd-web` | `WEB_CONTAINER_NAME` lain, misalnya `hris-web` |
+| Port loopback | `127.0.0.1:8080` | `ONEPANEL_WEB_PORT` lain, misalnya `8081` |
+| Domain / `APP_URL` | `https://dnd.example.com` | domain lain |
+| Proxy 1Panel | `http://dnd-web:8080` | `http://hris-web:8080` |
+
+Jangan mengarahkan reverse proxy ke `http://web:8080`. Nama service `web` terdaftar di `1panel-network` dan akan bentrok antar stack. Selalu pakai `WEB_CONTAINER_NAME`.
+
+Contoh env aplikasi kedua di server yang sama:
+
+```dotenv
+COMPOSE_PROJECT_NAME=hris-web
+WEB_CONTAINER_NAME=hris-web
+ONEPANEL_WEB_PORT=8081
+APP_URL=https://hris.example.com
+CACHE_PREFIX=hris-cache-
+```
+
+Kapasitas mesin terpisah dari tabrakan nama. Setiap stack menjalankan MariaDB, Octane, worker, scheduler, dan volume storage; Redis hanya jika diaktifkan. Dua stack identik di satu VPS layak dihitung dari ~4 GB RAM ke atas; ukur CPU/RAM sebelum menambah aplikasi ketiga.
+
+### Scale: satu instance dan banyak instance
+
+Fondasi sama seperti Laravel: driver dipilih lewat environment, bukan dikunci di kode. Yang di-scale adalah **server/container**, bukan logika KPI. Jangan meniru pola “satu app = satu port = satu database” untuk menambah kapasitas; itu aplikasi baru, bukan replica.
+
+Yang boleh digandakan: `web`, `worker`.  
+Yang **tetap satu** per aplikasi: `database`, `redis` (bila dipakai), `scheduler`, `release`, `APP_KEY`, volume `storage_data` (atau bucket S3).
+
+```text
+                 HTTPS
+                    │
+         Coolify / Caddy / 1Panel
+                    │
+              lb (opsional)
+               /        \
+            web        web     ← --scale web=N
+                    │
+         worker  worker        ← --scale worker=M
+                    │
+     MariaDB + storage volume atau S3
+        Redis opsional + scheduler=1
+```
+
+#### Level 0 — satu instance (default)
+
+Coolify/Dokploy: `compose.yaml`, domain ke `web:8080`.  
+1Panel: `compose.1panel.yaml`, proxy ke `http://dnd-web:8080`.  
+Manual: `docker compose up --detach --build`.
+
+Tidak membutuhkan Redis atau S3. Session/cache/queue di MariaDB; file di volume `storage_data`. Naikkan `OCTANE_WORKERS` dulu sebelum menambah replica. Satu container web dengan 2 worker sudah menampung traffic internal pada VM 2 vCPU.
+
+#### Level 1 — banyak container di satu server
+
+Jangan memakai `compose.1panel.yaml` di sini: `container_name` dan port loopback mencegah replica.
+
+Coolify/Dokploy: tetap `compose.yaml`. Naikkan replica service `web` (dan `worker` bila antrean panjang) di UI. Domain tetap ke `web:8080`; proxy platform yang membagi request. Session database dan volume `storage_data` sudah dibagi di host yang sama, jadi Redis/S3 tidak wajib. Redis disarankan jika antrean atau cache mulai menekan MariaDB.
+
+Manual / VPS tanpa panel scale:
+
+```bash
+docker compose -f compose.scale.yaml up --detach --build --scale web=3 --scale worker=2
+```
+
+Overlay ini menyalakan Redis dan memakai Redis sebagai default session/cache/queue; storage tetap local pada volume bersama kecuali `FILESYSTEM_DISK=s3`. Caddy `lb` mem-resolve DNS `web` setiap 5 detik dan membagi request round-robin ke replica yang lolos `/up`. Arahkan reverse proxy host ke `http://127.0.0.1:8080` (atau `LB_PORT`). Jangan `--scale scheduler`.
+
+#### Level 2 — banyak server
+
+Volume `storage_data` tidak dibagi antar mesin, jadi `FILESYSTEM_DISK=s3` wajib. Redis disarankan (dan menjadi default overlay) untuk session/cache/queue.
+
+Satu node **data** menjalankan `compose.yaml` + `compose.data-expose.yaml` (MariaDB, Redis, scheduler, minimal satu `web`). Node **compute** tambahan menjalankan `compose.app.yaml` (hanya `web`/`worker`).
+
+Di node utama, publish data plane ke IP privat saja:
+
+```bash
+DATA_BIND=10.0.0.5 docker compose -f compose.yaml -f compose.data-expose.yaml up --detach --build
+```
+
+Di node compute:
+
+```dotenv
+DB_HOST=10.0.0.5
+REDIS_HOST=10.0.0.5
+APP_KEY=<kunci-yang-sama-dengan-node-utama>
+APP_URL=https://dnd.example.com
+FILESYSTEM_DISK=s3
+```
+
+```bash
+docker compose -f compose.app.yaml up --detach --build --scale web=2 --scale worker=1
+```
+
+Load balancer di depan (Coolify cluster, DNS, atau proxy) menunjuk ke semua entry HTTP. Firewall hanya mengizinkan node compute ke `DATA_BIND:3306` dan `:6379`. Jangan membuka port itu ke internet.
+
+#### Yang tidak boleh
+
+- Menggandakan seluruh Compose lalu beda port 8080/8081/8082 — itu tiga database dan tiga scheduler.
+- `--scale scheduler=2` — reminder terkirim dobel.
+- `APP_KEY` berbeda antar replica — session/cookie pecah.
+- `FILESYSTEM_DISK=local` atau `public` pada lebih dari satu server — volume tidak dibagi antar mesin; pakai `s3`.
+- 1Panel overlay untuk horizontal scale — pakai Coolify/Dokploy atau `compose.scale.yaml`.
 
 ### Checklist setelah deploy
 
-1. Pastikan seluruh service healthy/running, Redis menjawab healthcheck, migration `release` berhasil, dan `php artisan octane:status --server=frankenphp` di terminal service `web` melaporkan server aktif.
-2. Verifikasi `/up`, login panel, upload/import S3, download export queue, serta reminder dengan `php artisan kpi:send-reminders --dry-run`.
-3. Aktifkan logical `mariadb-dump` atau backup database-aware terjadwal, versioning/replication bucket, lalu uji restore keduanya. Raw backup `db_data` hanya aman saat database berhenti atau melalui snapshot yang konsisten; selalu ambil logical dump sebelum migration berisiko atau upgrade MariaDB.
+1. Pastikan seluruh service healthy/running, migration `release` berhasil, probe storage lolos, dan `php artisan octane:status --server=frankenphp` di terminal service `web` melaporkan server aktif. Redis hanya perlu sehat jika profil/overlay Redis aktif.
+2. Verifikasi `/up`, login panel, upload/import pada disk yang dipakai (`local`/`public`/`s3`), download export queue, serta reminder dengan `php artisan kpi:send-reminders --dry-run`.
+3. Aktifkan logical `mariadb-dump` atau backup database-aware terjadwal, backup volume `storage_data` atau versioning bucket S3, lalu uji restore. Raw backup `db_data` hanya aman saat database berhenti atau melalui snapshot yang konsisten; selalu ambil logical dump sebelum migration berisiko atau upgrade MariaDB.
 4. Pantau log `web`, `worker`, dan `scheduler`; hubungkan kegagalan/restart ke notifikasi platform.
 5. Review `config/cors.php`; konfigurasi saat ini mengizinkan origin `*`.
 6. Jangan membuka `/api/v1` ke klien tak tepercaya sebelum authorization audit selesai.
-7. Jangan menaikkan replica `scheduler` di atas satu. Web dan worker sudah tidak menyimpan data bisnis pada filesystem container; untuk deployment multi-node, gunakan database eksternal/shared dan pertahankan cache lock bersama.
+7. Jangan menaikkan replica `scheduler` di atas satu. Satu host boleh memakai volume `storage_data` bersama; antar server wajib `FILESYSTEM_DISK=s3` plus cache/session/queue yang dibagi (database atau Redis).
 
 ### Catatan upgrade deployment existing
 
 - Migration kompatibilitas mengganti nama tabel `password_resets` menjadi `password_reset_tokens`, menetapkan `email` sebagai primary key, dan menyelaraskan kolom nama token Sanctum dengan schema Laravel 12/Sanctum 4. Karena reset password dinonaktifkan, token reset lama dibersihkan saat constraint primary key diterapkan.
 - Migration baru menyediakan tabel cache (`cache` dan `cache_locks`), `sessions`, serta `jobs` sesuai default Laravel 12. Pastikan tabel bernama sama belum dibuat manual sebelum migration dijalankan.
-- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Deployment Compose baru memakai `CACHE_STORE=redis`, `SESSION_DRIVER=redis`, dan `QUEUE_CONNECTION=redis`; pengguna dari session database akan perlu login kembali satu kali.
+- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Compose satu instance memakai `database` + `local` seperti Laravel; Redis/S3 hanya jika di-set. Deployment yang sebelumnya mengandalkan default keras Redis+S3 harus mengisi `SESSION_DRIVER=redis`, `CACHE_STORE=redis`, `QUEUE_CONNECTION=redis`, `FILESYSTEM_DISK=s3`, `COMPOSE_PROFILES=redis`, dan `SESSION_CONNECTION=session` secara eksplisit. Pengguna dari session lama akan perlu login kembali satu kali.
 - Default prefix cache/Redis dan nama cookie session sekarang mengikuti skeleton Laravel 12. Pengguna akan login ulang dan cache lama tidak lagi terbaca setelah deploy, kecuali nilai lama dipertahankan eksplisit melalui `CACHE_PREFIX`, `REDIS_PREFIX`, dan `SESSION_COOKIE`.
-- Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Sebelum menghapus volume/mount lama, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
-- Bila histori export lama harus tetap dapat diunduh, pindahkan object `filament_exports/{export-id}` ke S3 dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.
-- Setelah migration data ke S3, jalankan `php artisan app:storage-probe` dan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
+- Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Satu instance boleh tetap di disk `local`/`public` pada volume `storage_data`. Bila pindah ke S3, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
+- Bila histori export lama harus tetap dapat diunduh setelah pindah ke S3, pindahkan object `filament_exports/{export-id}` dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.
+- Setelah mengubah disk atau driver session/cache/queue, jalankan `php artisan app:storage-probe` dan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
 
 ## Batasan dan technical debt
 
@@ -810,6 +993,14 @@ php artisan optimize:clear
 ```bash
 php artisan optimize:clear
 ```
+
+### Reverse proxy 1Panel mengembalikan 502
+
+1. Pastikan yang dijalankan adalah `compose.1panel.yaml`, bukan `compose.yaml` saja.
+2. Pastikan OpenResty App Store sudah terpasang dan jaringan `1panel-network` ada.
+3. Alamat proxy harus `http://dnd-web:8080` (atau `WEB_CONTAINER_NAME` yang dipakai), bukan `http://127.0.0.1:8080` dan bukan `http://web:8080`.
+4. Bila ada aplikasi lain di server yang sama, pastikan `COMPOSE_PROJECT_NAME`, `WEB_CONTAINER_NAME`, dan `ONEPANEL_WEB_PORT` tidak sama dengan DnD.
+5. Tunggu service `release` sehat sebelum menguji domain.
 
 ### `/docs/api` mengembalikan 403
 

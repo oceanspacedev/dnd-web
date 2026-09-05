@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Date;
 
 class ChecklistKPI extends Widget
 {
+    protected static bool $isDiscovered = false;
+
     protected string $view = 'filament.widgets.checklist-kpi';
 
     protected int|string|array $columnSpan = 'full';

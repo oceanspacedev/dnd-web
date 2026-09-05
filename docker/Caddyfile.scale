@@ -1,0 +1,27 @@
+{
+	auto_https off
+}
+
+:80 {
+	encode zstd gzip
+
+	reverse_proxy {
+		dynamic a web {
+			port 8080
+			refresh 5s
+			versions ipv4
+		}
+
+		lb_policy round_robin
+		health_uri /up
+		health_interval 10s
+		health_timeout 3s
+		fail_duration 15s
+		unhealthy_status 5xx
+
+		header_up Host {http.request.host}
+		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+		header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+		header_up X-Forwarded-Host {http.request.host}
+	}
+}

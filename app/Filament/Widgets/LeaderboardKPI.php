@@ -7,10 +7,13 @@ use App\Models\Divisi;
 use App\Models\User;
 use App\Services\KpiScoringService;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 
 class LeaderboardKPI extends Widget
 {
+    protected static bool $isDiscovered = false;
+
     protected string $view = 'filament.widgets.leaderboard-kpi';
 
     protected int|string|array $columnSpan = 'full';
@@ -51,6 +54,22 @@ class LeaderboardKPI extends Widget
             && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $this->month)
                 ? $this->month
                 : Date::now()->format('Y-m');
+        $area = (string) ($this->area ?? '');
+        $division = (string) ($this->division ?? '');
+        $ttl = max(1, (int) config('kpi.cache_ttl_seconds.leaderboard', 60));
+
+        return Cache::remember(
+            "leaderboard:panel:{$period}:{$area}:{$division}",
+            $ttl,
+            fn (): array => $this->computeLeaderboardData($period),
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    protected function computeLeaderboardData(string $period): array
+    {
         $periodStart = Date::createFromFormat('!Y-m', $period)->startOfMonth();
         $periodEnd = $periodStart->copy()->addMonth();
 

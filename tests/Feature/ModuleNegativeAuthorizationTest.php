@@ -551,7 +551,17 @@ class ModuleNegativeAuthorizationTest extends TestCase
 
         Sanctum::actingAs($actor);
 
-        $this->getJson('/api/v1/kpis')->assertForbidden();
+        $ownKpi = Kpi::query()->create([
+            'user_id' => $actor->id,
+            'kpi_category_id' => $category->id,
+            'kpi_type_id' => $type->id,
+            'date' => now(),
+            'percentage' => 100,
+        ]);
+
+        $list = $this->getJson('/api/v1/kpis')->assertOk();
+        $this->assertSame([$ownKpi->id], collect($list->json('data'))->pluck('id')->all());
+        $this->getJson("/api/v1/kpis/{$ownKpi->id}")->assertOk();
         $this->getJson("/api/v1/kpis/{$kpi->id}")->assertForbidden();
     }
 

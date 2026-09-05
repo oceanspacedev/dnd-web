@@ -33,6 +33,27 @@ class StatelessStorageTest extends TestCase
         );
     }
 
+    public function test_spreadsheet_import_uses_the_local_disk_and_removes_the_source_file(): void
+    {
+        config()->set('filament.default_filesystem_disk', 'local');
+        Storage::fake('local');
+        Excel::fake();
+
+        $path = 'imports/users/users.xlsx';
+        $import = new class implements Import {};
+
+        Storage::disk('local')->put($path, 'spreadsheet');
+
+        StoredSpreadsheetUpload::import($import, [$path], 'imports/users');
+
+        Excel::assertImported(
+            $path,
+            'local',
+            fn (Import $actualImport): bool => $actualImport === $import,
+        );
+        Storage::disk('local')->assertMissing($path);
+    }
+
     public function test_spreadsheet_import_uses_the_shared_disk_and_removes_the_source_object(): void
     {
         config()->set('filament.default_filesystem_disk', 's3');
@@ -70,6 +91,11 @@ class StatelessStorageTest extends TestCase
             $path,
             'imports/users',
         );
+    }
+
+    public function test_excel_keeps_local_temp_files_when_the_default_disk_is_not_s3(): void
+    {
+        $this->assertNull(config('excel.temporary_files.remote_disk'));
     }
 
     public function test_storage_probe_writes_reads_and_removes_its_object(): void

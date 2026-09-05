@@ -372,8 +372,8 @@ return [
         | in conjunction with queued imports and exports.
         |
         */
-        'remote_disk' => null,
-        'remote_prefix' => null,
+        'remote_disk' => env('EXCEL_TEMPORARY_REMOTE_DISK') ?: (env('FILESYSTEM_DISK', 'local') === 's3' ? 's3' : null),
+        'remote_prefix' => env('EXCEL_TEMPORARY_REMOTE_PREFIX'),
 
         /*
         |--------------------------------------------------------------------------
