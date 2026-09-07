@@ -36,8 +36,8 @@ return [
     ],
 
     'whatsapp' => [
-        'api_url' => env('WA_API_URL', 'https://waghub.mekayastudio.com/api/v1/messages'),
-        'api_key' => env('WA_API_KEY'),
+        'api_url' => env('WAG_URL', env('WA_API_URL', 'https://waghub.mekayastudio.com')),
+        'api_key' => env('WAG_TOKEN', env('WA_API_KEY')),
         'connect_timeout' => (int) env('WA_CONNECT_TIMEOUT', 5),
         'timeout' => (int) env('WA_API_TIMEOUT', 15),
         'otp_expires_in' => (int) env('WA_OTP_EXPIRES_IN', 60),

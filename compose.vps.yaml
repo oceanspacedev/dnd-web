@@ -1,0 +1,43 @@
+# VPS kosong yang hanya punya Docker. Coolify/Dokploy tetap compose.yaml.
+# 1Panel tetap compose.1panel.yaml.
+#
+# Caddy di service `proxy` terminate TLS (Let's Encrypt) dan mem-proxy ke web:8080.
+# Jangan publish 8080 ke 0.0.0.0. DNS A record domain harus mengarah ke VPS
+# sebelum `up`, supaya sertifikat bisa terbit.
+#
+#   docker compose -f compose.vps.yaml up --detach --build
+#
+# Wajib di .env: APP_KEY, APP_URL, DB_*, CADDY_SITE, ACME_EMAIL.
+# CADDY_SITE = hostname tanpa skema, sama dengan host di APP_URL.
+
+include:
+  - path: compose.yaml
+
+services:
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL wajib diisi}
+      CADDY_SITE: ${CADDY_SITE:?CADDY_SITE wajib diisi (hostname tanpa https://)}
+    volumes:
+      - ./docker/Caddyfile.vps:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  caddy_data:
+  caddy_config:

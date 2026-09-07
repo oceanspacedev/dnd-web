@@ -11,6 +11,25 @@ use Tests\TestCase;
 
 class KpiReminderWhatsAppServiceTest extends TestCase
 {
+    public function test_is_configured_requires_url_and_key(): void
+    {
+        config()->set('services.whatsapp.api_url');
+        config()->set('services.whatsapp.api_key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url');
+        config()->set('services.whatsapp.api_key', 'test-key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+        $this->assertTrue(WhatsAppService::isConfigured());
+    }
+
     public function test_missing_api_key_fails_without_sending_a_request(): void
     {
         Http::fake();
@@ -20,8 +39,30 @@ class KpiReminderWhatsAppServiceTest extends TestCase
         $result = WhatsAppService::send('081234567890', 'Pengingat KPI');
 
         $this->assertFalse($result['success']);
-        $this->assertSame('WA_API_KEY belum dikonfigurasi.', $result['message']);
+        $this->assertSame('WAG_TOKEN belum dikonfigurasi.', $result['message']);
         Http::assertNothingSent();
+    }
+
+    public function test_send_appends_messages_path_to_base_wag_url(): void
+    {
+        Http::fake([
+            'https://waghub.mekayastudio.com/api/v1/messages' => Http::response(['success' => true]),
+        ]);
+        config()->set('services.whatsapp.api_url', 'https://waghub.mekayastudio.com');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send('081234567890', 'Pengingat KPI');
+
+        $this->assertTrue($result['success']);
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://waghub.mekayastudio.com/api/v1/messages');
+        $this->assertSame(
+            'https://waghub.mekayastudio.com/api/v1/messages',
+            WhatsAppService::messagesEndpoint('https://waghub.mekayastudio.com/'),
+        );
+        $this->assertSame(
+            'https://waghub.mekayastudio.com/api/v1/messages',
+            WhatsAppService::messagesEndpoint('https://waghub.mekayastudio.com/api/v1/messages'),
+        );
     }
 
     public function test_it_normalizes_international_indonesian_number_and_preserves_idempotency_key(): void

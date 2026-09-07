@@ -6,6 +6,7 @@ use App\Filament\Auth\Concerns\InteractsWithWhatsAppLogin;
 use App\Models\User;
 use App\Models\WhatsappOtp;
 use App\Services\WhatsAppOtpService;
+use App\Services\WhatsAppService;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\TextInput;
@@ -47,6 +48,12 @@ class PhoneLogin extends SimplePage
 
         if (Filament::auth()->check()) {
             $this->redirect(Filament::getUrl());
+
+            return;
+        }
+
+        if (! WhatsAppService::isConfigured()) {
+            $this->redirect(Filament::getLoginUrl());
 
             return;
         }

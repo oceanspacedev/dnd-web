@@ -384,8 +384,8 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
 | `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori/deskripsi/posisi (`300` dtk) dan skor leaderboard (`60` dtk) |
 | `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
-| `WA_API_URL` | Untuk WhatsApp | Endpoint gateway WhatsApp |
-| `WA_API_KEY` | Untuk WhatsApp | Bearer credential gateway WhatsApp |
+| `WAG_URL` | Untuk WhatsApp | Endpoint gateway WhatsApp |
+| `WAG_TOKEN` | Untuk WhatsApp | Bearer credential gateway WhatsApp |
 | `WA_CONNECT_TIMEOUT` | Tidak | Timeout koneksi gateway; default `5` detik |
 | `WA_API_TIMEOUT` | Tidak | Timeout request gateway; default `15` detik |
 | `KPI_REMINDER_CACHE_STORE` | Untuk reminder | Store lock command reminder manual maupun terjadwal; default `kpi_reminders` berbasis database |
@@ -648,6 +648,7 @@ Repository menyediakan image production multi-stage dan beberapa file Compose me
 | File | Kapan dipakai |
 |---|---|
 | `compose.yaml` | Satu instance; Coolify/Dokploy (scale `web` di UI bila perlu) |
+| `compose.vps.yaml` | VPS kosong + Docker saja (Caddy TLS di port 80/443) |
 | `compose.1panel.yaml` | Satu instance di 1Panel |
 | `compose.scale.yaml` | Banyak container `web`/`worker` di **satu** server |
 | `compose.app.yaml` | Server tambahan; MariaDB/Redis tetap di node utama |
@@ -740,15 +741,90 @@ docker run --rm -i \
   grafana/k6 run - < tests/load/k6-smoke.js
 ```
 
+Skenario pengguna (staf menulis jurnal, manajer membuka dashboard/leaderboard, admin panel Filament) dengan ramp-up/peak/cooldown:
+
+```bash
+docker run --rm -i --network host \
+  -e BASE_URL=https://dnd.example.com \
+  -e ADMIN_TOKEN=masukkan-token-admin \
+  -e MANAGER_TOKEN=masukkan-token-manager \
+  -e STAFF_TOKENS='token1:12,token2:13' \
+  grafana/k6 run - < tests/load/k6-user-journeys.js
+```
+
+Uji replica + autoscaling lokal:
+
+```bash
+tests/load/run-autoscale-journeys.sh
+```
+
 Naikkan RPS bertahap sambil melihat p95/p99, error rate, CPU, RAM, slow query MariaDB, dan panjang antrean (tabel `jobs` atau Redis). Ulangi sesudah mengubah `OCTANE_WORKERS`; angka RPS maksimum tidak dapat ditentukan hanya dari konfigurasi karena route, data, dan spesifikasi server ikut menentukan.
 
 Web diberi graceful shutdown 25 detik agar deploy tidak menggantung. Pekerjaan yang dapat melampaui durasi itu harus dijalankan sebagai queue job; queue worker mempunyai timeout 300 detik dan grace period 330 detik.
 
 `bootstrap/app.php` mengikuti API middleware Laravel 12 dan mempercayai forwarded header dari reverse proxy. Karena itu service `web` sengaja hanya memakai `expose`; jangan membuka origin melalui host port atau bypass proxy platform.
 
-### Menjalankan Compose secara langsung
+### VPS kosong (hanya Docker)
 
-Setelah `.env` production tersedia:
+`compose.yaml` tidak membuka port ke host — itu untuk Coolify/Dokploy. Di VPS tanpa panel, pakai overlay [`compose.vps.yaml`](compose.vps.yaml): Caddy `proxy` di 80/443, Let's Encrypt, lalu ke `web:8080`.
+
+1. DNS: record A domain mengarah ke IP VPS. Buka firewall 22, 80, 443.
+2. Di server:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes git ca-certificates
+# Docker + plugin Compose sudah terpasang
+git clone -b dev-azka https://github.com/oceanspacedev/dnd-web.git
+cd dnd-web
+```
+
+3. Buat `.env` (jangan copy `.env` development). `CADDY_SITE` = hostname tanpa `https://`, sama dengan host `APP_URL`:
+
+```bash
+cat > .env <<'EOF'
+APP_KEY=base64:GANTI_DENGAN_HASIL_GENERATE
+APP_URL=https://dnd.example.com
+CADDY_SITE=dnd.example.com
+ACME_EMAIL=admin@example.com
+DB_DATABASE=dnd
+DB_USERNAME=dnd
+DB_PASSWORD=GANTI_PASSWORD_KUAT
+DB_ROOT_PASSWORD=GANTI_PASSWORD_ROOT_BERBEDA
+EOF
+```
+
+`APP_KEY` dibuat sekali (boleh di laptop), lalu disimpan:
+
+```bash
+echo "base64:$(openssl rand -base64 32)"
+```
+
+Jangan ganti `APP_KEY` di deploy berikutnya. Jangan jalankan seeder contoh.
+
+4. Deploy:
+
+```bash
+docker compose -f compose.vps.yaml config --quiet
+docker compose -f compose.vps.yaml up --detach --build
+docker compose -f compose.vps.yaml ps
+docker compose -f compose.vps.yaml logs --follow release web proxy
+```
+
+Tunggu `release` healthy (migrate), lalu `web` dan `proxy` healthy. Cek `https://domain-anda/up` dan login `/admin`.
+
+Update berikutnya dari folder yang sama:
+
+```bash
+git pull --ff-only origin dev-azka
+docker compose -f compose.vps.yaml up --detach --build
+```
+
+Volume `db_data` dan `storage_data` tetap. Jangan `down -v` kecuali ingin menghapus database.
+
+### Menjalankan Compose secara langsung (ada reverse proxy sendiri)
+
+Setelah `.env` production tersedia, bila Coolify/Dokploy/Caddy host sudah mem-proxy ke `web:8080`:
 
 ```bash
 docker compose config --quiet
@@ -890,6 +966,17 @@ docker compose -f compose.scale.yaml up --detach --build --scale web=3 --scale w
 
 Overlay ini menyalakan Redis dan memakai Redis sebagai default session/cache/queue; storage tetap local pada volume bersama kecuali `FILESYSTEM_DISK=s3`. Caddy `lb` mem-resolve DNS `web` setiap 5 detik dan membagi request round-robin ke replica yang lolos `/up`. Arahkan reverse proxy host ke `http://127.0.0.1:8080` (atau `LB_PORT`). Jangan `--scale scheduler`.
 
+Autoscaling lokal (bukan Coolify/Dokploy) menaikkan/menurunkan replica `web` dari rata-rata CPU. Caddy menambahkan replica baru setelah DNS `web` ter-refresh. Jangan memakai skrip ini di panel yang sudah punya replica UI.
+
+```bash
+# Overlay uji lokal membatasi 1 vCPU per replica web
+docker compose -f compose.scale.yaml -f compose.scale.local.yaml \
+  up --detach --build --scale web=1 --scale worker=1
+
+MIN_WEB_REPLICAS=1 MAX_WEB_REPLICAS=3 WEB_CPU_LIMIT=1 \
+  docker/autoscale-web.sh
+```
+
 #### Level 2 — banyak server
 
 Volume `storage_data` tidak dibagi antar mesin, jadi `FILESYSTEM_DISK=s3` wajib. Redis disarankan (dan menjadi default overlay) untuk session/cache/queue.
@@ -1011,7 +1098,7 @@ Pastikan development memakai `APP_ENV=local`. Untuk production, buat Gate `viewA
 1. Jalankan `php artisan kpi:send-reminders --dry-run`.
 2. Periksa rule aktif, tanggal tenggat, offset hari, dan tipe reminder.
 3. Periksa email/nomor HP user.
-4. Periksa `MAIL_*`, `WA_API_URL`, dan `WA_API_KEY`.
+4. Periksa `MAIL_*`, `WAG_URL`, dan `WAG_TOKEN`.
 5. Periksa `storage/logs/laravel.log` dan tabel log reminder.
 6. Pastikan scheduler aktif dan `APP_URL` menghasilkan link yang benar.
 
