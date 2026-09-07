@@ -109,8 +109,8 @@ x-app: &app
     MEKAYA_DOCS_URL: ${MEKAYA_DOCS_URL:-null}
     MEKAYA_DOCS_LABEL: ${MEKAYA_DOCS_LABEL:-null}
     MEKAYA_DOCS_NEW_TAB: ${MEKAYA_DOCS_NEW_TAB:-true}
-    WA_API_URL: ${WA_API_URL:-https://waghub.mekayastudio.com/api/v1/messages}
-    WA_API_KEY: ${WA_API_KEY:-}
+    WAG_URL: ${WAG_URL:-${WA_API_URL:-https://waghub.mekayastudio.com}}
+    WAG_TOKEN: ${WAG_TOKEN:-${WA_API_KEY:-}}
     WA_CONNECT_TIMEOUT: ${WA_CONNECT_TIMEOUT:-5}
     WA_API_TIMEOUT: ${WA_API_TIMEOUT:-15}
     WA_OTP_EXPIRES_IN: ${WA_OTP_EXPIRES_IN:-60}

@@ -9,13 +9,21 @@ use Throwable;
 
 class WhatsAppService
 {
+    public const MESSAGES_PATH = '/api/v1/messages';
+
+    public static function isConfigured(): bool
+    {
+        return trim((string) config('services.whatsapp.api_url')) !== ''
+            && trim((string) config('services.whatsapp.api_key')) !== '';
+    }
+
     /**
      * Send a WhatsApp message matching the WagHub Gateway API structure:
      *
-     * POST https://waghub.mekayastudio.com/api/v1/messages
+     * POST {WAG_URL}/api/v1/messages
      * Headers:
      *  - Accept: application/json
-     *  - Authorization: Bearer {WA_API_KEY}
+     *  - Authorization: Bearer {WAG_TOKEN}
      *  - Idempotency-Key: {unique_id}
      *  - Content-Type: application/json
      * Body:
@@ -49,7 +57,7 @@ class WhatsAppService
 
             return [
                 'success' => false,
-                'message' => 'WA_API_KEY belum dikonfigurasi.',
+                'message' => 'WAG_TOKEN belum dikonfigurasi.',
             ];
         }
 
@@ -58,15 +66,11 @@ class WhatsAppService
 
             return [
                 'success' => false,
-                'message' => 'WA_API_URL belum dikonfigurasi.',
+                'message' => 'WAG_URL belum dikonfigurasi.',
             ];
         }
 
-        // Ensure endpoint path is correctly targeted to /api/v1/messages
-        $apiUrl = rtrim($apiUrl, '/');
-        if (! str_contains($apiUrl, '/api/v1/messages')) {
-            $apiUrl .= '/api/v1/messages';
-        }
+        $apiUrl = static::messagesEndpoint($apiUrl);
 
         $idempotencyKey ??= 'wa-'.Str::uuid()->toString();
         $clientRef = 'kpi-ref-'.substr(hash('sha256', $idempotencyKey), 0, 32);
@@ -121,6 +125,17 @@ class WhatsAppService
                 'message' => 'Layanan WhatsApp tidak dapat dihubungi.',
             ];
         }
+    }
+
+    public static function messagesEndpoint(string $baseUrl): string
+    {
+        $baseUrl = rtrim($baseUrl, '/');
+
+        if (str_ends_with($baseUrl, self::MESSAGES_PATH)) {
+            return $baseUrl;
+        }
+
+        return $baseUrl.self::MESSAGES_PATH;
     }
 
     public static function normalizePhoneNumber(string $phoneNumber): ?string

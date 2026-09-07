@@ -28,6 +28,8 @@ class DeploymentComposeTest extends TestCase
         $this->assertStringContainsString('APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-database}', $compose);
         $this->assertStringContainsString('storage_data:/app/storage', $compose);
         $this->assertStringContainsString('DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-360}', $compose);
+        $this->assertStringContainsString('WAG_URL: ${WAG_URL:-${WA_API_URL:-https://waghub.mekayastudio.com}}', $compose);
+        $this->assertStringContainsString('WAG_TOKEN: ${WAG_TOKEN:-${WA_API_KEY:-}}', $compose);
         $this->assertStringContainsString("profiles:\n      - redis", $compose);
         $this->assertStringContainsString('required: false', $compose);
 

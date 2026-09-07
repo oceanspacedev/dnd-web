@@ -42,6 +42,9 @@ class PhoneOtpLoginTest extends TestCase
         DB::purge('sqlite');
         DB::setDefaultConnection('sqlite');
 
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
         $this->createSchema();
     }
 
@@ -59,6 +62,28 @@ class PhoneOtpLoginTest extends TestCase
         $this->get('/admin/login')
             ->assertOk()
             ->assertSee('Atau masuk dengan')->assertSee('WhatsApp')->assertSeeHtml(route('phone-login'));
+    }
+
+    public function test_login_page_hides_whatsapp_when_gateway_is_not_configured(): void
+    {
+        $this->withoutVite();
+
+        config()->set('services.whatsapp.api_url');
+        config()->set('services.whatsapp.api_key');
+
+        $this->get('/admin/login')
+            ->assertOk()
+            ->assertDontSee('Atau masuk dengan')
+            ->assertDontSeeHtml(route('phone-login'));
+    }
+
+    public function test_phone_login_redirects_home_when_gateway_is_not_configured(): void
+    {
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key');
+
+        $this->get(route('phone-login'))
+            ->assertRedirect();
     }
 
     public function test_phone_login_route_and_livewire_component_are_registered(): void
