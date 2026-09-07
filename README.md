@@ -312,7 +312,7 @@ SMTP, WhatsApp gateway, dan OpenAI bersifat opsional untuk development dasar.
 ```bash
 git clone https://github.com/oceanspacedev/dnd-web.git
 cd dnd-web
-git switch dev-azka
+git switch staging
 
 composer install
 cp .env.example .env
@@ -552,15 +552,15 @@ Jangan menjalankan `kpi:clean-duplicates` tanpa `--dry-run` sebelum backup dan r
 
 Konvensi branch repository saat README ini diperbarui:
 
-- `dev-azka`: branch integrasi development aktif.
+- `staging`: branch integrasi development aktif.
 - `main`: branch tujuan promosi/release setelah review.
-- Branch pekerjaan: buat dari `dev-azka` dengan pola `feat/<scope>`, `fix/<scope>`, atau `docs/<scope>`.
+- Branch pekerjaan: buat dari `staging` dengan pola `feat/<scope>`, `fix/<scope>`, atau `docs/<scope>`.
 
 ### Memulai pekerjaan
 
 ```bash
-git switch dev-azka
-git pull --ff-only origin dev-azka
+git switch staging
+git pull --ff-only origin staging
 git switch -c feat/<nama-fitur>
 ```
 
@@ -593,7 +593,7 @@ Gunakan scope kecil dan satu tujuan per branch. Hindari menggabungkan refactor l
 
 ### Definition of Done
 
-Sebelum membuka PR ke `dev-azka`, pastikan:
+Sebelum membuka PR ke `staging`, pastikan:
 
 - Scope bisnis dan aktor yang boleh mengakses sudah jelas.
 - Migration memiliki `up()` dan `down()` yang aman.
@@ -775,7 +775,7 @@ Web diberi graceful shutdown 25 detik agar deploy tidak menggantung. Pekerjaan y
 sudo apt-get update
 sudo apt-get install --yes git ca-certificates
 # Docker + plugin Compose sudah terpasang
-git clone -b dev-azka https://github.com/oceanspacedev/dnd-web.git
+git clone -b staging https://github.com/oceanspacedev/dnd-web.git
 cd dnd-web
 ```
 
@@ -816,7 +816,7 @@ Tunggu `release` healthy (migrate), lalu `web` dan `proxy` healthy. Cek `https:/
 Update berikutnya dari folder yang sama:
 
 ```bash
-git pull --ff-only origin dev-azka
+git pull --ff-only origin staging
 docker compose -f compose.vps.yaml up --detach --build
 ```
 
@@ -856,7 +856,7 @@ Pada setiap recreate image, service `release` melakukan probe write/read/delete 
 OpenResty 1Panel berjalan di container pada jaringan `1panel-network`. Proxy ke `http://127.0.0.1:8080` menunjuk ke OpenResty sendiri dan biasanya 502. Overlay menempelkan service `web` ke jaringan itu dengan alias `WEB_CONTAINER_NAME` (default `dnd-web`).
 
 1. Pasang OpenResty dari App Store 1Panel bila belum ada, lalu pastikan jaringan Docker `1panel-network` muncul.
-2. Clone repository (branch `dev-azka`) ke server, atau salin `compose.yaml` dan `compose.1panel.yaml` ke folder orkestrasi yang sama. File overlay mengimpor `compose.yaml`; jangan hanya menempel overlay.
+2. Clone repository (branch `staging`) ke server, atau salin `compose.yaml` dan `compose.1panel.yaml` ke folder orkestrasi yang sama. File overlay mengimpor `compose.yaml`; jangan hanya menempel overlay.
 3. Buat **Kontainer → Orkestrasi**. Compose file yang dijalankan adalah `compose.1panel.yaml` (bila 1Panel memaksa nama `docker-compose.yml`, salin isi overlay ke nama itu dan biarkan `compose.yaml` tetap di folder yang sama).
 4. Isi environment production di UI 1Panel, termasuk `APP_URL=https://domain-anda`. Jangan mematikan `SESSION_SECURE_COOKIE` atau `OCTANE_HTTPS`. Satu instance tidak membutuhkan Redis atau S3. Tandai credential S3 sebagai secret hanya bila `FILESYSTEM_DISK=s3`.
 5. Jangan mengganti MariaDB Compose dengan MySQL App Store kecuali `DB_HOST` diubah sadar. Redis App Store tidak diperlukan; default overlay tidak menjalankan service `redis` sampai `COMPOSE_PROFILES=redis`.
@@ -1108,4 +1108,4 @@ Pastikan `OPENAI_API_KEY` valid dan config cache sudah dibersihkan. Tanpa key at
 
 ---
 
-README ini mendokumentasikan perilaku pada branch `dev-azka`. Bila implementasi, formula, authorization, atau alur deployment berubah, perbarui README pada PR yang sama.
+README ini mendokumentasikan perilaku pada branch `staging`. Bila implementasi, formula, authorization, atau alur deployment berubah, perbarui README pada PR yang sama.
