@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/dnd-purple.png" alt="Logo DnD" width="150">
+  <img src="public/icon.svg" alt="Logo DnD" width="150">
 </p>
 
 <h1 align="center">DnD Web</h1>
