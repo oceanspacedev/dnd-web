@@ -3,18 +3,16 @@
 namespace Database\Seeders;
 
 use App\Models\Monthly;
-use Illuminate\Database\Seeder;
-use Faker\Factory as Faker;
 use App\Models\User;
+use Faker\Factory as Faker;
+use Illuminate\Database\Seeder;
 
 class MonthlySeeder extends Seeder
 {
     /**
      * Run the database seeds.
-     *
-     * @return void
      */
-    public function run()
+    public function run(): void
     {
         $faker = Faker::create('id_ID');
         for ($m = 0; $m < 2; $m++) {
@@ -38,7 +36,7 @@ class MonthlySeeder extends Seeder
                             'task' => $faker->sentence(3),
                             'date' => $m == 0 ? now()->startOfMonth() : now()->addMonth(1)->startOfMonth(),
                             'tipe' => 'RESULT',
-                            'value_plan' => $faker->randomDigitNotNull() . '00000',
+                            'value_plan' => $faker->randomDigitNotNull().'00000',
                             'value_actual' => 0,
                             'status_result' => false,
                         ]);

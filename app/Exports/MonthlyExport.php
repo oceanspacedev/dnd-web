@@ -2,8 +2,9 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
 use App\Models\Monthly;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -12,7 +13,7 @@ class MonthlyExport implements FromCollection, WithHeadings, WithMapping
 {
     protected string $month;
 
-    function __construct(string $month)
+    public function __construct(string $month)
     {
         $this->month = $month;
     }
@@ -20,9 +21,9 @@ class MonthlyExport implements FromCollection, WithHeadings, WithMapping
     /**
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
-        return Monthly::with('user','user.area','user.divisi')
+        return Monthly::with('user', 'user.area', 'user.divisi')
             ->where('date', $this->month)
             ->get()
             ->sortBy('user.nama_lengkap');
@@ -43,7 +44,7 @@ class MonthlyExport implements FromCollection, WithHeadings, WithMapping
         ];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row->user->nama_lengkap,

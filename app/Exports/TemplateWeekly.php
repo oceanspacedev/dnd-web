@@ -2,14 +2,16 @@
 
 namespace App\Exports;
 
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class TemplateWeekly implements WithHeadings, FromCollection
+class TemplateWeekly implements FromCollection, WithHeadings
 {
     use Exportable;
-    public function collection()
+
+    public function collection(): Enumerable
     {
         return auth()->user()->wr ? collect([
             [
@@ -36,6 +38,7 @@ class TemplateWeekly implements WithHeadings, FromCollection
             ],
         ]);
     }
+
     public function headings(): array
     {
         return [

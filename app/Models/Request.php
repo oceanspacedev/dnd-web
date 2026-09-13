@@ -3,10 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
-use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Date;
 
 class Request extends Model
 {
@@ -16,52 +17,61 @@ class Request extends Model
         'id',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class,'user_id')->withTrashed();
+        return $this->belongsTo(User::class, 'user_id')->withTrashed();
     }
 
-    public function approveId()
+    /** @return BelongsTo<User, $this> */
+    public function approveId(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approval_id')->withTrashed();
     }
 
-    public function approvedBy()
+    /** @return BelongsTo<User, $this> */
+    public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by')->withTrashed();
     }
 
+    /** @return Attribute<int|null, never> */
     protected function createdAt(): Attribute
     {
         return Attribute::make(get: function ($value) {
             if ($value) {
-                return Carbon::parse($value)->getPreciseTimestamp(3);
-            }
-        });
-    }
-    protected function updatedAt(): Attribute
-    {
-        return Attribute::make(get: function ($value) {
-            if ($value) {
-                return Carbon::parse($value)->getPreciseTimestamp(3);
-    
-            }
-        });
-    }
-    protected function approvedAt(): Attribute
-    {
-        return Attribute::make(get: function ($value) {
-            if ($value) {
-                return Carbon::parse($value)->getPreciseTimestamp(3);
+                return Date::parse($value)->getPreciseTimestamp(3);
             }
         });
     }
 
+    /** @return Attribute<int|null, never> */
+    protected function updatedAt(): Attribute
+    {
+        return Attribute::make(get: function ($value) {
+            if ($value) {
+                return Date::parse($value)->getPreciseTimestamp(3);
+
+            }
+        });
+    }
+
+    /** @return Attribute<int|null, never> */
+    protected function approvedAt(): Attribute
+    {
+        return Attribute::make(get: function ($value) {
+            if ($value) {
+                return Date::parse($value)->getPreciseTimestamp(3);
+            }
+        });
+    }
+
+    /** @return Attribute<int|null, never> */
     protected function deletedAt(): Attribute
     {
         return Attribute::make(get: function ($value) {
             if ($value) {
-                return Carbon::parse($value)->getPreciseTimestamp(3);
+                return Date::parse($value)->getPreciseTimestamp(3);
             }
         });
     }

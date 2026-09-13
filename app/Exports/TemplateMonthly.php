@@ -2,19 +2,22 @@
 
 namespace App\Exports;
 
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class TemplateMonthly implements WithHeadings, FromCollection
+class TemplateMonthly implements FromCollection, WithHeadings
 {
     use Exportable;
-    public function collection()
+
+    public function collection(): Enumerable
     {
-        $date = now()->year . '-' . now()->month;
-        if(now()->month < 10){
-            $date = now()->year . '-0' . now()->month;
+        $date = now()->year.'-'.now()->month;
+        if (now()->month < 10) {
+            $date = now()->year.'-0'.now()->month;
         }
+
         return collect([
             [
                 'date' => $date,
@@ -30,6 +33,7 @@ class TemplateMonthly implements WithHeadings, FromCollection
             ],
         ]);
     }
+
     public function headings(): array
     {
         return [

@@ -4,9 +4,7 @@ namespace App\Filament\Resources\EmployeeReviews\Pages;
 
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
 use App\Models\EmployeeReview;
-use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -31,6 +29,7 @@ class CreateEmployeeReview extends CreateRecord
                     ->send();
 
                 $this->halt();
+
                 return;
             }
         }

@@ -2,16 +2,18 @@
 
 namespace App\Exports;
 
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class LeaderboardKpiDetailSheet implements FromArray, WithHeadings, WithTitle, ShouldAutoSize
+class LeaderboardKpiDetailSheet implements FromArray, ShouldAutoSize, WithHeadings, WithTitle
 {
     protected $kpiDetails;
+
     protected string $periodType;
+
     protected string $selectedPeriod;
 
     public function __construct($kpiDetails, string $periodType, string $selectedPeriod)
@@ -43,7 +45,7 @@ class LeaderboardKpiDetailSheet implements FromArray, WithHeadings, WithTitle, S
             $ratio = min(1, $ratio);
             $score = ($kpi->percentage / 100) * $ratio;
             $period = $this->periodType === 'year'
-                ? Carbon::parse($kpi->date)->format('Y-m')
+                ? Date::parse($kpi->date)->format('Y-m')
                 : $this->selectedPeriod;
 
             foreach ($kpi->kpi_detail as $detail) {

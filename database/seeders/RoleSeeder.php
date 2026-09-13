@@ -9,32 +9,30 @@ class RoleSeeder extends Seeder
 {
     /**
      * Run the database seeds.
-     *
-     * @return void
      */
-    public function run()
+    public function run(): void
     {
         Role::insert([
             [
-                'name' => 'ADMIN'
+                'name' => 'ADMIN',
             ],
             [
-                'name' => 'STAFF'
+                'name' => 'STAFF',
             ],
             [
-                'name' => 'TEAM LEADER'
+                'name' => 'TEAM LEADER',
             ],
             [
-                'name' => 'COORDINATOR'
+                'name' => 'COORDINATOR',
             ],
             [
-                'name' => 'MANAGER'
+                'name' => 'MANAGER',
             ],
             [
-                'name' => 'CHIEF'
+                'name' => 'CHIEF',
             ],
             [
-                'name' => 'BOD'
+                'name' => 'BOD',
             ],
         ]);
     }

@@ -48,7 +48,7 @@ class KpiPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $this->canManageAll($user) || $this->canManageScoped($user);
+        return true;
     }
 
     /**

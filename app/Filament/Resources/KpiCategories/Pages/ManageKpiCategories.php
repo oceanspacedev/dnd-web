@@ -2,9 +2,8 @@
 
 namespace App\Filament\Resources\KpiCategories\Pages;
 
-use Filament\Actions\CreateAction;
 use App\Filament\Resources\KpiCategories\KpiCategoryResource;
-use Filament\Actions;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ManageRecords;
 
 class ManageKpiCategories extends ManageRecords

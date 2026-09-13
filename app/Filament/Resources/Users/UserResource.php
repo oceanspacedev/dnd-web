@@ -2,43 +2,58 @@
 
 namespace App\Filament\Resources\Users;
 
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Flex;
-use Filament\Schemas\Components\Group;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Actions\EditAction;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\RestoreAction;
-use Filament\Actions\ForceDeleteAction;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\RestoreBulkAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\Pages\CreateUser;
 use App\Filament\Resources\Users\Pages\EditUser;
-use App\Filament\Resources\Users\Pages;
-use App\Filament\Resources\Users\RelationManagers;
+use App\Filament\Resources\Users\Pages\ListUsers;
+use App\Mail\KpiReminderMail;
 use App\Models\Divisi;
+use App\Models\KpiReminderLog;
+use App\Models\KpiReminderSetting;
+use App\Models\Position;
+use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Filament\Forms;
+use App\Services\WhatsAppService;
+use App\Support\WhatsAppNumber;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\ForceDeleteAction;
+use Filament\Actions\ForceDeleteBulkAction;
+use Filament\Actions\RestoreAction;
+use Filament\Actions\RestoreBulkAction;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Flex;
+use Filament\Schemas\Components\Group;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Schema;
 use Filament\Tables;
+use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 
 class UserResource extends Resource
 {
     protected static ?string $model = User::class;
 
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-user-group';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-group';
+
     protected static ?int $navigationSort = 4;
 
     public static function form(Schema $schema): Schema
@@ -53,6 +68,45 @@ class UserResource extends Resource
                         TextInput::make('nama_lengkap')
                             ->label('Nama Lengkap')
                             ->required()
+                            ->maxLength(255),
+                        TextInput::make('no_hp')
+                            ->label('No. HP')
+                            ->placeholder('Contoh: 081234567890')
+                            ->helperText('Dipakai sebagai nomor kontak sekaligus login WhatsApp melalui OTP.')
+                            ->tel()
+                            ->maxLength(20)
+                            ->disabled(fn (): bool => auth()->user()?->role?->name !== 'ADMIN')
+                            ->dehydrated(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                            ->dehydrateStateUsing(fn ($state): ?string => filled($state)
+                                ? (WhatsAppNumber::toLocal((string) $state) ?? (string) $state)
+                                : null)
+                            ->rule(function (?User $record) {
+                                return function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
+                                    if (blank($value)) {
+                                        return;
+                                    }
+
+                                    $number = WhatsAppNumber::toLocal((string) $value);
+
+                                    if (! $number) {
+                                        $fail('Format No. HP WhatsApp Indonesia tidak valid, contoh 081234567890.');
+
+                                        return;
+                                    }
+
+                                    $exists = User::withTrashed()
+                                        ->where('no_hp', $number)
+                                        ->when($record?->id, fn (Builder $query, int $id): Builder => $query->whereKeyNot($id))
+                                        ->exists();
+
+                                    if ($exists) {
+                                        $fail('No. HP sudah digunakan user lain.');
+                                    }
+                                };
+                            }),
+                        TextInput::make('email')
+                            ->label('Email')
+                            ->email()
                             ->maxLength(255),
                         Select::make('area_id')
                             ->preload()
@@ -70,9 +124,10 @@ class UserResource extends Resource
                             ->live()
                             ->options(function (callable $get) {
                                 $area_id = $get('area_id');
-                                if (!$area_id) {
+                                if (! $area_id) {
                                     return [];
                                 }
+
                                 return Divisi::where('area_id', $area_id)
                                     ->pluck('name', 'id');
                             })
@@ -81,9 +136,22 @@ class UserResource extends Resource
                         Select::make('role_id')
                             ->preload()
                             ->searchable()
-                            ->relationship('role', 'name')
+                            ->relationship(
+                                'role',
+                                'name',
+                                modifyQueryUsing: fn (Builder $query): Builder => auth()->user()?->role?->name === 'ADMIN'
+                                    ? $query
+                                    : $query->where('name', '!=', 'ADMIN'),
+                            )
                             ->label('Jabatan')
-                            ->required(),
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(function ($state, callable $set) {
+                                $role = $state ? Role::find($state) : null;
+                                if (! $role || ! $role->requires_approval) {
+                                    $set('approval_id', null);
+                                }
+                            }),
                         Select::make('position_id')
                             ->preload()
                             ->searchable()
@@ -96,6 +164,24 @@ class UserResource extends Resource
                         Select::make('approval_id')
                             ->preload()
                             ->searchable()
+                            ->visible(function (callable $get) {
+                                $roleId = $get('role_id');
+                                if (! $roleId) {
+                                    return false;
+                                }
+                                $role = Role::find($roleId);
+
+                                return (bool) ($role?->requires_approval);
+                            })
+                            ->required(function (callable $get) {
+                                $roleId = $get('role_id');
+                                if (! $roleId) {
+                                    return false;
+                                }
+                                $role = Role::find($roleId);
+
+                                return (bool) ($role?->requires_approval);
+                            })
                             ->options(function (?User $record) {
                                 if (! $record) {
                                     $currentUser = auth()->user();
@@ -142,7 +228,7 @@ class UserResource extends Resource
                                     ->label('Username')
                                     ->required()
                                     ->unique(ignoreRecord: true)
-                                    ->dehydrateStateUsing(fn($state) => strtolower($state))
+                                    ->dehydrateStateUsing(fn ($state) => strtolower($state))
                                     ->regex('/^[\S]+$/')
                                     ->validationMessages([
                                         'regex' => 'Username tidak boleh mengandung spasi',
@@ -151,12 +237,12 @@ class UserResource extends Resource
                                 TextInput::make('password')
                                     ->label('Kata Sandi')
                                     ->password()
-                                    ->dehydrateStateUsing(fn($state) => Hash::make($state))
-                                    ->dehydrated(fn($state) => filled($state))
+                                    ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                                    ->dehydrated(fn ($state) => filled($state))
                                     ->maxLength(255)
                                     ->label('Password')
                                     ->placeholder('Masukkan password')
-                                    ->required(fn(string $context): bool => $context === 'create')
+                                    ->required(fn (string $context): bool => $context === 'create')
                                     ->revealable(),
                             ])
                             ->collapsible()
@@ -165,8 +251,47 @@ class UserResource extends Resource
                     ])
                         ->columns(1)
                         ->columnSpan(2),
-                ])
+                ]),
             ])->columns(3);
+    }
+
+    public static function mutateAuthorizedData(array $data): array
+    {
+        if (
+            auth()->user()?->role?->name !== 'ADMIN'
+            && array_key_exists('role_id', $data)
+            && Role::query()->whereKey($data['role_id'])->value('name') === 'ADMIN'
+        ) {
+            throw ValidationException::withMessages([
+                'data.role_id' => 'Hanya admin yang dapat memberikan role ADMIN.',
+            ]);
+        }
+
+        if (auth()->user()?->role?->name !== 'ADMIN') {
+            unset($data['no_hp']);
+
+            return $data;
+        }
+
+        if (array_key_exists('no_hp', $data)) {
+            if (blank($data['no_hp'])) {
+                $data['no_hp'] = null;
+
+                return $data;
+            }
+
+            $number = WhatsAppNumber::toLocal((string) $data['no_hp']);
+
+            if (! $number) {
+                throw ValidationException::withMessages([
+                    'data.no_hp' => 'Format No. HP WhatsApp Indonesia tidak valid.',
+                ]);
+            }
+
+            $data['no_hp'] = $number;
+        }
+
+        return $data;
     }
 
     public static function table(Table $table): Table
@@ -179,12 +304,24 @@ class UserResource extends Resource
                 TextColumn::make('employee_id')
                     ->label('ID Karyawan')
                     ->searchable(),
-                TextColumn::make('area.name'),
-                TextColumn::make('divisi.name'),
+                TextColumn::make('no_hp')
+                    ->label('No. HP')
+                    ->searchable(),
+                TextColumn::make('email')
+                    ->label('Email')
+                    ->searchable(),
+                TextColumn::make('area.name')
+                    ->label('Area')
+                    ->searchable(),
+                TextColumn::make('divisi.name')
+                    ->label('Divisi')
+                    ->searchable(),
                 TextColumn::make('position.name')
-                    ->label('Posisi'),
+                    ->label('Posisi')
+                    ->searchable(),
                 TextColumn::make('role.name')
-                    ->label('Jabatan'),
+                    ->label('Jabatan')
+                    ->searchable(),
                 // Tables\Columns\IconColumn::make('d')
                 //     ->boolean(),
                 // Tables\Columns\IconColumn::make('dr')
@@ -197,26 +334,216 @@ class UserResource extends Resource
                 //     ->boolean(),
                 // Tables\Columns\IconColumn::make('mr')
                 //     ->boolean(),
-                TextColumn::make('approval.nama_lengkap'),
+                TextColumn::make('approval.nama_lengkap')
+                    ->label('Approval')
+                    ->searchable(),
             ])
             ->filters([
                 SelectFilter::make('area')
                     ->label('Area')
-                    ->relationship('area', 'name'),
+                    ->relationship('area', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('divisi')
                     ->label('Divisi')
-                    ->relationship('divisi', 'name'),
+                    ->relationship('divisi', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('role')
                     ->label('Jabatan')
-                    ->relationship('role', 'name'),
+                    ->relationship('role', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('position')
                     ->label('Posisi')
-                    ->relationship('position', 'name'),
+                    ->relationship('position', 'name')
+                    ->searchable()
+                    ->preload(),
                 SelectFilter::make('approval')
                     ->label('Approval')
-                    ->relationship('approval', 'nama_lengkap'),
+                    ->relationship('approval', 'nama_lengkap')
+                    ->searchable()
+                    ->preload(),
             ])
             ->recordActions([
+                Action::make('send_reminder')
+                    ->label('Kirim Pengingat KPI')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('warning')
+                    ->visible(fn (User $record): bool => (auth()->user()?->role?->name === 'ADMIN') && ! $record->trashed())
+                    ->modalHeading(fn (User $record) => "Kirim Pengingat KPI ke {$record->nama_lengkap}")
+                    ->modalSubmitActionLabel('Kirim Pengingat')
+                    ->form([
+                        Select::make('type')
+                            ->label('Tipe Pengingat')
+                            ->options([
+                                'pengisian_kpi' => 'Pengisian KPI (Untuk Karyawan)',
+                                'pembuatan_kpi' => 'Pembuatan KPI (Untuk Atasan)',
+                            ])
+                            ->default('pengisian_kpi')
+                            ->live()
+                            ->afterStateUpdated(fn (callable $set) => $set('setting_id', null))
+                            ->required(),
+                        Select::make('setting_id')
+                            ->label('Aturan Pengingat')
+                            ->options(fn (Get $get): array => KpiReminderSetting::query()
+                                ->where('type', (string) ($get('type') ?: 'pengisian_kpi'))
+                                ->where('is_active', true)
+                                ->orderBy('title')
+                                ->pluck('title', 'id')
+                                ->all())
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->helperText('Pilih aturan aktif yang menentukan template, tenggat, dan saluran pengiriman.'),
+                        CheckboxList::make('channels')
+                            ->label('Saluran Pengiriman')
+                            ->options([
+                                'email' => 'Email',
+                                'whatsapp' => 'WhatsApp',
+                            ])
+                            ->default(['email', 'whatsapp'])
+                            ->required()
+                            ->helperText('Hanya saluran yang aktif pada pengaturan pengingat yang akan digunakan.'),
+                        Textarea::make('custom_message')
+                            ->label('Pesan Tambahan / Kustom (Opsional)')
+                            ->placeholder('Masukkan pesan tambahan jika ada, atau biarkan kosong untuk menggunakan template standar.')
+                            ->rows(4),
+                    ])
+                    ->action(function (User $record, array $data) {
+                        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+
+                        if ($record->trashed()) {
+                            Notification::make()
+                                ->title('Pengingat Tidak Dikirim')
+                                ->body('Pengingat tidak dapat dikirim ke user yang sudah dihapus.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $type = $data['type'];
+                        $setting = static::resolveActiveReminderSetting(
+                            $type,
+                            (int) ($data['setting_id'] ?? 0),
+                        );
+                        if (! $setting) {
+                            return;
+                        }
+
+                        $requestedChannels = is_array($data['channels'] ?? null)
+                            ? array_values(array_intersect(['email', 'whatsapp'], $data['channels']))
+                            : [];
+                        $customMsg = trim((string) ($data['custom_message'] ?? ''));
+
+                        $tenggatDay = (int) $setting->deadline_day;
+                        $deadlineDate = Date::today()->day(min($tenggatDay, Date::today()->daysInMonth));
+                        $tenggatLabel = $deadlineDate->format('d M Y');
+                        $periodeLabel = Date::now()->isoFormat('MMMM YYYY');
+                        $link = config('app.url', 'http://localhost').'/admin/kpis';
+
+                        $placeholders = [
+                            '{nama}' => $record->nama_lengkap,
+                            '{tenggat}' => $tenggatLabel,
+                            '{periode}' => $periodeLabel,
+                            '{link}' => $link,
+                        ];
+
+                        $sentChannels = [];
+                        $failedChannels = [];
+                        $skippedChannels = [];
+
+                        if (in_array('email', $requestedChannels, true)) {
+                            if (! $setting->send_email) {
+                                $skippedChannels[] = 'Email (dinonaktifkan pada pengaturan)';
+                            } elseif (empty($record->email)) {
+                                $skippedChannels[] = 'Email (alamat tidak tersedia)';
+                            } else {
+                                try {
+                                    $subjectTemplate = filled($setting->email_subject)
+                                        ? (string) $setting->email_subject
+                                        : 'Pengingat KPI - {periode}';
+                                    $subject = strtr($subjectTemplate, $placeholders);
+                                    $bodyTemplate = filled($setting->email_body)
+                                        ? (string) $setting->email_body
+                                        : KpiReminderSetting::getDefaultEmailTemplate($type);
+                                    $body = strtr($bodyTemplate, $placeholders);
+                                    if ($customMsg !== '') {
+                                        $body .= "\n\nPesan Tambahan:\n".$customMsg;
+                                    }
+
+                                    Mail::to($record->email)->send(new KpiReminderMail($subject, $body));
+
+                                    $sentChannels[] = 'Email';
+                                    static::writeManualReminderLog(
+                                        $setting,
+                                        $record,
+                                        'email',
+                                        $record->email,
+                                        'sent',
+                                    );
+                                } catch (\Throwable $exception) {
+                                    $failedChannels[] = 'Email';
+                                    static::writeManualReminderLog(
+                                        $setting,
+                                        $record,
+                                        'email',
+                                        $record->email,
+                                        'failed',
+                                        $exception->getMessage(),
+                                    );
+                                }
+                            }
+                        }
+
+                        if (in_array('whatsapp', $requestedChannels, true)) {
+                            if (! $setting->send_whatsapp) {
+                                $skippedChannels[] = 'WhatsApp (dinonaktifkan pada pengaturan)';
+                            } elseif (empty($record->no_hp)) {
+                                $skippedChannels[] = 'WhatsApp (No. HP tidak tersedia)';
+                            } else {
+                                $waTemplate = filled($setting->whatsapp_template)
+                                    ? (string) $setting->whatsapp_template
+                                    : KpiReminderSetting::getDefaultWhatsappTemplate($type);
+                                $waMessage = strtr($waTemplate, $placeholders);
+                                if ($customMsg !== '') {
+                                    $waMessage .= "\n\n*Pesan Tambahan:*\n".$customMsg;
+                                }
+
+                                try {
+                                    $result = WhatsAppService::send($record->no_hp, $waMessage);
+                                } catch (\Throwable $exception) {
+                                    $result = [
+                                        'success' => false,
+                                        'message' => $exception->getMessage(),
+                                    ];
+                                }
+
+                                if ($result['success']) {
+                                    $sentChannels[] = 'WhatsApp';
+                                } else {
+                                    $failedChannels[] = 'WhatsApp';
+                                }
+
+                                static::writeManualReminderLog(
+                                    $setting,
+                                    $record,
+                                    'whatsapp',
+                                    $record->no_hp,
+                                    $result['success'] ? 'sent' : 'failed',
+                                    $result['success'] ? null : ($result['message'] ?? 'Pengiriman WhatsApp gagal.'),
+                                );
+                            }
+                        }
+
+                        static::notifyManualReminderResult(
+                            $record,
+                            $sentChannels,
+                            $failedChannels,
+                            $skippedChannels,
+                        );
+                    }),
                 EditAction::make(),
                 DeleteAction::make(),
                 RestoreAction::make(),
@@ -224,11 +551,153 @@ class UserResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('update_position')
+                        ->label('Ubah Posisi Massal')
+                        ->icon('heroicon-o-briefcase')
+                        ->color('primary')
+                        ->slideOver()
+                        ->modalWidth('md')
+                        ->modalHeading('Ubah Posisi Karyawan Terpilih')
+                        ->modalDescription('Pilih posisi baru yang akan diterapkan ke seluruh karyawan yang telah dicentang.')
+                        ->modalSubmitActionLabel('Terapkan Posisi Baru')
+                        ->authorizeIndividualRecords('update')
+                        ->form([
+                            Select::make('position_id')
+                                ->label('Posisi Baru')
+                                ->options(fn (): array => Position::orderBy('name')->pluck('name', 'id')->all())
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->createOptionForm([
+                                    TextInput::make('name')
+                                        ->label('Nama Posisi Baru')
+                                        ->required(),
+                                ])
+                                ->createOptionUsing(fn (array $data): int => (int) Position::create($data)->getKey()),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            $position = Position::find($data['position_id']);
+                            $positionName = $position?->name ?? 'posisi baru';
+                            $count = $records->count();
+
+                            $records->each(function (User $record) use ($data): void {
+                                $record->update([
+                                    'position_id' => $data['position_id'],
+                                ]);
+                            });
+
+                            Notification::make()
+                                ->title('Posisi Berhasil Diperbarui')
+                                ->body("{$count} karyawan berhasil dipindahkan ke posisi {$positionName}.")
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),
                     RestoreBulkAction::make(),
                     ForceDeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    protected static function resolveActiveReminderSetting(
+        string $type,
+        int $settingId,
+    ): ?KpiReminderSetting {
+        $setting = KpiReminderSetting::query()
+            ->whereKey($settingId)
+            ->where('type', $type)
+            ->where('is_active', true)
+            ->first();
+
+        if ($setting) {
+            return $setting;
+        }
+
+        $typeLabel = $type === 'pembuatan_kpi' ? 'Pembuatan KPI' : 'Pengisian KPI';
+
+        Notification::make()
+            ->title('Aturan Pengingat Tidak Valid')
+            ->body("Aturan {$typeLabel} yang dipilih sudah tidak aktif atau tidak tersedia. Pilih ulang aturan pengingat.")
+            ->danger()
+            ->send();
+
+        return null;
+    }
+
+    protected static function writeManualReminderLog(
+        KpiReminderSetting $setting,
+        User $user,
+        string $channel,
+        string $recipient,
+        string $status,
+        ?string $errorMessage = null,
+    ): void {
+        try {
+            KpiReminderLog::create([
+                'kpi_reminder_setting_id' => $setting->id,
+                'user_id' => $user->id,
+                'channel' => $channel,
+                'recipient' => $recipient,
+                'status' => $status,
+                'error_message' => $errorMessage,
+                'sent_at' => Date::now(),
+            ]);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    protected static function notifyManualReminderResult(
+        User $user,
+        array $sentChannels,
+        array $failedChannels,
+        array $skippedChannels,
+    ): void {
+        $sentLabel = implode(', ', $sentChannels);
+        $problemLabels = [
+            ...array_map(fn (string $channel): string => "{$channel} gagal", $failedChannels),
+            ...$skippedChannels,
+        ];
+        $problemLabel = implode(', ', $problemLabels);
+
+        if (($sentChannels !== []) && ($problemLabels !== [])) {
+            Notification::make()
+                ->title("Pengingat Terkirim Sebagian ke {$user->nama_lengkap}")
+                ->body("Berhasil: {$sentLabel}. Tidak terkirim: {$problemLabel}.")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if ($sentChannels !== []) {
+            Notification::make()
+                ->title("Pengingat Berhasil Terkirim ke {$user->nama_lengkap}")
+                ->body("Saluran: {$sentLabel}.")
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        if ($failedChannels !== []) {
+            Notification::make()
+                ->title("Gagal Mengirim Pengingat ke {$user->nama_lengkap}")
+                ->body("Tidak terkirim: {$problemLabel}.")
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title('Pengingat Tidak Dikirim')
+            ->body($problemLabel !== ''
+                ? "Tidak ada saluran yang dapat digunakan: {$problemLabel}."
+                : 'Pilih setidaknya satu saluran pengiriman.')
+            ->warning()
+            ->send();
     }
 
     public static function getRelations(): array

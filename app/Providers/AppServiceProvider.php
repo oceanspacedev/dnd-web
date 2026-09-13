@@ -2,41 +2,43 @@
 
 namespace App\Providers;
 
-use App\Models\KpiDescription;
-use App\Observers\KpiDescriptionObserver;
+use App\Filament\Auth\Pages\PhoneLogin;
 use App\Models\KpiCategory;
+use App\Models\KpiDescription;
 use App\Observers\KpiCategoryObserver;
+use App\Observers\KpiDescriptionObserver;
+use App\Services\ApprovalScopeService;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
     /**
      * Register any application services.
-     *
-     * @return void
      */
-    public function register()
+    public function register(): void
     {
-        //
+        // Octane resets scoped bindings between requests and queue jobs.
+        $this->app->scoped(ApprovalScopeService::class);
     }
 
     /**
      * Bootstrap any application services.
-     *
-     * @return void
      */
-    public function boot()
+    public function boot(): void
     {
+        Livewire::component('phone-login', PhoneLogin::class);
+
         // Register observers for cache management
         KpiDescription::observe(KpiDescriptionObserver::class);
         KpiCategory::observe(KpiCategoryObserver::class);
 
-        // Preserve Filament v3 layout defaults during v4 upgrade
+        // Configure the application's Filament layout defaults.
         Table::configureUsing(fn (Table $table) => $table
             ->deferFilters(false));
 

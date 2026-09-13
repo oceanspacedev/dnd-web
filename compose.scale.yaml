@@ -1,0 +1,59 @@
+# Replica web/worker di SATU server. MariaDB, Redis, release, dan scheduler
+# tetap satu. Coolify/Dokploy: jangan file ini — scale service `web` di UI.
+#
+# Redis dijalankan dan menjadi default session/cache/queue. Storage tetap
+# `local` pada volume bersama kecuali FILESYSTEM_DISK=s3.
+#
+#   docker compose -f compose.scale.yaml up --detach --build --scale web=3 --scale worker=2
+#
+# Reverse proxy host / 1Panel mengarah ke lb, bukan ke satu container web:
+#   http://127.0.0.1:${LB_PORT:-8080}
+# Jangan --scale scheduler.
+
+include:
+  - path: compose.yaml
+
+x-scale-drivers: &scale-drivers
+  SESSION_DRIVER: ${SESSION_DRIVER:-redis}
+  SESSION_CONNECTION: ${SESSION_CONNECTION:-session}
+  CACHE_STORE: ${CACHE_STORE:-redis}
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
+  APP_MAINTENANCE_DRIVER: ${APP_MAINTENANCE_DRIVER:-cache}
+  APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-redis}
+
+services:
+  redis:
+    profiles: !override []
+
+  release:
+    environment:
+      <<: *scale-drivers
+
+  web:
+    environment:
+      <<: *scale-drivers
+
+  worker:
+    environment:
+      <<: *scale-drivers
+
+  scheduler:
+    environment:
+      <<: *scale-drivers
+
+  lb:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "${LB_BIND:-127.0.0.1}:${LB_PORT:-8080}:80"
+    volumes:
+      - ./docker/Caddyfile.scale:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/up >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

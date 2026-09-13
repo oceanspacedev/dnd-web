@@ -2,8 +2,9 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
 use App\Models\User;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -13,7 +14,7 @@ class UsersExport implements FromCollection, WithHeadings, WithMapping
     /**
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
         return User::with('approval', 'area', 'position', 'role', 'divisi')
             ->whereNull('deleted_at') // Hanya mengambil data yang tidak dihapus
@@ -27,6 +28,8 @@ class UsersExport implements FromCollection, WithHeadings, WithMapping
             'nama_lengkap',
             'username',
             'id_karyawan',
+            'no_hp',
+            'email',
             'position',
             'role',
             'area',
@@ -36,16 +39,18 @@ class UsersExport implements FromCollection, WithHeadings, WithMapping
             'wr',
             'mn',
             'mr',
-            'approval'
+            'approval',
         ];
     }
 
-    public function map($user): array
+    public function map(mixed $user): array
     {
         return [
             $user->nama_lengkap,
             $user->username,
             $user->employee_id ?? null,
+            $user->no_hp ?? null,
+            $user->email ?? null,
             $user->position->name ?? null,
             $user->role->name,
             $user->area->name,

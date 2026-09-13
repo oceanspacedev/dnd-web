@@ -2,20 +2,25 @@
 
 namespace App\Imports;
 
-use DateTime;
-use Exception;
 use App\Models\Attendance;
 use App\Models\User;
-use Maatwebsite\Excel\Concerns\ToModel;
+use DateTime;
+use Exception;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
+use Maatwebsite\Excel\Concerns\ToModel;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 class AttendanceImport implements ToModel
 {
     private $usersCache = [];
+
     private ?array $allowedUserIds = null;
+
     private $importedCount = 0;
+
     private $skippedCount = 0;
+
     private $skippedDetails = []; // Array untuk menyimpan detail data yang dilewati
 
     public function __construct(?array $allowedUserIds = null)
@@ -52,7 +57,7 @@ class AttendanceImport implements ToModel
         $this->usersCache = array_merge($this->usersCache, $employeeCache);
     }
 
-    public function model(array $row)
+    public function model(array $row): Model|array|null
     {
         Log::info('Data baris: ', $row);
 
@@ -60,13 +65,13 @@ class AttendanceImport implements ToModel
         $userId = null;
 
         // Prioritaskan pencarian berdasarkan employee_id terlebih dahulu
-        if (!empty($row[0]) && isset($this->usersCache[$row[0]])) {
+        if (! empty($row[0]) && isset($this->usersCache[$row[0]])) {
             // Jika id_karyawan ada (kolom 0), cari berdasarkan employee_id
             $userId = $this->usersCache[$row[0]];
         }
 
         // Jika tidak ditemukan berdasarkan id_karyawan, coba cari berdasarkan nama_lengkap
-        if (is_null($userId) && !empty($row[1]) && isset($this->usersCache[$row[1]])) {
+        if (is_null($userId) && ! empty($row[1]) && isset($this->usersCache[$row[1]])) {
             // Jika nama_lengkap ada (kolom 1), cari berdasarkan nama_lengkap
             $userId = $this->usersCache[$row[1]];
         }
@@ -79,6 +84,7 @@ class AttendanceImport implements ToModel
                 'reason' => 'User di luar scope approval Anda',
             ];
             $this->skippedCount++;
+
             return null;
         }
 
@@ -93,10 +99,10 @@ class AttendanceImport implements ToModel
             } elseif (DateTime::createFromFormat('d/m/y', $row[2]) !== false) {
                 $periode = DateTime::createFromFormat('d/m/y', $row[2])->format('Y-m');
             } else {
-                Log::error("Format Periode tidak dikenali: " . $row[2]);
+                Log::error('Format Periode tidak dikenali: '.$row[2]);
             }
         } catch (Exception $e) {
-            Log::error("Kesalahan saat parsing Periode: " . $e->getMessage());
+            Log::error('Kesalahan saat parsing Periode: '.$e->getMessage());
         }
 
         // Validasi userId dan periode sebelum memproses lebih lanjut
@@ -107,7 +113,7 @@ class AttendanceImport implements ToModel
                 ->exists();
 
             if ($existingAttendance) {
-                Log::info('Melewati absensi yang sudah ada untuk user_id ' . $userId . ' dan periode ' . $periode);
+                Log::info('Melewati absensi yang sudah ada untuk user_id '.$userId.' dan periode '.$periode);
 
                 // Simpan detail data yang dilewati
                 $this->skippedDetails[] = [
@@ -117,10 +123,12 @@ class AttendanceImport implements ToModel
                 ];
 
                 $this->skippedCount++;
+
                 return null;
             }
 
             $this->importedCount++;
+
             return new Attendance([
                 'user_id' => $userId,
                 'periode' => $periode,
@@ -131,7 +139,7 @@ class AttendanceImport implements ToModel
             ]);
         }
 
-        Log::error('Import Attendance: Pengguna tidak ditemukan atau gagal parsing Periode untuk nama_lengkap ' . $row[1] . ' atau id_karyawan ' . $row[0]);
+        Log::error('Import Attendance: Pengguna tidak ditemukan atau gagal parsing Periode untuk nama_lengkap '.$row[1].' atau id_karyawan '.$row[0]);
 
         // Simpan detail data yang dilewati jika pengguna tidak ditemukan atau periode tidak valid
         $this->skippedDetails[] = [
@@ -141,6 +149,7 @@ class AttendanceImport implements ToModel
         ];
 
         $this->skippedCount++;
+
         return null;
     }
 

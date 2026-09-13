@@ -9,7 +9,6 @@ class KpiScoringService
     /**
      * Calculate the score for a single KPI based on its details.
      *
-     * @param Kpi $kpi
      * @return array Contains 'score' (weighted) and 'actualCount' (sum of value_result)
      */
     public static function calculateKpiScore(Kpi $kpi): array
@@ -21,7 +20,7 @@ class KpiScoringService
 
         // Sum the value_result (which can be > 1.0 for overachievement or negative KPIs)
         $actualCount = $kpiDetailWithValue->sum('value_result');
-        
+
         // Use the count of VALID details as the divisor to get the true average
         $count = $kpiDetailWithValue->count();
 
@@ -33,14 +32,14 @@ class KpiScoringService
 
         return [
             'score' => $score,
-            'actualCount' => $actualCount
+            'actualCount' => $actualCount,
         ];
     }
 
     /**
      * Calculate the final capped KPI score for a user/period.
-     * 
-     * @param float $rawKpiScore Sum of weighted scores from all KPIs (e.g., 100 max)
+     *
+     * @param  float  $rawKpiScore  Sum of weighted scores from all KPIs (e.g., 100 max)
      * @return float Capped score (max 70)
      */
     public static function calculateFinalKpiScore(float $rawKpiScore): float
@@ -51,11 +50,6 @@ class KpiScoringService
 
     /**
      * Calculate the value_result for a KPI detail.
-     *
-     * @param float|null $plan
-     * @param float|null $actual
-     * @param bool $isNegative
-     * @return float
      */
     public static function calculateResultValue(?float $plan, ?float $actual, bool $isNegative): float
     {

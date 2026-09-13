@@ -1,1 +1,6 @@
+@import '../../vendor/kungfufafa/mekaya-theme/resources/css/theme.css';
 @import 'tailwindcss';
+
+.whatsapp-login-icon {
+    fill: #25d366;
+}

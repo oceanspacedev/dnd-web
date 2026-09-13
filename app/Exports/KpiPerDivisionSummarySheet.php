@@ -5,7 +5,7 @@ namespace App\Exports;
 use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\User;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -14,7 +14,9 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping, WithTitle
 {
     protected string $month;
+
     protected string $divisi_id;
+
     protected ?int $userId;
 
     public function __construct(string $month, string $divisi_id, ?int $userId = null)
@@ -41,7 +43,7 @@ class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping
             $users = User::orderBy('nama_lengkap')->where('divisi_id', auth()->user()->divisi_id)->get();
         }
 
-        $date = Carbon::createFromFormat('Y-m', $this->month);
+        $date = Date::createFromFormat('Y-m', $this->month);
 
         foreach ($users as $user) {
             $user_closed_kpis = 0;
@@ -83,8 +85,8 @@ class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping
                 'id' => $user->id,
                 'name' => $user->nama_lengkap,
                 'divisi' => $user->divisi->name ?? '',
-                'total_task' => $user_closed_kpis . '/' . $user_all_kpis,
-                'score' => $cumulativeScore . '%',
+                'total_task' => $user_closed_kpis.'/'.$user_all_kpis,
+                'score' => $cumulativeScore.'%',
             ];
         }
 
@@ -96,7 +98,7 @@ class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping
         return ['Name', 'Divisi', 'Total Task', 'Score'];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row['name'],

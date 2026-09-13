@@ -1,0 +1,43 @@
+# Overlay opsional di NODE UTAMA bila ada node compose.app.yaml di mesin lain.
+# Publish MariaDB dan Redis hanya ke IP privat. Firewall wajib.
+# Overlay ini menyalakan Redis dan memakai driver bersama (Redis + S3).
+#
+#   docker compose -f compose.yaml -f compose.data-expose.yaml up --detach --build
+#
+#   DATA_BIND=10.0.0.5
+# Jangan memakai 0.0.0.0 pada VPS yang port-nya terbuka ke internet.
+
+x-shared-drivers: &shared-drivers
+  SESSION_DRIVER: ${SESSION_DRIVER:-redis}
+  SESSION_CONNECTION: ${SESSION_CONNECTION:-session}
+  CACHE_STORE: ${CACHE_STORE:-redis}
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
+  APP_MAINTENANCE_DRIVER: ${APP_MAINTENANCE_DRIVER:-cache}
+  APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-redis}
+  FILESYSTEM_DISK: ${FILESYSTEM_DISK:-s3}
+
+services:
+  database:
+    ports:
+      - "${DATA_BIND:?DATA_BIND wajib diisi dengan IP privat}:${DB_PUBLISH_PORT:-3306}:3306"
+
+  redis:
+    profiles: !override []
+    ports:
+      - "${DATA_BIND:?DATA_BIND wajib diisi dengan IP privat}:${REDIS_PUBLISH_PORT:-6379}:6379"
+
+  release:
+    environment:
+      <<: *shared-drivers
+
+  web:
+    environment:
+      <<: *shared-drivers
+
+  worker:
+    environment:
+      <<: *shared-drivers
+
+  scheduler:
+    environment:
+      <<: *shared-drivers

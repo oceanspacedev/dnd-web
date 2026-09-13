@@ -16,6 +16,10 @@ class UserImporter extends Importer
         return [
             ImportColumn::make('employee_id')
                 ->rules(['max:255']),
+            ImportColumn::make('no_hp')
+                ->rules(['max:255']),
+            ImportColumn::make('email')
+                ->rules(['email', 'max:255']),
             ImportColumn::make('nama_lengkap')
                 ->requiredMapping()
                 ->rules(['required', 'max:255']),
@@ -81,15 +85,15 @@ class UserImporter extends Importer
         //     'email' => $this->data['email'],
         // ]);
 
-        return new User();
+        return new User;
     }
 
     public static function getCompletedNotificationBody(Import $import): string
     {
-        $body = 'Your user import has completed and ' . number_format($import->successful_rows) . ' ' . str('row')->plural($import->successful_rows) . ' imported.';
+        $body = 'Your user import has completed and '.number_format($import->successful_rows).' '.str('row')->plural($import->successful_rows).' imported.';
 
         if ($failedRowsCount = $import->getFailedRowsCount()) {
-            $body .= ' ' . number_format($failedRowsCount) . ' ' . str('row')->plural($failedRowsCount) . ' failed to import.';
+            $body .= ' '.number_format($failedRowsCount).' '.str('row')->plural($failedRowsCount).' failed to import.';
         }
 
         return $body;

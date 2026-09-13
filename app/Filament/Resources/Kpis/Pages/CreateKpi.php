@@ -2,18 +2,16 @@
 
 namespace App\Filament\Resources\Kpis\Pages;
 
-use Exception;
 use App\Filament\Resources\Kpis\KpiResource;
 use App\Models\Kpi;
-use App\Models\KpiDescription;
 use App\Models\KpiDetail;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use Carbon\Carbon;
+use Exception;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 
 class CreateKpi extends CreateRecord
@@ -45,6 +43,7 @@ class CreateKpi extends CreateRecord
                     ->send();
 
                 $this->halt();
+
                 return;
             }
 
@@ -68,6 +67,7 @@ class CreateKpi extends CreateRecord
 
                     DB::rollBack();
                     $this->halt();
+
                     return;
                 }
 
@@ -84,10 +84,11 @@ class CreateKpi extends CreateRecord
 
                 DB::rollBack();
                 $this->halt();
+
                 return;
             }
 
-            $date = Carbon::createFromFormat('m/Y', $data['date'])->format('Y-m-d');
+            $date = Date::createFromFormat('m/Y', $data['date'])->format('Y-m-d');
 
             // Create KPIs and KPI details for each user
             foreach ($users as $user) {
@@ -108,8 +109,8 @@ class CreateKpi extends CreateRecord
                             'count_type' => $details['count_type'],
                             'value_plan' => $details['count_type'] === 'RESULT' ? $details['value_plan'] : null,
                             'value_result' => 0,
-                            'start' => isset($details['start']) ? Carbon::parse($details['start'])->format('Y-m-d') : null,
-                            'end' => isset($details['end']) ? Carbon::parse($details['end'])->format('Y-m-d') : null,
+                            'start' => isset($details['start']) ? Date::parse($details['start'])->format('Y-m-d') : null,
+                            'end' => isset($details['end']) ? Date::parse($details['end'])->format('Y-m-d') : null,
                             'subtasks' => isset($details['subtasks']) ? $details['subtasks'] : null,
                         ]);
                     }
@@ -132,8 +133,8 @@ class CreateKpi extends CreateRecord
                             'count_type' => $details['count_typeRep'],
                             'value_plan' => $details['count_typeRep'] === 'RESULT' ? $details['value_planRep'] : null,
                             'value_result' => 0,
-                            'start' => isset($details['startRep']) ? Carbon::parse($details['startRep'])->format('Y-m-d') : null,
-                            'end' => isset($details['endRep']) ? Carbon::parse($details['endRep'])->format('Y-m-d') : null,
+                            'start' => isset($details['startRep']) ? Date::parse($details['startRep'])->format('Y-m-d') : null,
+                            'end' => isset($details['endRep']) ? Date::parse($details['endRep'])->format('Y-m-d') : null,
                             'subtasks' => isset($details['subtasks']) ? $details['subtasks'] : null,
                         ]);
                     }
@@ -156,8 +157,8 @@ class CreateKpi extends CreateRecord
                             'count_type' => $details['count_typeMain'],
                             'value_plan' => $details['count_typeMain'] === 'RESULT' ? $details['value_planMain'] : null,
                             'value_result' => 0,
-                            'start' => isset($details['startMain']) ? Carbon::parse($details['startMain'])->format('Y-m-d') : null,
-                            'end' => isset($details['endMain']) ? Carbon::parse($details['endMain'])->format('Y-m-d') : null,
+                            'start' => isset($details['startMain']) ? Date::parse($details['startMain'])->format('Y-m-d') : null,
+                            'end' => isset($details['endMain']) ? Date::parse($details['endMain'])->format('Y-m-d') : null,
                             'subtasks' => isset($details['subtasks']) ? $details['subtasks'] : null,
                         ]);
                     }
@@ -176,6 +177,7 @@ class CreateKpi extends CreateRecord
 
             if ($another) {
                 $this->form->fill();
+
                 return;
             }
 

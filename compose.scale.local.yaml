@@ -1,0 +1,49 @@
+# Overlay lokal untuk uji replica + autoscaling.
+# Jangan dipakai di Coolify/Dokploy/1Panel.
+#
+#   docker compose --env-file .env.scale.local \
+#     -f compose.scale.yaml -f compose.scale.local.yaml \
+#     up --detach --scale web=1 --scale worker=1
+#
+# Trafik masuk lewat Caddy `lb` di 127.0.0.1:8080, bukan port web.
+# CPU/RAM web dibatasi 1 vCPU agar autoscaler punya sinyal yang jelas.
+
+services:
+  web:
+    cpus: 1.0
+    mem_limit: 768m
+    environment:
+      SESSION_SECURE_COOKIE: "false"
+      OCTANE_HTTPS: "false"
+      OCTANE_WORKERS: "2"
+
+  worker:
+    cpus: 0.5
+    mem_limit: 384m
+    environment:
+      SESSION_SECURE_COOKIE: "false"
+      OCTANE_HTTPS: "false"
+
+  scheduler:
+    cpus: 0.25
+    mem_limit: 256m
+    environment:
+      SESSION_SECURE_COOKIE: "false"
+      OCTANE_HTTPS: "false"
+
+  release:
+    environment:
+      SESSION_SECURE_COOKIE: "false"
+      OCTANE_HTTPS: "false"
+
+  database:
+    cpus: 1.5
+    mem_limit: 1024m
+
+  redis:
+    cpus: 0.5
+    mem_limit: 256m
+
+  lb:
+    cpus: 0.25
+    mem_limit: 128m

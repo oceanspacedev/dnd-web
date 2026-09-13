@@ -7,9 +7,10 @@ use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class LeaderboardMonthlySummarySheet implements FromArray, WithHeadings, WithTitle, ShouldAutoSize
+class LeaderboardMonthlySummarySheet implements FromArray, ShouldAutoSize, WithHeadings, WithTitle
 {
     protected array $rows;
+
     protected string $year;
 
     public function __construct(array $rows, string $year)

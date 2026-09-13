@@ -4,7 +4,7 @@ namespace App\Exports;
 
 use App\Models\Kpi;
 use App\Models\User;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
@@ -12,7 +12,9 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class KpiPerDivisionDetailSheet implements FromArray, WithHeadings, WithTitle
 {
     protected string $month;
+
     protected string $divisi_id;
+
     protected ?int $userId;
 
     public function __construct(string $month, string $divisi_id, ?int $userId = null)
@@ -42,7 +44,7 @@ class KpiPerDivisionDetailSheet implements FromArray, WithHeadings, WithTitle
             return [];
         }
 
-        $date = Carbon::createFromFormat('Y-m', $this->month);
+        $date = Date::createFromFormat('Y-m', $this->month);
 
         $kpis = Kpi::with([
             'kpi_detail',
@@ -76,7 +78,7 @@ class KpiPerDivisionDetailSheet implements FromArray, WithHeadings, WithTitle
                 $indicatorType = ($detail->kpi_description?->is_negative ?? false) ? 'NEGATIVE' : 'POSITIVE';
 
                 $result[] = [
-                    Carbon::parse($kpi->date)->format('Y-m'),
+                    Date::parse($kpi->date)->format('Y-m'),
                     $kpi->user->nama_lengkap ?? '',
                     $kpi->user->position->name ?? '',
                     $kpi->user->divisi->name ?? '',

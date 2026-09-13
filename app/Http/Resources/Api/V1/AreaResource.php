@@ -1,0 +1,26 @@
+<?php
+
+namespace App\Http\Resources\Api\V1;
+
+use App\Models\Area;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/** @mixin Area */
+class AreaResource extends JsonResource
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'divisi_count' => $this->whenCounted('divisi'),
+            'divisis' => DivisiResource::collection($this->whenLoaded('divisi')),
+        ];
+    }
+}

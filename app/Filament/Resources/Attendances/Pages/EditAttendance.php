@@ -2,10 +2,9 @@
 
 namespace App\Filament\Resources\Attendances\Pages;
 
-use Filament\Actions\DeleteAction;
 use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Services\ApprovalScopeService;
-use Filament\Actions;
+use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
@@ -31,6 +30,7 @@ class EditAttendance extends EditRecord
                 ->send();
 
             $this->halt();
+
             return;
         }
     }

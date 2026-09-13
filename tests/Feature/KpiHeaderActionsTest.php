@@ -4,14 +4,17 @@ namespace Tests\Feature;
 
 use App\Filament\Resources\Kpis\Pages\ListKpis;
 use Filament\Actions\ActionGroup;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class KpiHeaderActionsTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_export_and_copy_actions_use_slideover_panels(): void
     {
-        $page = app(ListKpis::class);
+        $page = resolve(ListKpis::class);
         $method = new ReflectionMethod($page, 'getHeaderActions');
         $actions = $method->invoke($page);
 

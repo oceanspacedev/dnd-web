@@ -14,20 +14,34 @@ return [
     |
     */
 
-    'mailgun' => [
-        'domain' => env('MAILGUN_DOMAIN'),
-        'secret' => env('MAILGUN_SECRET'),
-        'endpoint' => env('MAILGUN_ENDPOINT', 'api.mailgun.net'),
-    ],
-
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
+    ],
+
+    'resend' => [
+        'key' => env('RESEND_KEY'),
     ],
 
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+    ],
+
+    'slack' => [
+        'notifications' => [
+            'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
+            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+        ],
+    ],
+
+    'whatsapp' => [
+        'api_url' => env('WAG_URL', env('WA_API_URL', 'https://waghub.mekayastudio.com')),
+        'api_key' => env('WAG_TOKEN', env('WA_API_KEY')),
+        'connect_timeout' => (int) env('WA_CONNECT_TIMEOUT', 5),
+        'timeout' => (int) env('WA_API_TIMEOUT', 15),
+        'otp_expires_in' => (int) env('WA_OTP_EXPIRES_IN', 60),
+        'otp_message' => env('WA_OTP_MESSAGE', 'Kode OTP {app_name} Anda: {otp}. Berlaku {expires_in}. Jangan bagikan kode ini kepada siapa pun.'),
     ],
 
 ];

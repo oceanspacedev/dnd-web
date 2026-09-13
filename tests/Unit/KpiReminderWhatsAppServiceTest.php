@@ -1,0 +1,143 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Services\WhatsAppService;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Mockery;
+use Tests\TestCase;
+
+class KpiReminderWhatsAppServiceTest extends TestCase
+{
+    public function test_is_configured_requires_url_and_key(): void
+    {
+        config()->set('services.whatsapp.api_url');
+        config()->set('services.whatsapp.api_key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url');
+        config()->set('services.whatsapp.api_key', 'test-key');
+        $this->assertFalse(WhatsAppService::isConfigured());
+
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+        $this->assertTrue(WhatsAppService::isConfigured());
+    }
+
+    public function test_missing_api_key_fails_without_sending_a_request(): void
+    {
+        Http::fake();
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key');
+
+        $result = WhatsAppService::send('081234567890', 'Pengingat KPI');
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('WAG_TOKEN belum dikonfigurasi.', $result['message']);
+        Http::assertNothingSent();
+    }
+
+    public function test_send_appends_messages_path_to_base_wag_url(): void
+    {
+        Http::fake([
+            'https://waghub.mekayastudio.com/api/v1/messages' => Http::response(['success' => true]),
+        ]);
+        config()->set('services.whatsapp.api_url', 'https://waghub.mekayastudio.com');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send('081234567890', 'Pengingat KPI');
+
+        $this->assertTrue($result['success']);
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://waghub.mekayastudio.com/api/v1/messages');
+        $this->assertSame(
+            'https://waghub.mekayastudio.com/api/v1/messages',
+            WhatsAppService::messagesEndpoint('https://waghub.mekayastudio.com/'),
+        );
+        $this->assertSame(
+            'https://waghub.mekayastudio.com/api/v1/messages',
+            WhatsAppService::messagesEndpoint('https://waghub.mekayastudio.com/api/v1/messages'),
+        );
+    }
+
+    public function test_it_normalizes_international_indonesian_number_and_preserves_idempotency_key(): void
+    {
+        Http::fake([
+            'https://gateway.example.test/api/v1/messages' => Http::response(['success' => true]),
+        ]);
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send(
+            '+62 812-3456-789',
+            'Pengingat KPI',
+            'stable-idempotency-key',
+        );
+        $retryResult = WhatsAppService::send(
+            '08123456789',
+            'Pengingat KPI',
+            'stable-idempotency-key',
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertTrue($retryResult['success']);
+        Http::assertSent(function (Request $request): bool {
+            return $request->url() === 'https://gateway.example.test/api/v1/messages'
+                && $request['recipient']['value'] === '08123456789'
+                && $request->hasHeader('Idempotency-Key', 'stable-idempotency-key');
+        });
+
+        $requests = Http::recorded();
+        $this->assertCount(2, $requests);
+        $this->assertSame(
+            $requests[0][0]['client_reference'],
+            $requests[1][0]['client_reference'],
+        );
+    }
+
+    public function test_invalid_phone_number_fails_without_sending_a_request(): void
+    {
+        Http::fake();
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send('12345', 'Pengingat KPI');
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('Nomor WhatsApp Indonesia tidak valid.', $result['message']);
+        Http::assertNothingSent();
+    }
+
+    public function test_gateway_failures_do_not_expose_response_bodies_in_logs_or_results(): void
+    {
+        Http::fake([
+            'https://gateway.example.test/api/v1/messages' => Http::response(
+                'gateway echoed sensitive OTP 654321',
+                502,
+                ['X-Request-Id' => 'safe-request-id'],
+            ),
+        ]);
+        Log::spy();
+        config()->set('services.whatsapp.api_url', 'https://gateway.example.test/api/v1/messages');
+        config()->set('services.whatsapp.api_key', 'test-key');
+
+        $result = WhatsAppService::send('081234567890', 'Kode OTP: 654321');
+
+        $this->assertFalse($result['success']);
+        $this->assertStringNotContainsString('654321', $result['message']);
+        Log::shouldHaveReceived('error')
+            ->once()
+            ->with(
+                'WagHub Gateway request failed.',
+                Mockery::on(fn (array $context): bool => $context === [
+                    'status' => 502,
+                    'request_id' => 'safe-request-id',
+                ]),
+            );
+    }
+}

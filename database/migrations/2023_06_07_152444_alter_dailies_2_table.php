@@ -4,14 +4,12 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class AlterDailies2Table extends Migration
+return new class extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * @return void
      */
-    public function up()
+    public function up(): void
     {
         Schema::table('dailies', function (Blueprint $table) {
             $table->bigInteger('value_plan')->after('task_status_id')->nullable();
@@ -25,10 +23,8 @@ class AlterDailies2Table extends Migration
 
     /**
      * Reverse the migrations.
-     *
-     * @return void
      */
-    public function down()
+    public function down(): void
     {
         Schema::table('dailies', function (Blueprint $table) {
             $table->dropColumn('value_plan');
@@ -39,4 +35,4 @@ class AlterDailies2Table extends Migration
             $table->dropColumn('add_id');
         });
     }
-}
+};

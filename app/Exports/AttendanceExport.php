@@ -2,23 +2,24 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
 use App\Models\Attendance;
 use App\Models\User;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
-class AttendanceExport implements FromCollection, WithHeadings, WithMapping, WithTitle, ShouldAutoSize
+class AttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
     /**
      * Mengambil data koleksi untuk ekspor
      *
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
         // Ambil semua data attendance yang diperlukan
         return Attendance::with('user') // Pastikan relasi dengan model User tersedia
@@ -38,8 +39,6 @@ class AttendanceExport implements FromCollection, WithHeadings, WithMapping, Wit
 
     /**
      * Menentukan heading atau judul kolom di Excel
-     *
-     * @return array
      */
     public function headings(): array
     {
@@ -57,10 +56,9 @@ class AttendanceExport implements FromCollection, WithHeadings, WithMapping, Wit
     /**
      * Menentukan bagaimana data setiap baris akan dipetakan ke dalam array
      *
-     * @param array $attendance
-     * @return array
+     * @param  array  $attendance
      */
-    public function map($attendance): array
+    public function map(mixed $attendance): array
     {
         return [
             $attendance['employee_id'],      // ID Karyawan
@@ -75,8 +73,6 @@ class AttendanceExport implements FromCollection, WithHeadings, WithMapping, Wit
 
     /**
      * Menentukan nama sheet untuk file Excel
-     *
-     * @return string
      */
     public function title(): string
     {

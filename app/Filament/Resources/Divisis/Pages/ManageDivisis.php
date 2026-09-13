@@ -2,9 +2,8 @@
 
 namespace App\Filament\Resources\Divisis\Pages;
 
-use Filament\Actions\CreateAction;
 use App\Filament\Resources\Divisis\DivisiResource;
-use Filament\Actions;
+use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ManageRecords;
 
 class ManageDivisis extends ManageRecords

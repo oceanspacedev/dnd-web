@@ -1,0 +1,25 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$CADDY_SITE} {
+	encode zstd gzip
+
+	reverse_proxy web:8080 {
+		health_uri /up
+		health_interval 10s
+		health_timeout 3s
+		fail_duration 15s
+		unhealthy_status 5xx
+		transport http {
+			read_timeout 300s
+		}
+
+		header_up Host {http.request.host}
+		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {http.request.host}
+		header_up Upgrade {http.request.header.Upgrade}
+		header_up Connection {http.request.header.Connection}
+	}
+}

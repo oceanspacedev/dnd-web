@@ -2,17 +2,25 @@
 
 namespace App\Exports;
 
+use Maatwebsite\Excel\Concerns\Export;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
-class LeaderboardExport implements WithMultipleSheets
+class LeaderboardExport implements Export, WithMultipleSheets
 {
     protected array $leaderboardData;
+
     protected string $periodType;
+
     protected string $selectedPeriod;
+
     protected $kpiDetails;
+
     protected $attendanceDetails;
+
     protected $reviewDetails;
+
     protected array $monthlySummaryRows;
+
     protected bool $includeDetails;
 
     public function __construct(
@@ -24,8 +32,7 @@ class LeaderboardExport implements WithMultipleSheets
         $reviewDetails,
         array $monthlySummaryRows = [],
         bool $includeDetails = true
-    )
-    {
+    ) {
         $this->leaderboardData = $leaderboardData;
         $this->periodType = $periodType;
         $this->selectedPeriod = $selectedPeriod;

@@ -3,51 +3,58 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Date;
 
 class Monthly extends Model
 {
-    use HasFactory,SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected $guarded = [
         'id',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class)->withTrashed();
     }
 
+    /** @return Attribute<int, never> */
     protected function date(): Attribute
     {
         return Attribute::make(get: function ($value) {
-            return Carbon::parse($value)->getPreciseTimestamp(3);
+            return Date::parse($value)->getPreciseTimestamp(3);
         });
     }
 
+    /** @return Attribute<int, never> */
     protected function createdAt(): Attribute
     {
         return Attribute::make(get: function ($value) {
-            return Carbon::parse($value)->getPreciseTimestamp(3);
+            return Date::parse($value)->getPreciseTimestamp(3);
         });
     }
 
+    /** @return Attribute<int, never> */
     protected function updatedAt(): Attribute
     {
         return Attribute::make(get: function ($value) {
-            return Carbon::parse($value)->getPreciseTimestamp(3);
+            return Date::parse($value)->getPreciseTimestamp(3);
         });
     }
 
-    public function add()
+    /** @return BelongsTo<User, $this> */
+    public function add(): BelongsTo
     {
         return $this->belongsTo(User::class, 'add_id')->withTrashed();
     }
 
-    public function tag()
+    /** @return BelongsTo<User, $this> */
+    public function tag(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tag_id')->withTrashed();
     }

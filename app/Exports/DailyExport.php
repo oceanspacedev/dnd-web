@@ -2,10 +2,11 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
-use App\Helpers\ConvertDate;
 use App\Models\Daily;
 use App\Models\User;
+use App\Support\IsoWeek;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -13,19 +14,22 @@ use Maatwebsite\Excel\Concerns\WithMapping;
 class DailyExport implements FromCollection, WithHeadings, WithMapping
 {
     protected int $week;
+
     protected int $year;
 
-    function __construct(int $week, int $year)
+    public function __construct(int $week, int $year)
     {
         $this->week = $week;
         $this->year = $year;
     }
+
     /**
      * @return Collection
      */
-    public function collection()
+    public function collection(): Enumerable
     {
-        $monday = ConvertDate::getMondayOrSaturday($this->year, $this->week, true);
+        $monday = IsoWeek::startsAt($this->year, $this->week);
+
         return Daily::with('tag', 'user', 'user.area', 'user.divisi')
             ->whereBetween('date', [$monday->format('y-m-d'), $monday->addDay(6)->format('y-m-d')])
             ->orderBy(User::select('nama_lengkap')->whereColumn('users.id', 'dailies.user_id'))
@@ -44,11 +48,11 @@ class DailyExport implements FromCollection, WithHeadings, WithMapping
             'jam',
             'task',
             'status',
-            'taged by'
+            'taged by',
         ];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row->user->nama_lengkap,

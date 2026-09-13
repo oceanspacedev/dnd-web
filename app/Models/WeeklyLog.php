@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WeeklyLog extends Model
@@ -22,12 +23,14 @@ class WeeklyLog extends Model
         'deleted_at',
     ];
 
-    public function user()
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    public function weekly()
+    /** @return BelongsTo<Weekly, $this> */
+    public function weekly(): BelongsTo
     {
         return $this->belongsTo(Weekly::class, 'task_id');
     }

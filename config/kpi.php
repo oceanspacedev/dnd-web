@@ -24,5 +24,6 @@ return [
         'categories' => (int) env('KPI_CACHE_TTL_CATEGORIES_SECONDS', 300),
         'descriptions' => (int) env('KPI_CACHE_TTL_DESCRIPTIONS_SECONDS', 300),
         'positions' => (int) env('KPI_CACHE_TTL_POSITIONS_SECONDS', 300),
+        'leaderboard' => (int) env('KPI_CACHE_TTL_LEADERBOARD_SECONDS', 60),
     ],
 ];

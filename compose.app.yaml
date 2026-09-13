@@ -1,0 +1,57 @@
+# Node compute tambahan. Tidak menjalankan MariaDB, Redis, scheduler, atau
+# migrate. Arahkan DB_HOST dan REDIS_HOST ke server data (VPS utama / managed).
+# APP_KEY, prefix cache, dan FILESYSTEM_DISK=s3 harus sama dengan node utama.
+# Volume storage lokal tidak dibagi antar server.
+#
+#   docker compose -f compose.app.yaml up --detach --build --scale web=2 --scale worker=1
+#
+# Node utama: compose.yaml + compose.data-expose.yaml (satu scheduler, satu release).
+
+include:
+  - path: compose.yaml
+
+x-app-drivers: &app-drivers
+  SESSION_DRIVER: ${SESSION_DRIVER:-redis}
+  SESSION_CONNECTION: ${SESSION_CONNECTION:-session}
+  CACHE_STORE: ${CACHE_STORE:-redis}
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
+  APP_MAINTENANCE_DRIVER: ${APP_MAINTENANCE_DRIVER:-cache}
+  APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-redis}
+  FILESYSTEM_DISK: ${FILESYSTEM_DISK:-s3}
+
+services:
+  database:
+    profiles:
+      - data-plane
+
+  redis:
+    profiles: !override
+      - data-plane
+
+  release:
+    profiles:
+      - data-plane
+    environment:
+      <<: *app-drivers
+
+  scheduler:
+    profiles:
+      - data-plane
+    environment:
+      <<: *app-drivers
+
+  web:
+    environment:
+      <<: *app-drivers
+    depends_on:
+      release:
+        condition: service_healthy
+        required: false
+
+  worker:
+    environment:
+      <<: *app-drivers
+    depends_on:
+      release:
+        condition: service_healthy
+        required: false

@@ -2,10 +2,9 @@
 
 namespace App\Exports;
 
-use App\Helpers\ConvertDate;
-use App\Models\User;
 use App\Models\Daily;
 use App\Models\Weekly;
+use App\Support\IsoWeek;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
@@ -15,12 +14,13 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
 {
     use Exportable;
 
-
     protected int $week;
+
     protected int $year;
+
     protected $users;
 
-    function __construct(int $week, int $year,$users)
+    public function __construct(int $week, int $year, $users)
     {
         $this->week = $week;
         $this->year = $year;
@@ -29,18 +29,18 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
 
     public function array(): array
     {
-        $report = array();
+        $report = [];
 
         foreach ($this->users as $user) {
-            ##SETUP VARIABLE
-            //DAILY
+            // #SETUP VARIABLE
+            // DAILY
             $onTimePoint = 0;
             $dailyPoint = 0;
             $dailyOntime = 0;
             $dailysLength = [];
             $actTarget = [];
             $dpoint = [];
-            //WEEKLY
+            // WEEKLY
             $weeklyValue = 0;
             $kpiWeekly = 0;
             $totalTaskWeekly = 0;
@@ -48,7 +48,7 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
             for ($i = 0; $i < 7; $i++) {
                 $dailyClose = 0;
                 if ($i == 0) {
-                    $monday = ConvertDate::getMondayOrSaturday($this->year, $this->week, true);
+                    $monday = IsoWeek::startsAt($this->year, $this->week);
                     $daily = Daily::where('date', $monday)->where('user_id', $user->id)->orderBy('time')->get();
                     if (count($daily) > 0) {
                         $dailyClose = count($daily->where('status', 1));
@@ -66,18 +66,18 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                     }
                     $actTarget[$monday->format('D')] = '';
                     if ($dailyClose < 10) {
-                        $actTarget[$monday->format('D')] = '0' . $dailyClose;
+                        $actTarget[$monday->format('D')] = '0'.$dailyClose;
                     } else {
                         $actTarget[$monday->format('D')] = $dailyClose;
                     }
-                    $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')] . '/';
+                    $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')].'/';
                     if (count($daily->where('isplan', 1)) < 10) {
-                        $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')] . '0' . count($daily->where('isplan', 1));
+                        $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')].'0'.count($daily->where('isplan', 1));
                     } else {
-                        $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')] . count($daily->where('isplan', 1));
+                        $actTarget[$monday->format('D')] = $actTarget[$monday->format('D')].count($daily->where('isplan', 1));
                     }
                 } else {
-                    $monday1 = ConvertDate::getMondayOrSaturday($this->year, $this->week, true)->addDay($i);
+                    $monday1 = IsoWeek::startsAt($this->year, $this->week)->addDay($i);
                     $daily = Daily::where('date', $monday1)->where('user_id', $user->id)->orderBy('time')->get();
                     if (count($daily) > 0) {
                         $dailyClose = count($daily->where('status', 1));
@@ -95,15 +95,15 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                     }
                     $actTarget[$monday1->format('D')] = '';
                     if ($dailyClose < 10) {
-                        $actTarget[$monday1->format('D')] = '0' . $dailyClose;
+                        $actTarget[$monday1->format('D')] = '0'.$dailyClose;
                     } else {
                         $actTarget[$monday1->format('D')] = $dailyClose;
                     }
-                    $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')] . '/';
+                    $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')].'/';
                     if (count($daily->where('isplan', 1)) < 10) {
-                        $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')] . '0' . count($daily->where('isplan', 1));
+                        $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')].'0'.count($daily->where('isplan', 1));
                     } else {
-                        $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')] . count($daily->where('isplan', 1));
+                        $actTarget[$monday1->format('D')] = $actTarget[$monday1->format('D')].count($daily->where('isplan', 1));
                     }
                 }
 
@@ -111,7 +111,7 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                     array_push($dailysLength, $daily);
                 }
             }
-            ##DAILYPOINT
+            // #DAILYPOINT
             $dailyDone = 0;
             $dailyTaskPlanTotal = 0;
             foreach ($dailysLength as $dailys) {
@@ -126,9 +126,9 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                 }
             }
             $dailySubmit = count($dailysLength);
-            #SUMMARY DAILY
+            // SUMMARY DAILY
             if ($dailyDone) {
-                if (!$user->wr && !$user->wn) {
+                if (! $user->wr && ! $user->wn) {
                     if ($dailyTaskPlanTotal) {
                         $dailyPoint = ($dailySubmit / 6) * ($dailyDone / $dailyTaskPlanTotal) > 1 ? 80 : (($dailySubmit / 6) * ($dailyDone / $dailyTaskPlanTotal)) * 80;
                     }
@@ -141,12 +141,12 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                     $dailyOntime = ($dailySubmit / 6) * ($onTimePoint / $dailyTaskPlanTotal) > 1 ? 20 : (($dailySubmit / 6) * ($onTimePoint / $dailyTaskPlanTotal)) * 20;
                 }
             }
-            ##DAILYONTIME
+            // #DAILYONTIME
             $kpiDaily = $dailyPoint;
             $kpiDailyOntime = $dailyOntime;
 
             if ($user->wr || $user->wn) {
-                ##WEEKLY
+                // #WEEKLY
                 $weeklys = Weekly::where('year', $this->year)->where('week', $this->week)->where('user_id', $user->id)->get();
                 $totalTaskWeekly = count($weeklys);
                 foreach ($weeklys as $weekly) {
@@ -160,8 +160,8 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                 }
             }
             $totalKpi = $kpiDaily + $kpiWeekly + $kpiDailyOntime;
-            $closedTaskWeekly = $closedTaskWeekly < 10 ? '0' . $closedTaskWeekly : $closedTaskWeekly;
-            $totalTaskWeekly = $totalTaskWeekly < 10 ? '0' . $totalTaskWeekly : $totalTaskWeekly;
+            $closedTaskWeekly = $closedTaskWeekly < 10 ? '0'.$closedTaskWeekly : $closedTaskWeekly;
+            $totalTaskWeekly = $totalTaskWeekly < 10 ? '0'.$totalTaskWeekly : $totalTaskWeekly;
             array_push($report, [
                 'user' => $user,
                 'daily' => $kpiDaily,
@@ -169,10 +169,11 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
                 'weekly' => $kpiWeekly,
                 'total' => $totalKpi,
                 'act' => $actTarget,
-                'actw' => $closedTaskWeekly . '/' . $totalTaskWeekly,
+                'actw' => $closedTaskWeekly.'/'.$totalTaskWeekly,
                 'dpoint' => $dpoint,
             ]);
         }
+
         return $report;
     }
 
@@ -197,7 +198,7 @@ class ReportIndividu implements FromArray, WithHeadings, WithMapping
         ];
     }
 
-    public function map($row): array
+    public function map(mixed $row): array
     {
         return [
             $row['user']->nama_lengkap,
