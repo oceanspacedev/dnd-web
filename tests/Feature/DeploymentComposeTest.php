@@ -10,11 +10,106 @@ class DeploymentComposeTest extends TestCase
     {
         $env = (string) file_get_contents(base_path('.env.example'));
 
+        $this->assertMatchesRegularExpression('/^APP_NAME=DnD$/m', $env);
+        $this->assertMatchesRegularExpression('/^APP_LOCALE=id$/m', $env);
+        $this->assertMatchesRegularExpression('/^APP_FAKER_LOCALE=id_ID$/m', $env);
+        $this->assertMatchesRegularExpression('/^DB_CONNECTION=sqlite$/m', $env);
         $this->assertMatchesRegularExpression('/^SESSION_DRIVER=database$/m', $env);
         $this->assertMatchesRegularExpression('/^CACHE_STORE=database$/m', $env);
         $this->assertMatchesRegularExpression('/^QUEUE_CONNECTION=database$/m', $env);
         $this->assertMatchesRegularExpression('/^FILESYSTEM_DISK=local$/m', $env);
+        $this->assertMatchesRegularExpression('/^BROADCAST_CONNECTION=log$/m', $env);
+        $this->assertMatchesRegularExpression('/^MAIL_MAILER=log$/m', $env);
+        $this->assertMatchesRegularExpression('/^MAIL_SCHEME=null$/m', $env);
+        $this->assertMatchesRegularExpression('/^REDIS_CLIENT=phpredis$/m', $env);
+        $this->assertMatchesRegularExpression('/^REDIS_PASSWORD=null$/m', $env);
         $this->assertMatchesRegularExpression('/^APP_MAINTENANCE_DRIVER=file$/m', $env);
+    }
+
+    public function test_env_example_documents_still_used_app_and_compose_keys(): void
+    {
+        $env = (string) file_get_contents(base_path('.env.example'));
+
+        foreach ([
+            'KPI_CHECKLIST_LOCK_DAYS',
+            'KPI_CACHE_TTL_CATEGORIES_SECONDS',
+            'KPI_CACHE_TTL_DESCRIPTIONS_SECONDS',
+            'KPI_CACHE_TTL_POSITIONS_SECONDS',
+            'KPI_CACHE_TTL_LEADERBOARD_SECONDS',
+            'KPI_REMINDER_CACHE_STORE',
+            'WAG_URL',
+            'WAG_TOKEN',
+            'WA_CONNECT_TIMEOUT',
+            'WA_API_TIMEOUT',
+            'WA_OTP_EXPIRES_IN',
+            'OPENAI_API_KEY',
+            'OPENAI_URL',
+            'OPENAI_STORE',
+            'API_VERSION',
+            'SCRAMBLE_DEV_TOOLS',
+            'SCRAMBLE_CACHE_STORE',
+            'AWS_ENDPOINT',
+            'AWS_URL',
+            'REDIS_DB',
+            'REDIS_CACHE_DB',
+            'REDIS_SESSION_DB',
+            'DB_ROOT_PASSWORD',
+            'COMPOSE_PROFILES',
+            'SESSION_CONNECTION',
+            'CADDY_SITE',
+            'ACME_EMAIL',
+            'COMPOSE_PROJECT_NAME',
+            'WEB_CONTAINER_NAME',
+            'ONEPANEL_WEB_BIND',
+            'ONEPANEL_WEB_PORT',
+            'LB_BIND',
+            'LB_PORT',
+            'DATA_BIND',
+            'DB_PUBLISH_PORT',
+            'REDIS_PUBLISH_PORT',
+            'OCTANE_WORKERS',
+            'OCTANE_MAX_REQUESTS',
+            'OCTANE_MAX_EXECUTION_TIME',
+            'FRANKENPHP_MAX_WAIT_TIME',
+            'QUEUE_TIMEOUT',
+            'QUEUE_MAX_TIME',
+            'QUEUE_MEMORY',
+        ] as $key) {
+            $this->assertMatchesRegularExpression(
+                '/^#?\s*'.preg_quote($key, '/').'=/m',
+                $env,
+                "{$key} should remain documented in .env.example"
+            );
+        }
+    }
+
+    public function test_env_example_omits_retired_laravel_and_unused_keys(): void
+    {
+        $env = (string) file_get_contents(base_path('.env.example'));
+
+        foreach ([
+            'CACHE_DRIVER',
+            'FILESYSTEM_DRIVER',
+            'BROADCAST_DRIVER',
+            'QUEUE_DRIVER',
+            'MAIL_ENCRYPTION',
+            'API_KEY_NOTIFICATION',
+            'PUSHER_APP_ID',
+            'PUSHER_APP_KEY',
+            'PUSHER_APP_SECRET',
+            'PUSHER_APP_CLUSTER',
+            'MIX_PUSHER_APP_KEY',
+            'MIX_PUSHER_APP_CLUSTER',
+            'APP_TIMEZONE',
+            'WA_API_URL',
+            'WA_API_KEY',
+        ] as $key) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/^#?\s*'.preg_quote($key, '/').'=/m',
+                $env,
+                "{$key} should not appear in .env.example"
+            );
+        }
     }
 
     public function test_compose_defaults_to_laravel_single_instance_drivers(): void
