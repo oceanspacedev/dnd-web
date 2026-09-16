@@ -51,4 +51,9 @@ class UserExporter extends Exporter
 
         return $body;
     }
+
+    public function getJobQueue(): ?string
+    {
+        return 'exports';
+    }
 }

@@ -290,9 +290,9 @@ flowchart TB
 | API docs | Dedoc Scramble / OpenAPI |
 | Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
-| Queue | Laravel Horizon 5; worker Compose memakai Horizon bila `QUEUE_CONNECTION=redis` |
+| Queue | Laravel Horizon 5; worker Compose selalu `php artisan horizon` |
 | Logs | [opcodesio/log-viewer](https://github.com/opcodesio/log-viewer) di `/log-viewer` |
-| Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy; Redis 8 opsional |
+| Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy; Redis 8 untuk Horizon |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
 
@@ -373,10 +373,10 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `AWS_USE_PATH_STYLE_ENDPOINT` | Untuk S3-compatible | Aktifkan bila provider memerlukan URL path-style; default Compose `true` |
 | `AWS_*_CHECKSUM_*` | Tidak | Compose memakai mode `when_required` untuk kompatibilitas provider S3 non-AWS |
 | `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek dan Compose satu instance `database` |
-| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek dan Compose satu instance `database`. Horizon membutuhkan `redis` |
+| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek dan Compose `redis`. Worker: `php artisan horizon` |
 | `HORIZON_PATH` | Tidak | UI Horizon; default `horizon` |
 | `LOG_VIEWER_ENABLED` / `LOG_VIEWER_PATH` | Tidak | UI [Log Viewer](https://github.com/opcodesio/log-viewer); default `/log-viewer` |
-| `REDIS_PASSWORD` | Jika Redis dijalankan | Password Redis internal; tidak wajib pada satu instance tanpa `COMPOSE_PROFILES=redis` |
+| `REDIS_PASSWORD` | Jika Redis dijalankan | Password Redis internal; kosong hanya aman di network Compose |
 | `OCTANE_WORKERS` | Tidak | Jumlah worker web persisten; Compose default `2`, lalu sesuaikan dengan vCPU/RAM |
 | `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
@@ -434,13 +434,13 @@ Scheduler tidak wajib untuk menjalankan UI, tetapi harus dijalankan bila sedang 
 php artisan schedule:work
 ```
 
-Queue default adalah `database` dan migration tabel `jobs` sudah tersedia. Jalankan worker saat fitur yang mengantrekan job digunakan:
+Queue default adalah `redis`. Jalankan Horizon saat fitur yang mengantrekan job digunakan:
 
 ```bash
-php artisan queue:work
+php artisan horizon
 ```
 
-Sebagai alternatif, `composer run dev` menjalankan server Laravel, queue listener, log viewer, dan Vite bersama-sama.
+Sebagai alternatif, `composer run dev` menjalankan server Laravel, Horizon, log viewer, dan Vite bersama-sama.
 
 ## API dan dokumentasi
 
@@ -659,22 +659,22 @@ Image memakai PHP 8.3, Laravel Octane, dan FrankenPHP worker mode, memasang depe
 | Service | Fungsi |
 |---|---|
 | `database` | Menjalankan MariaDB 11.8 LTS pada network internal Compose |
-| `redis` | Opsional (profile `redis`); cache, session, queue, dan maintenance mode bersama saat replica/multi-server |
+| `redis` | Queue Horizon (wajib). Session/cache Redis opsional pada overlay scale/multi-server |
 | `release` | Memverifikasi disk default (`local`/`public`/`s3`), menjalankan migration, lalu menjadi readiness gate |
 | `web` | Menyajikan Laravel Octane pada port internal `8080` dan healthcheck `/up` |
-| `worker` | Menjalankan queue worker (database atau Redis, mengikuti `QUEUE_CONNECTION`) |
+| `worker` | Menjalankan `php artisan horizon` |
 | `scheduler` | Menjalankan Laravel scheduler untuk reminder KPI |
 
-Driver mengikuti Laravel: satu instance memakai session/cache/queue `database` dan filesystem `local` pada volume `storage_data` yang dibagi `web`, `worker`, `scheduler`, dan `release`. Redis tidak dijalankan kecuali `COMPOSE_PROFILES=redis` atau overlay scale/multi-server. Object storage S3 hanya dipakai bila `FILESYSTEM_DISK=s3`. MariaDB memakai named volume `db_data`. Log diarahkan ke `stderr`.
+Satu instance memakai session/cache `database`, queue Redis + Horizon, dan filesystem `local` pada volume `storage_data` yang dibagi `web`, `worker`, `scheduler`, dan `release`. Redis selalu dijalankan untuk worker Horizon. Object storage S3 hanya dipakai bila `FILESYSTEM_DISK=s3`. MariaDB memakai named volume `db_data`. Log diarahkan ke `stderr`.
 
 > [!IMPORTANT]
 > `compose.yaml` sengaja memuat MariaDB agar seluruh stack memakai network yang sama tanpa konfigurasi khusus Coolify atau Dokploy. File itu tidak memasang host port, custom network, `container_name`, atau label Traefik. Volume aplikasi hanya `storage_data` (disk local/public) plus data MariaDB/Redis. Domain tetap diatur melalui UI platform dan hanya diarahkan ke service `web`. 1Panel memakai overlay terpisah [`compose.1panel.yaml`](compose.1panel.yaml) karena OpenResty panel berjalan di container dan tidak bisa mem-proxy `127.0.0.1`.
 
 ### Environment production
 
-Gunakan `.env.example` hanya sebagai daftar variabel dan default development Laravel 12. Jangan menyalin nilai development mentah ke production. Compose production menetapkan `DB_CONNECTION=mariadb`, `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, dan log `stderr`. Session, cache, queue, dan filesystem **tidak dikunci** ke Redis/S3; default-nya sama seperti skeleton Laravel.
+Gunakan `.env.example` hanya sebagai daftar variabel dan default development Laravel 12. Jangan menyalin nilai development mentah ke production. Compose production menetapkan `DB_CONNECTION=mariadb`, `APP_ENV=production`, `APP_DEBUG=false`, cookie HTTPS, dan log `stderr`. Session/cache default `database`, queue Redis + Horizon, filesystem `local`.
 
-Minimum satu instance (tanpa Redis, storage local):
+Minimum satu instance (Horizon + Redis, storage local):
 
 ```dotenv
 APP_KEY=base64:<kunci-yang-dibuat-sekali>
@@ -688,15 +688,13 @@ DB_ROOT_PASSWORD=<password-root-berbeda>
 
 `FILESYSTEM_DISK` default `local` (file private di `storage/app/private`). Set `public` bila file harus diunggah lewat URL `/storage`. Volume Compose `storage_data` dibagi semua container aplikasi pada host yang sama, sehingga export queue dan upload Livewire tetap terlihat worker.
 
-Opsional — nyalakan Redis (performa, atau persiapan replica):
+Opsional — session/cache Redis (replica atau performa; queue Horizon sudah Redis):
 
 ```dotenv
-COMPOSE_PROFILES=redis
 REDIS_PASSWORD=<password-redis-kuat>
 SESSION_DRIVER=redis
 SESSION_CONNECTION=session
 CACHE_STORE=redis
-QUEUE_CONNECTION=redis
 APP_MAINTENANCE_STORE=redis
 ```
 
@@ -713,7 +711,7 @@ AWS_URL=https://s3.example.com/<nama-bucket>
 AWS_USE_PATH_STYLE_ENDPOINT=true
 ```
 
-Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. Buat password acak terpisah untuk database dan root database; tambahkan password Redis hanya jika service Redis dijalankan. Pertahankan secret itu setelah volume terbentuk. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
+Buat `APP_KEY` sekali dengan `php artisan key:generate --show`, simpan sebagai secret, dan jangan menggantinya pada deployment berikutnya. Buat password acak terpisah untuk database dan root database; password Redis disarankan di luar network Compose internal. Pertahankan secret itu setelah volume terbentuk. Variabel mail, WhatsApp, serta OpenAI tetap diambil dari environment platform.
 
 Jangan commit credential object storage atau menjadikannya Docker build argument. Simpan access key dan secret key hanya sebagai runtime secret di panel platform. Gunakan credential khusus aplikasi yang dibatasi ke bucket/prefix DnD dengan izin `ListBucket`, `GetObject`, `PutObject`, dan `DeleteObject`; jangan memakai credential administrator dan jangan membuat bucket publik. Disk S3 dikonfigurasi *fail-loud*, sehingga kegagalan write tidak boleh dianggap sebagai upload/export berhasil.
 
@@ -831,21 +829,21 @@ docker compose ps
 docker compose logs --follow web worker scheduler release
 ```
 
-Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk default (`local`, `public`, atau `s3`) lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi. Redis hanya muncul di `docker compose ps` bila profile `redis` aktif.
+Pada setiap recreate image, service `release` melakukan probe write/read/delete terhadap disk default (`local`, `public`, atau `s3`) lalu menyelesaikan migration. `web`, `worker`, dan `scheduler` baru dimulai setelah release gate sehat. Jangan menjalankan seeder data contoh di production. Gunakan `docker compose config --quiet`; output `docker compose config` biasa dapat menampilkan secret hasil interpolasi. Redis selalu muncul di `docker compose ps` karena worker Horizon membutuhkannya.
 
 ### Coolify
 
 1. Buat Application dari repository Git dan pilih build pack **Docker Compose**.
 2. Pilih `compose.yaml`, lalu masukkan environment production di UI. Satu instance cukup `APP_KEY`, `APP_URL`, dan credential MariaDB. Tandai credential S3 sebagai runtime secret hanya bila `FILESYSTEM_DISK=s3`.
 3. Kaitkan domain hanya ke service `web`; masukkan domain sebagai `https://domain-anda:8080` agar Coolify memakai port internal 8080.
-4. Pastikan `db_data` dan `storage_data` terdeteksi. `redis_data` hanya muncul jika `COMPOSE_PROFILES=redis`. Aktifkan logical dump MariaDB; backup volume `storage_data` atau bucket S3 sesuai disk yang dipakai.
+4. Pastikan `db_data`, `redis_data`, dan `storage_data` terdeteksi. Aktifkan logical dump MariaDB; backup volume `storage_data` atau bucket S3 sesuai disk yang dipakai.
 
 ### Dokploy
 
 1. Buat service **Docker Compose** biasa, bukan Docker Stack, dari repository Git.
 2. Pilih `compose.yaml` dan masukkan environment production. Compose memetakan variabel Laravel secara eksplisit ke container yang membutuhkannya; `DB_ROOT_PASSWORD` hanya diberikan kepada MariaDB.
 3. Pada tab Domains, pilih service `web` dan container port `8080`; jangan menambahkan host port atau label Traefik manual.
-4. Aktifkan Isolated Deployments. Pastikan volume `db_data` dan `storage_data` persisten (`redis_data` hanya jika Redis dijalankan), buat logical dump MariaDB, serta backup storage lokal atau bucket sesuai `FILESYSTEM_DISK`.
+4. Aktifkan Isolated Deployments. Pastikan volume `db_data`, `redis_data`, dan `storage_data` persisten, buat logical dump MariaDB, serta backup storage lokal atau bucket sesuai `FILESYSTEM_DISK`.
 
 ### 1Panel
 
@@ -856,8 +854,8 @@ OpenResty 1Panel berjalan di container pada jaringan `1panel-network`. Proxy ke 
 1. Pasang OpenResty dari App Store 1Panel bila belum ada, lalu pastikan jaringan Docker `1panel-network` muncul.
 2. Clone repository (branch `staging`) ke server, atau salin `compose.yaml` dan `compose.1panel.yaml` ke folder orkestrasi yang sama. File overlay mengimpor `compose.yaml`; jangan hanya menempel overlay.
 3. Buat **Kontainer → Orkestrasi**. Compose file yang dijalankan adalah `compose.1panel.yaml` (bila 1Panel memaksa nama `docker-compose.yml`, salin isi overlay ke nama itu dan biarkan `compose.yaml` tetap di folder yang sama).
-4. Isi environment production di UI 1Panel, termasuk `APP_URL=https://domain-anda`. Jangan mematikan `SESSION_SECURE_COOKIE` atau `OCTANE_HTTPS`. Satu instance tidak membutuhkan Redis atau S3. Tandai credential S3 sebagai secret hanya bila `FILESYSTEM_DISK=s3`.
-5. Jangan mengganti MariaDB Compose dengan MySQL App Store kecuali `DB_HOST` diubah sadar. Redis App Store tidak diperlukan; default overlay tidak menjalankan service `redis` sampai `COMPOSE_PROFILES=redis`.
+4. Isi environment production di UI 1Panel, termasuk `APP_URL=https://domain-anda`. Jangan mematikan `SESSION_SECURE_COOKIE` atau `OCTANE_HTTPS`. Satu instance membutuhkan Redis Compose untuk Horizon; S3 tidak wajib. Tandai credential S3 sebagai secret hanya bila `FILESYSTEM_DISK=s3`.
+5. Jangan mengganti MariaDB Compose dengan MySQL App Store kecuali `DB_HOST` diubah sadar. Redis App Store tidak diperlukan; service `redis` sudah ada di `compose.yaml`.
 6. Nyalakan orkestrasi, lalu tunggu `release` sehat (probe storage + migrate) sebelum menguji web.
 7. **Website → Buat → Reverse proxy**. Domain ke aplikasi; alamat proxy:
 
@@ -948,13 +946,13 @@ Coolify/Dokploy: `compose.yaml`, domain ke `web:8080`.
 1Panel: `compose.1panel.yaml`, proxy ke `http://dnd-web:8080`.  
 Manual: `docker compose up --detach --build`.
 
-Tidak membutuhkan Redis atau S3. Session/cache/queue di MariaDB; file di volume `storage_data`. Naikkan `OCTANE_WORKERS` dulu sebelum menambah replica. Satu container web dengan 2 worker sudah menampung traffic internal pada VM 2 vCPU.
+Redis Compose wajib untuk Horizon. Session/cache boleh tetap `database`; file di volume `storage_data`. Naikkan `OCTANE_WORKERS` dulu sebelum menambah replica. Satu container web dengan 2 worker sudah menampung traffic internal pada VM 2 vCPU.
 
 #### Level 1 — banyak container di satu server
 
 Jangan memakai `compose.1panel.yaml` di sini: `container_name` dan port loopback mencegah replica.
 
-Coolify/Dokploy: tetap `compose.yaml`. Naikkan replica service `web` (dan `worker` bila antrean panjang) di UI. Domain tetap ke `web:8080`; proxy platform yang membagi request. Session database dan volume `storage_data` sudah dibagi di host yang sama, jadi Redis/S3 tidak wajib. Redis disarankan jika antrean atau cache mulai menekan MariaDB.
+Coolify/Dokploy: tetap `compose.yaml`. Naikkan replica service `web` (dan `worker` bila antrean panjang) di UI. Domain tetap ke `web:8080`; proxy platform yang membagi request. Redis sudah dipakai queue Horizon; session `database` dan volume `storage_data` sudah dibagi di host yang sama. S3 tidak wajib di satu server.
 
 Manual / VPS tanpa panel scale:
 
@@ -1013,7 +1011,7 @@ Load balancer di depan (Coolify cluster, DNS, atau proxy) menunjuk ke semua entr
 
 ### Checklist setelah deploy
 
-1. Pastikan seluruh service healthy/running, migration `release` berhasil, probe storage lolos, dan `php artisan octane:status --server=frankenphp` di terminal service `web` melaporkan server aktif. Redis hanya perlu sehat jika profil/overlay Redis aktif.
+1. Pastikan seluruh service healthy/running, termasuk Redis, migration `release` berhasil, probe storage lolos, dan `php artisan octane:status --server=frankenphp` di terminal service `web` melaporkan server aktif. Worker harus menjalankan Horizon.
 2. Verifikasi `/up`, login panel, upload/import pada disk yang dipakai (`local`/`public`/`s3`), download export queue, serta reminder dengan `php artisan kpi:send-reminders --dry-run`.
 3. Aktifkan logical `mariadb-dump` atau backup database-aware terjadwal, backup volume `storage_data` atau versioning bucket S3, lalu uji restore. Raw backup `db_data` hanya aman saat database berhenti atau melalui snapshot yang konsisten; selalu ambil logical dump sebelum migration berisiko atau upgrade MariaDB.
 4. Pantau log `web`, `worker`, dan `scheduler`; hubungkan kegagalan/restart ke notifikasi platform.
@@ -1025,7 +1023,7 @@ Load balancer di depan (Coolify cluster, DNS, atau proxy) menunjuk ke semua entr
 
 - Migration kompatibilitas mengganti nama tabel `password_resets` menjadi `password_reset_tokens`, menetapkan `email` sebagai primary key, dan menyelaraskan kolom nama token Sanctum dengan schema Laravel 12/Sanctum 4. Karena reset password dinonaktifkan, token reset lama dibersihkan saat constraint primary key diterapkan.
 - Migration baru menyediakan tabel cache (`cache` dan `cache_locks`), `sessions`, serta `jobs` sesuai default Laravel 12. Pastikan tabel bernama sama belum dibuat manual sebelum migration dijalankan.
-- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Compose satu instance memakai `database` + `local` seperti Laravel; Redis/S3 hanya jika di-set. Deployment yang sebelumnya mengandalkan default keras Redis+S3 harus mengisi `SESSION_DRIVER=redis`, `CACHE_STORE=redis`, `QUEUE_CONNECTION=redis`, `FILESYSTEM_DISK=s3`, `COMPOSE_PROFILES=redis`, dan `SESSION_CONNECTION=session` secara eksplisit. Pengguna dari session lama akan perlu login kembali satu kali.
+- Ganti environment `CACHE_DRIVER` menjadi `CACHE_STORE` dan `FILESYSTEM_DRIVER` menjadi `FILESYSTEM_DISK` sebelum menjalankan cache konfigurasi. Compose satu instance memakai session/cache `database`, queue Redis + Horizon, dan filesystem `local`. Deployment yang sebelumnya mengandalkan Redis+S3 untuk session/cache/disk harus mengisi `SESSION_DRIVER=redis`, `CACHE_STORE=redis`, `FILESYSTEM_DISK=s3`, dan `SESSION_CONNECTION=session` secara eksplisit. Pengguna dari session lama akan perlu login kembali satu kali.
 - Default prefix cache/Redis dan nama cookie session sekarang mengikuti skeleton Laravel 12. Pengguna akan login ulang dan cache lama tidak lagi terbaca setelah deploy, kecuali nilai lama dipertahankan eksplisit melalui `CACHE_PREFIX`, `REDIS_PREFIX`, dan `SESSION_COOKIE`.
 - Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Satu instance boleh tetap di disk `local`/`public` pada volume `storage_data`. Bila pindah ke S3, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
 - Bila histori export lama harus tetap dapat diunduh setelah pindah ke S3, pindahkan object `filament_exports/{export-id}` dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.

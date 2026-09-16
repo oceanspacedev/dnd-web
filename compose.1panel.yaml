@@ -1,5 +1,5 @@
 # Overlay 1Panel. Coolify dan Dokploy tetap memakai compose.yaml saja.
-# Satu instance: Redis dan S3 tidak wajib (driver Laravel database + local).
+# Satu instance: Redis wajib untuk Horizon; S3 tidak wajib (session/cache database, disk local).
 #
 # Satu server boleh menjalankan beberapa stack Compose yang sama, asal
 # COMPOSE_PROJECT_NAME, WEB_CONTAINER_NAME, dan ONEPANEL_WEB_PORT unik

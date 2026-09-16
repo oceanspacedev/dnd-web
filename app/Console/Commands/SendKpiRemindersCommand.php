@@ -2,13 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\KpiReminderMail;
+use App\Jobs\SendKpiReminderEmailJob;
+use App\Jobs\SendKpiReminderWhatsAppJob;
 use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
-use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\Lock;
@@ -16,7 +16,6 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 class SendKpiRemindersCommand extends Command
@@ -254,34 +253,15 @@ class SendKpiRemindersCommand extends Command
             }
 
             try {
-                Mail::to($user->email)->send(new KpiReminderMail($subject, $body));
+                SendKpiReminderEmailJob::dispatch($setting->id, $user->id, $user->email, $subject, $body);
 
-                KpiReminderLog::create([
-                    'kpi_reminder_setting_id' => $setting->id,
-                    'user_id' => $user->id,
-                    'channel' => 'email',
-                    'recipient' => $user->email,
-                    'status' => 'sent',
-                    'sent_at' => Date::now(),
-                ]);
-
-                $this->info(" [EMAIL SENT] Terkirim ke {$user->email}");
+                $this->info(" [EMAIL QUEUED] Diantrikan ke {$user->email}");
 
                 return true;
             } catch (Throwable $e) {
-                Log::error("Gagal mengirim email pengingat KPI ke {$user->email}: ".$e->getMessage());
+                Log::error("Gagal mengantrekan email pengingat KPI ke {$user->email}: ".$e->getMessage());
 
-                KpiReminderLog::create([
-                    'kpi_reminder_setting_id' => $setting->id,
-                    'user_id' => $user->id,
-                    'channel' => 'email',
-                    'recipient' => $user->email,
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                    'sent_at' => Date::now(),
-                ]);
-
-                $this->error(" [EMAIL FAILED] Gagal ke {$user->email}: {$e->getMessage()}");
+                $this->error(" [EMAIL FAILED] Gagal mengantri ke {$user->email}: {$e->getMessage()}");
 
                 return false;
             }
@@ -327,33 +307,24 @@ class SendKpiRemindersCommand extends Command
                 return true;
             }
 
-            $normalizedPhone = WhatsAppService::normalizePhoneNumber((string) $user->no_hp)
-                ?? trim((string) $user->no_hp);
-            $idempotencyKey = 'kpi-rem-'.substr(hash(
-                'sha256',
-                "{$setting->id}:{$user->id}:whatsapp:".Date::today()->toDateString().":{$normalizedPhone}:{$message}",
-            ), 0, 32);
-            $result = WhatsAppService::send($user->no_hp, $message, $idempotencyKey);
+            try {
+                SendKpiReminderWhatsAppJob::dispatch(
+                    $setting->id,
+                    $user->id,
+                    (string) $user->no_hp,
+                    $message,
+                );
 
-            KpiReminderLog::create([
-                'kpi_reminder_setting_id' => $setting->id,
-                'user_id' => $user->id,
-                'channel' => 'whatsapp',
-                'recipient' => $user->no_hp,
-                'status' => $result['success'] ? 'sent' : 'failed',
-                'error_message' => $result['success'] ? null : $result['message'],
-                'sent_at' => Date::now(),
-            ]);
-
-            if ($result['success']) {
-                $this->info(" [WA SENT] Terkirim ke {$user->no_hp}");
+                $this->info(" [WA QUEUED] Diantrikan ke {$user->no_hp}");
 
                 return true;
+            } catch (Throwable $e) {
+                Log::error("Gagal mengantrekan WhatsApp pengingat KPI ke {$user->no_hp}: ".$e->getMessage());
+
+                $this->error(" [WA FAILED] Gagal mengantri ke {$user->no_hp}: {$e->getMessage()}");
+
+                return false;
             }
-
-            $this->error(" [WA FAILED] Gagal ke {$user->no_hp}: {$result['message']}");
-
-            return false;
         } finally {
             $lock->release();
         }

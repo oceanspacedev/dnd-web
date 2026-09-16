@@ -3,10 +3,9 @@
 # Replica web/worker di server yang sama: compose.scale.yaml
 # Node compute tambahan (MariaDB/Redis di server lain): compose.app.yaml
 #
-# Default satu instance mengikuti driver Laravel: session/cache/queue `database`,
-# filesystem `local` pada volume `storage_data`. Redis tidak dijalankan kecuali
-# COMPOSE_PROFILES=redis atau overlay scale/data-expose. S3 hanya bila
-# FILESYSTEM_DISK=s3.
+# Default satu instance: session/cache `database`, queue Redis + Horizon,
+# filesystem `local` pada volume `storage_data`. Redis selalu dijalankan untuk
+# Horizon. S3 hanya bila FILESYSTEM_DISK=s3.
 #
 # Scale hanya `web` dan `worker`. Jangan scale `scheduler`, `database`, atau `redis`.
 
@@ -49,7 +48,7 @@ x-app: &app
     SESSION_SECURE_COOKIE: "true"
     BROADCAST_CONNECTION: ${BROADCAST_CONNECTION:-log}
     CACHE_STORE: ${CACHE_STORE:-database}
-    QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
+    QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
     FILESYSTEM_DISK: ${FILESYSTEM_DISK:-local}
     EXCEL_TEMPORARY_REMOTE_DISK: ${EXCEL_TEMPORARY_REMOTE_DISK:-}
     CACHE_PREFIX: ${CACHE_PREFIX:-dnd-cache-}
@@ -137,8 +136,6 @@ services:
 
   redis:
     image: redis:8-alpine
-    profiles:
-      - redis
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -174,7 +171,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-        required: false
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/dnd-release-ready"]
       interval: 5s

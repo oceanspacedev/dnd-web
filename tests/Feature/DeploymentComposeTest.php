@@ -6,7 +6,7 @@ use Tests\TestCase;
 
 class DeploymentComposeTest extends TestCase
 {
-    public function test_env_example_follows_laravel_database_and_local_defaults(): void
+    public function test_env_example_follows_local_session_cache_and_horizon_queue(): void
     {
         $env = (string) file_get_contents(base_path('.env.example'));
 
@@ -18,7 +18,7 @@ class DeploymentComposeTest extends TestCase
         $this->assertMatchesRegularExpression('/^DB_DATABASE=dnd$/m', $env);
         $this->assertMatchesRegularExpression('/^SESSION_DRIVER=database$/m', $env);
         $this->assertMatchesRegularExpression('/^CACHE_STORE=database$/m', $env);
-        $this->assertMatchesRegularExpression('/^QUEUE_CONNECTION=database$/m', $env);
+        $this->assertMatchesRegularExpression('/^QUEUE_CONNECTION=redis$/m', $env);
         $this->assertMatchesRegularExpression('/^FILESYSTEM_DISK=local$/m', $env);
         $this->assertMatchesRegularExpression('/^BROADCAST_CONNECTION=log$/m', $env);
         $this->assertMatchesRegularExpression('/^MAIL_MAILER=log$/m', $env);
@@ -56,7 +56,6 @@ class DeploymentComposeTest extends TestCase
             'REDIS_CACHE_DB',
             'REDIS_SESSION_DB',
             'DB_ROOT_PASSWORD',
-            'COMPOSE_PROFILES',
             'SESSION_CONNECTION',
             'CADDY_SITE',
             'ACME_EMAIL',
@@ -117,21 +116,20 @@ class DeploymentComposeTest extends TestCase
         }
     }
 
-    public function test_compose_defaults_to_laravel_single_instance_drivers(): void
+    public function test_compose_defaults_to_horizon_queue_with_local_session_cache(): void
     {
         $compose = (string) file_get_contents(base_path('compose.yaml'));
 
         $this->assertStringContainsString('SESSION_DRIVER: ${SESSION_DRIVER:-database}', $compose);
         $this->assertStringContainsString('CACHE_STORE: ${CACHE_STORE:-database}', $compose);
-        $this->assertStringContainsString('QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}', $compose);
+        $this->assertStringContainsString('QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}', $compose);
         $this->assertStringContainsString('FILESYSTEM_DISK: ${FILESYSTEM_DISK:-local}', $compose);
         $this->assertStringContainsString('APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-database}', $compose);
         $this->assertStringContainsString('storage_data:/app/storage', $compose);
         $this->assertStringContainsString('DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-360}', $compose);
         $this->assertStringContainsString('WAG_URL: ${WAG_URL:-https://waghub.mekayastudio.com}', $compose);
         $this->assertStringContainsString('WAG_TOKEN: ${WAG_TOKEN:-}', $compose);
-        $this->assertStringContainsString("profiles:\n      - redis", $compose);
-        $this->assertStringContainsString('required: false', $compose);
+        $this->assertStringContainsString('exec php artisan horizon --no-interaction', (string) file_get_contents(base_path('docker/entrypoint.sh')));
 
         $this->assertDoesNotMatchRegularExpression('/REDIS_PASSWORD: \$\{REDIS_PASSWORD:\?/', $compose);
         $this->assertDoesNotMatchRegularExpression('/AWS_ACCESS_KEY_ID: \$\{AWS_ACCESS_KEY_ID:\?/', $compose);

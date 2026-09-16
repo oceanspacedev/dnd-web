@@ -5,15 +5,14 @@ namespace App\Filament\Resources\Users;
 use App\Filament\Resources\Users\Pages\CreateUser;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
-use App\Mail\KpiReminderMail;
+use App\Jobs\SendKpiReminderEmailJob;
+use App\Jobs\SendKpiReminderWhatsAppJob;
 use App\Models\Divisi;
-use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
-use App\Services\WhatsAppService;
 use App\Support\WhatsAppNumber;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -45,7 +44,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class UserResource extends Resource
@@ -460,40 +458,26 @@ class UserResource extends Resource
                             } elseif (empty($record->email)) {
                                 $skippedChannels[] = 'Email (alamat tidak tersedia)';
                             } else {
-                                try {
-                                    $subjectTemplate = filled($setting->email_subject)
-                                        ? (string) $setting->email_subject
-                                        : 'Pengingat KPI - {periode}';
-                                    $subject = strtr($subjectTemplate, $placeholders);
-                                    $bodyTemplate = filled($setting->email_body)
-                                        ? (string) $setting->email_body
-                                        : KpiReminderSetting::getDefaultEmailTemplate($type);
-                                    $body = strtr($bodyTemplate, $placeholders);
-                                    if ($customMsg !== '') {
-                                        $body .= "\n\nPesan Tambahan:\n".$customMsg;
-                                    }
-
-                                    Mail::to($record->email)->send(new KpiReminderMail($subject, $body));
-
-                                    $sentChannels[] = 'Email';
-                                    static::writeManualReminderLog(
-                                        $setting,
-                                        $record,
-                                        'email',
-                                        $record->email,
-                                        'sent',
-                                    );
-                                } catch (\Throwable $exception) {
-                                    $failedChannels[] = 'Email';
-                                    static::writeManualReminderLog(
-                                        $setting,
-                                        $record,
-                                        'email',
-                                        $record->email,
-                                        'failed',
-                                        $exception->getMessage(),
-                                    );
+                                $subjectTemplate = filled($setting->email_subject)
+                                    ? (string) $setting->email_subject
+                                    : 'Pengingat KPI - {periode}';
+                                $subject = strtr($subjectTemplate, $placeholders);
+                                $bodyTemplate = filled($setting->email_body)
+                                    ? (string) $setting->email_body
+                                    : KpiReminderSetting::getDefaultEmailTemplate($type);
+                                $body = strtr($bodyTemplate, $placeholders);
+                                if ($customMsg !== '') {
+                                    $body .= "\n\nPesan Tambahan:\n".$customMsg;
                                 }
+
+                                SendKpiReminderEmailJob::dispatch(
+                                    $setting->id,
+                                    $record->id,
+                                    $record->email,
+                                    $subject,
+                                    $body,
+                                );
+                                $sentChannels[] = 'Email';
                             }
                         }
 
@@ -511,29 +495,13 @@ class UserResource extends Resource
                                     $waMessage .= "\n\n*Pesan Tambahan:*\n".$customMsg;
                                 }
 
-                                try {
-                                    $result = WhatsAppService::send($record->no_hp, $waMessage);
-                                } catch (\Throwable $exception) {
-                                    $result = [
-                                        'success' => false,
-                                        'message' => $exception->getMessage(),
-                                    ];
-                                }
-
-                                if ($result['success']) {
-                                    $sentChannels[] = 'WhatsApp';
-                                } else {
-                                    $failedChannels[] = 'WhatsApp';
-                                }
-
-                                static::writeManualReminderLog(
-                                    $setting,
-                                    $record,
-                                    'whatsapp',
-                                    $record->no_hp,
-                                    $result['success'] ? 'sent' : 'failed',
-                                    $result['success'] ? null : ($result['message'] ?? 'Pengiriman WhatsApp gagal.'),
+                                SendKpiReminderWhatsAppJob::dispatch(
+                                    $setting->id,
+                                    $record->id,
+                                    (string) $record->no_hp,
+                                    $waMessage,
                                 );
+                                $sentChannels[] = 'WhatsApp';
                             }
                         }
 
@@ -623,29 +591,6 @@ class UserResource extends Resource
             ->send();
 
         return null;
-    }
-
-    protected static function writeManualReminderLog(
-        KpiReminderSetting $setting,
-        User $user,
-        string $channel,
-        string $recipient,
-        string $status,
-        ?string $errorMessage = null,
-    ): void {
-        try {
-            KpiReminderLog::create([
-                'kpi_reminder_setting_id' => $setting->id,
-                'user_id' => $user->id,
-                'channel' => $channel,
-                'recipient' => $recipient,
-                'status' => $status,
-                'error_message' => $errorMessage,
-                'sent_at' => Date::now(),
-            ]);
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
     }
 
     protected static function notifyManualReminderResult(
