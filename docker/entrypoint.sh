@@ -59,6 +59,9 @@ case "${1:-web}" in
         ;;
     worker)
         optimize_laravel
+        if [ "${QUEUE_CONNECTION:-database}" = "redis" ]; then
+            exec php artisan horizon --no-interaction
+        fi
         exec php artisan queue:work \
             --sleep="${QUEUE_SLEEP:-1}" \
             --tries="${QUEUE_TRIES:-3}" \

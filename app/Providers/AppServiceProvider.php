@@ -8,6 +8,7 @@ use App\Models\KpiDescription;
 use App\Observers\KpiCategoryObserver;
 use App\Observers\KpiDescriptionObserver;
 use App\Services\ApprovalScopeService;
+use App\Support\ObservabilityAccess;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -33,6 +34,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Livewire::component('phone-login', PhoneLogin::class);
+        ObservabilityAccess::register();
 
         // Register observers for cache management
         KpiDescription::observe(KpiDescriptionObserver::class);

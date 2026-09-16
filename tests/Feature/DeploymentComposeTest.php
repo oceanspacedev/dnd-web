@@ -13,7 +13,9 @@ class DeploymentComposeTest extends TestCase
         $this->assertMatchesRegularExpression('/^APP_NAME=DnD$/m', $env);
         $this->assertMatchesRegularExpression('/^APP_LOCALE=id$/m', $env);
         $this->assertMatchesRegularExpression('/^APP_FAKER_LOCALE=id_ID$/m', $env);
-        $this->assertMatchesRegularExpression('/^DB_CONNECTION=sqlite$/m', $env);
+        $this->assertMatchesRegularExpression('/^DB_CONNECTION=mysql$/m', $env);
+        $this->assertMatchesRegularExpression('/^DB_HOST=127\.0\.0\.1$/m', $env);
+        $this->assertMatchesRegularExpression('/^DB_DATABASE=dnd$/m', $env);
         $this->assertMatchesRegularExpression('/^SESSION_DRIVER=database$/m', $env);
         $this->assertMatchesRegularExpression('/^CACHE_STORE=database$/m', $env);
         $this->assertMatchesRegularExpression('/^QUEUE_CONNECTION=database$/m', $env);
@@ -74,6 +76,9 @@ class DeploymentComposeTest extends TestCase
             'QUEUE_TIMEOUT',
             'QUEUE_MAX_TIME',
             'QUEUE_MEMORY',
+            'HORIZON_PATH',
+            'LOG_VIEWER_ENABLED',
+            'LOG_VIEWER_PATH',
         ] as $key) {
             $this->assertMatchesRegularExpression(
                 '/^#?\s*'.preg_quote($key, '/').'=/m',
@@ -123,8 +128,8 @@ class DeploymentComposeTest extends TestCase
         $this->assertStringContainsString('APP_MAINTENANCE_STORE: ${APP_MAINTENANCE_STORE:-database}', $compose);
         $this->assertStringContainsString('storage_data:/app/storage', $compose);
         $this->assertStringContainsString('DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-360}', $compose);
-        $this->assertStringContainsString('WAG_URL: ${WAG_URL:-${WA_API_URL:-https://waghub.mekayastudio.com}}', $compose);
-        $this->assertStringContainsString('WAG_TOKEN: ${WAG_TOKEN:-${WA_API_KEY:-}}', $compose);
+        $this->assertStringContainsString('WAG_URL: ${WAG_URL:-https://waghub.mekayastudio.com}', $compose);
+        $this->assertStringContainsString('WAG_TOKEN: ${WAG_TOKEN:-}', $compose);
         $this->assertStringContainsString("profiles:\n      - redis", $compose);
         $this->assertStringContainsString('required: false', $compose);
 

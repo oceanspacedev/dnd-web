@@ -284,12 +284,14 @@ flowchart TB
 | Backend | PHP >=8.3, Laravel 12 |
 | Admin UI | Filament 4, Livewire 3, Mekaya Theme |
 | Frontend build | Vite 7, Tailwind CSS 4, Axios |
-| Database | SQLite untuk local default; MySQL/MariaDB untuk deployment utama |
+| Database | MySQL (default `.env.example`); MariaDB untuk Compose production; SQLite in-memory untuk test |
 | Filesystem | Disk Laravel `local` / `public` (default) atau Flysystem S3-compatible |
 | API auth | Laravel Sanctum 4 |
 | API docs | Dedoc Scramble / OpenAPI |
 | Import/export | Laravel Excel 4 dan PhpSpreadsheet 5 |
 | AI opsional | Laravel AI dengan provider default OpenAI |
+| Queue | Laravel Horizon 5; worker Compose memakai Horizon bila `QUEUE_CONNECTION=redis` |
+| Logs | [opcodesio/log-viewer](https://github.com/opcodesio/log-viewer) di `/log-viewer` |
 | Deployment | Docker Compose, PHP 8.3, Laravel Octane, FrankenPHP/Caddy; Redis 8 opsional |
 | Test | PHPUnit 11 / Laravel test runner |
 | Static analysis | Larastan / PHPStan |
@@ -302,8 +304,8 @@ flowchart TB
 - PHP 8.3 atau lebih baru.
 - Composer 2.
 - Node.js 24 LTS direkomendasikan; Node.js 22 LTS masih didukung. Jangan memakai Node.js 20 yang sudah EOL.
-- SQLite untuk setup local default; MySQL 8+ atau MariaDB yang kompatibel untuk deployment utama.
-- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`; gunakan `pdo_sqlite` untuk local/test atau `pdo_mysql` untuk MySQL/MariaDB.
+- MySQL 8+ (atau MariaDB yang kompatibel) untuk development dan deployment.
+- Extension PHP: `curl`, `dom`, `fileinfo`, `gd`, `iconv`, `intl`, `mbstring`, `openssl`, `pdo_mysql`, `simplexml`, `xml`, `xmlreader`, `xmlwriter`, dan `zip`.
 
 SMTP, WhatsApp gateway, dan OpenAI bersifat opsional untuk development dasar.
 
@@ -324,13 +326,7 @@ Jangan menjalankan `composer update` hanya untuk setup; gunakan versi dependency
 
 ### Konfigurasi database
 
-Seperti skeleton Laravel 12, `.env.example` memakai SQLite agar setup local tidak membutuhkan server database. Buat file database bila menjalankan langkah setup secara manual:
-
-```bash
-php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
-```
-
-Untuk memakai MySQL/MariaDB, ganti koneksi di `.env` dan buat database kosong:
+`.env.example` memakai MySQL. Buat database kosong lalu sesuaikan koneksi:
 
 ```dotenv
 APP_NAME=DnD
@@ -377,7 +373,9 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `AWS_USE_PATH_STYLE_ENDPOINT` | Untuk S3-compatible | Aktifkan bila provider memerlukan URL path-style; default Compose `true` |
 | `AWS_*_CHECKSUM_*` | Tidak | Compose memakai mode `when_required` untuk kompatibilitas provider S3 non-AWS |
 | `SESSION_DRIVER` | Ya | Penyimpanan session; default proyek dan Compose satu instance `database` |
-| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek dan Compose satu instance `database` |
+| `QUEUE_CONNECTION` | Ya | Backend queue; default proyek dan Compose satu instance `database`. Horizon membutuhkan `redis` |
+| `HORIZON_PATH` | Tidak | UI Horizon; default `horizon` |
+| `LOG_VIEWER_ENABLED` / `LOG_VIEWER_PATH` | Tidak | UI [Log Viewer](https://github.com/opcodesio/log-viewer); default `/log-viewer` |
 | `REDIS_PASSWORD` | Jika Redis dijalankan | Password Redis internal; tidak wajib pada satu instance tanpa `COMPOSE_PROFILES=redis` |
 | `OCTANE_WORKERS` | Tidak | Jumlah worker web persisten; Compose default `2`, lalu sesuaikan dengan vCPU/RAM |
 | `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
@@ -394,7 +392,7 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `API_VERSION` | Tidak | Versi yang tampil pada OpenAPI; default `0.0.1` |
 | `SCRAMBLE_DEV_TOOLS` | Tidak | Menyalakan developer tools pada halaman dokumentasi API |
 
-Blok inti `.env.example` mengikuti skeleton Laravel 12, termasuk `DB_CONNECTION=sqlite`, `CACHE_STORE`, `FILESYSTEM_DISK`, `BROADCAST_CONNECTION`, dan `QUEUE_CONNECTION`. Nama lama `CACHE_DRIVER`, `FILESYSTEM_DRIVER`, dan `BROADCAST_DRIVER` tidak digunakan oleh konfigurasi proyek.
+Blok inti `.env.example` mengikuti skeleton Laravel 12, dengan `DB_CONNECTION=mysql` sebagai default proyek. Nama lama `CACHE_DRIVER`, `FILESYSTEM_DRIVER`, dan `BROADCAST_DRIVER` tidak digunakan oleh konfigurasi proyek.
 
 Variabel opsional OpenAI dan Scramble sudah tersedia di `.env.example`; biarkan API key kosong bila fitur AI tidak digunakan dan jangan memasukkan credential ke Git.
 
