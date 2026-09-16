@@ -16,6 +16,8 @@ class Laravel12SkeletonTest extends TestCase
         $composer = json_decode((string) file_get_contents($root.'/composer.json'), true);
 
         $this->assertTrue(str_starts_with((string) ($composer['require']['laravel/framework'] ?? ''), '^12.'));
+        $this->assertTrue(str_starts_with((string) ($composer['require']['filament/filament'] ?? ''), '^4.'));
+        $this->assertFileDoesNotExist($root.'/app/Providers/AuthServiceProvider.php');
         $this->assertStringContainsString('handleCommand', $artisan);
         $this->assertStringNotContainsString('Contracts\\Console\\Kernel', $artisan);
         $this->assertStringContainsString('handleRequest', $index);
