@@ -4,7 +4,6 @@ use Opcodes\LogViewer\Enums\SortingMethod;
 use Opcodes\LogViewer\Enums\SortingOrder;
 use Opcodes\LogViewer\Enums\Theme;
 use Opcodes\LogViewer\Http\Middleware\AuthorizeLogViewer;
-use Opcodes\LogViewer\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 return [
 
@@ -33,8 +32,15 @@ return [
         AuthorizeLogViewer::class,
     ],
 
+    /*
+    | The Log Viewer UI calls these routes from the browser with the same
+    | session cookie as /admin. EnsureFrontendRequestsAreStateful only
+    | starts that session when the referer host is listed as stateful, so an
+    | admin on any other host gets 403 "This action is unauthorized."
+    | The web group always restores the session for these first-party calls.
+    */
     'api_middleware' => [
-        EnsureFrontendRequestsAreStateful::class,
+        'web',
         AuthorizeLogViewer::class,
     ],
 
