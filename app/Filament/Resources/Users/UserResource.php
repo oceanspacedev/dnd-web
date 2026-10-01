@@ -143,13 +143,7 @@ class UserResource extends Resource
                             )
                             ->label('Jabatan')
                             ->required()
-                            ->live()
-                            ->afterStateUpdated(function ($state, callable $set) {
-                                $role = $state ? Role::find($state) : null;
-                                if (! $role || ! $role->requires_approval) {
-                                    $set('approval_id', null);
-                                }
-                            }),
+                            ->live(),
                         Select::make('position_id')
                             ->preload()
                             ->searchable()
@@ -162,15 +156,6 @@ class UserResource extends Resource
                         Select::make('approval_id')
                             ->preload()
                             ->searchable()
-                            ->visible(function (callable $get) {
-                                $roleId = $get('role_id');
-                                if (! $roleId) {
-                                    return false;
-                                }
-                                $role = Role::find($roleId);
-
-                                return (bool) ($role?->requires_approval);
-                            })
                             ->required(function (callable $get) {
                                 $roleId = $get('role_id');
                                 if (! $roleId) {
@@ -208,7 +193,7 @@ class UserResource extends Resource
                             ->default(fn () => auth()->id())
                             ->disabled(fn (?User $record): bool => $record === null && auth()->user()?->role?->name !== 'ADMIN')
                             ->dehydrated()
-                            ->label('Approval')
+                            ->label('Approval Line')
                             ->helperText(fn (?User $record): string => $record === null
                                 ? 'Otomatis mengikuti user login saat create (admin bisa pilih).'
                                 : 'Bisa dipilih lintas divisi sesuai struktur approval.')
@@ -333,7 +318,7 @@ class UserResource extends Resource
                 // Tables\Columns\IconColumn::make('mr')
                 //     ->boolean(),
                 TextColumn::make('approval.nama_lengkap')
-                    ->label('Approval')
+                    ->label('Approval Line')
                     ->searchable(),
             ])
             ->filters([
@@ -358,7 +343,7 @@ class UserResource extends Resource
                     ->searchable()
                     ->preload(),
                 SelectFilter::make('approval')
-                    ->label('Approval')
+                    ->label('Approval Line')
                     ->relationship('approval', 'nama_lengkap')
                     ->searchable()
                     ->preload(),
