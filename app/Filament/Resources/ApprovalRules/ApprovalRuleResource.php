@@ -35,7 +35,7 @@ class ApprovalRuleResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Aturan Approval';
 
-    protected static ?int $navigationSort = 15;
+    protected static ?int $navigationSort = 5;
 
     public static function canViewAny(): bool
     {

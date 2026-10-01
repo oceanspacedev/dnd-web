@@ -37,6 +37,8 @@ class KpiReminderSettingResource extends Resource
 
     protected static ?string $navigationLabel = 'Pengaturan Pengingat KPI';
 
+    protected static ?int $navigationSort = 6;
+
     protected static ?string $pluralModelLabel = 'Pengaturan Pengingat KPI';
 
     public static function canViewAny(): bool
