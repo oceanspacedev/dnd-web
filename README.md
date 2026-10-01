@@ -94,6 +94,9 @@ Role awal dari seeder adalah `ADMIN`, `STAFF`, `TEAM LEADER`, `COORDINATOR`, `MA
 
 - `users.approval_id` menunjuk user yang menjadi atasan/approver.
 - Scope yang dikelola atasan terdiri dari **bawahan langsung dan satu tingkat di bawahnya**. Scope tidak dihitung rekursif tanpa batas.
+- `roles.level` adalah label grade jabatan (Staff=10, TL=20, SPV/Coord=30, Manager=40, Chief=50, BOD=60, Admin=100). Level tidak memilih atasan dan tidak mengubah scope approval.
+- `divisis.manager_id` mendefinisikan Kepala Divisi / Manager default untuk setiap divisi.
+- `approval_rules` (Matriks Aturan Approval) dan [`app/Services/ApprovalResolverService.php`](app/Services/ApprovalResolverService.php) menyarankan Approval Line dari kombinasi Area, Divisi, Posisi, dan Role. Aturan tanpa kriteria diabaikan. Jika beberapa aturan cocok, aturan dengan lebih banyak kriteria menang; bila jumlah kriteria sama, prioritas tertinggi menang; bila masih sama, aturan dengan id lebih kecil dipakai. Kandidat yang membentuk siklus approval dilewati.
 - `roles.requires_approval` menentukan apakah form user wajib meminta atasan.
 - `requires_approval` bukan pemberi permission. Hak akses tetap ditentukan oleh policy dan query setiap resource.
 
@@ -139,8 +142,8 @@ User dapat dibuat manual, di-import dari Excel, atau disinkronkan dari JSON Tale
 
 - User yang sudah ada hanya diperbarui pada email dan nomor HP yang dikirim eksplisit.
 - User baru wajib memiliki employee ID, nama, posisi, dan password awal minimal 12 karakter serta maksimal 72 byte. Password hanya diwajibkan unik antar-user baru dalam file import yang sama, bukan terhadap seluruh user di database.
-- Role, area, divisi, posisi, approval, dan flag operasional user baru diwarisi dari peer aktif dengan profil posisi/area/divisi yang sama.
-- Import ditolak bila profil peer ambigu, supervisor sudah diarsipkan, identifier konflik, atau nomor kontak tidak valid.
+- Role, area, divisi, posisi, dan flag operasional user baru diwarisi dari peer aktif dengan profil posisi/area/divisi yang sama. Approval Line ikut peer selama atasan peer masih aktif. Jika peer tidak punya atasan aktif, sistem memakai matriks aturan atau Kepala Divisi.
+- Import ditolak bila profil peer ambigu, peer menunjuk atasan nonaktif tanpa pengganti dari matriks, identifier konflik, atau nomor kontak tidak valid.
 - Nomor HP dinormalisasi ke format WhatsApp Indonesia `08...`.
 
 Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tanpa menyimpan file bisnis pada filesystem container.
@@ -150,6 +153,8 @@ Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tan
 - **Pencarian instan**: Kolom nama lengkap, ID karyawan, kontak, posisi, divisi, area, jabatan, dan approval dapat dicari langsung dari kotak pencarian utama (*global search* tabel).
 - **Filter dropdown searchable**: Filter Area, Divisi, Jabatan, Posisi, dan Approval pada tabel dilengkapi kotak pencarian teks langsung di dalam dropdown tanpa perlu menggulir manual.
 - **Ubah Posisi Massal (*Bulk Action*)**: Admin dan Atasan dapat mencentang beberapa karyawan sekaligus di tabel, lalu memilih menu **"Ubah Posisi Massal"** untuk memindahkan posisi mereka secara serentak melalui panel slide-over samping (`md`).
+- **Ubah Approval Line Massal (*Bulk Action*)**: Admin dapat mencentang beberapa karyawan sekaligus dan memindahkan Approval Line / Atasan mereka ke atasan baru secara serentak.
+- **Sinkronisasi Matriks Aturan (*Bulk Action*)**: Admin dapat mengevaluasi dan menyinkronkan kembali atasan karyawan terpilih secara otomatis berdasarkan aturan pada matriks approval dan Kepala Divisi.
 - **Izin Atasan Berdasarkan Scope**: Atasan di setiap posisi/level (memiliki bawahan tercatat via `approval_id` / `ApprovalScopeService` atau ber-role `TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`) memiliki izin untuk melihat dan mengedit profil serta posisi karyawan bawahannya di menu *"Tim Saya"*.
 - **Panduan interaktif web**: Panduan operasional dapat dibaca langsung melalui menu sidebar kiri di `/admin/panduan-ubah-posisi` maupun melalui tombol slide-over panduan di header tabel Karyawan.
 

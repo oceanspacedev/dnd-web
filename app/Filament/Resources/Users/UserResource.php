@@ -12,6 +12,7 @@ use App\Models\KpiReminderSetting;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ApprovalResolverService;
 use App\Services\ApprovalScopeService;
 use App\Support\WhatsAppNumber;
 use Filament\Actions\Action;
@@ -25,6 +26,7 @@ use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -40,9 +42,10 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -130,7 +133,22 @@ class UserResource extends Resource
                                     ->pluck('name', 'id');
                             })
                             ->label('Divisi')
-                            ->required(),
+                            ->required()
+                            ->afterStateUpdated(function ($state, callable $get, callable $set, ?User $record) {
+                                if (! $state) {
+                                    return;
+                                }
+
+                                static::suggestApprovalLine(
+                                    $get,
+                                    $set,
+                                    $record,
+                                    divisiId: (int) $state,
+                                    areaId: $get('area_id') ? (int) $get('area_id') : null,
+                                    roleId: $get('role_id') ? (int) $get('role_id') : null,
+                                    positionId: $get('position_id') ? (int) $get('position_id') : null,
+                                );
+                            }),
                         Select::make('role_id')
                             ->preload()
                             ->searchable()
@@ -143,16 +161,49 @@ class UserResource extends Resource
                             )
                             ->label('Jabatan')
                             ->required()
-                            ->live(),
+                            ->live()
+                            ->afterStateUpdated(function ($state, callable $get, callable $set, ?User $record) {
+                                if (! $state) {
+                                    return;
+                                }
+
+                                static::suggestApprovalLine(
+                                    $get,
+                                    $set,
+                                    $record,
+                                    divisiId: $get('divisi_id') ? (int) $get('divisi_id') : null,
+                                    areaId: $get('area_id') ? (int) $get('area_id') : null,
+                                    roleId: (int) $state,
+                                    positionId: $get('position_id') ? (int) $get('position_id') : null,
+                                );
+                            }),
                         Select::make('position_id')
                             ->preload()
                             ->searchable()
+                            ->live()
                             ->relationship('position', 'name')
                             ->label('Posisi')
                             ->createOptionForm([
                                 TextInput::make('name')
                                     ->required(),
-                            ]),
+                            ])
+                            ->afterStateUpdated(function ($state, callable $get, callable $set, ?User $record) {
+                                if (! $state) {
+                                    return;
+                                }
+
+                                static::suggestApprovalLine(
+                                    $get,
+                                    $set,
+                                    $record,
+                                    divisiId: $get('divisi_id') ? (int) $get('divisi_id') : null,
+                                    areaId: $get('area_id') ? (int) $get('area_id') : null,
+                                    roleId: $get('role_id') ? (int) $get('role_id') : null,
+                                    positionId: (int) $state,
+                                );
+                            }),
+                        Hidden::make('suggested_approval_id')
+                            ->dehydrated(false),
                         Select::make('approval_id')
                             ->preload()
                             ->searchable()
@@ -165,38 +216,108 @@ class UserResource extends Resource
 
                                 return (bool) ($role?->requires_approval);
                             })
-                            ->options(function (?User $record) {
-                                if (! $record) {
-                                    $currentUser = auth()->user();
-                                    if (! $currentUser) {
-                                        return [];
-                                    }
-
-                                    if ($currentUser->role?->name === 'ADMIN') {
-                                        return User::whereNull('deleted_at')
-                                            ->orderBy('nama_lengkap')
-                                            ->pluck('nama_lengkap', 'id');
-                                    }
-
-                                    return [(int) $currentUser->id => $currentUser->nama_lengkap];
+                            ->options(function (callable $get, ?User $record) {
+                                $currentUser = auth()->user();
+                                if (! $currentUser) {
+                                    return [];
                                 }
 
-                                $query = User::whereNull('deleted_at')
+                                if ($record === null && $currentUser->role?->name !== 'ADMIN') {
+                                    $roleLabel = $currentUser->role?->name ? " ({$currentUser->role->name})" : '';
+
+                                    return [(int) $currentUser->id => $currentUser->nama_lengkap.$roleLabel];
+                                }
+
+                                $query = User::with(['role', 'divisi'])
+                                    ->whereNull('deleted_at')
                                     ->orderBy('nama_lengkap');
 
                                 if ($record) {
                                     $query->where('id', '!=', $record->id);
                                 }
 
-                                return $query->pluck('nama_lengkap', 'id');
+                                $allUsers = $query->get();
+
+                                $formatUser = fn (User $u): string => $u->role?->name
+                                    ? "{$u->nama_lengkap} ({$u->role->name})"
+                                    : $u->nama_lengkap;
+
+                                $selectedDivisiId = $get('divisi_id') ?? $record?->divisi_id;
+                                $managementRoles = ['ADMIN', 'BOD', 'CHIEF', 'MANAGER', 'COORDINATOR', 'TEAM LEADER'];
+
+                                if ($selectedDivisiId) {
+                                    $sameDivisi = [];
+                                    $managementCross = [];
+                                    $otherUsers = [];
+
+                                    foreach ($allUsers as $u) {
+                                        $label = $formatUser($u);
+                                        $isSameDivisi = (int) $u->divisi_id === (int) $selectedDivisiId;
+                                        $isManagement = in_array(strtoupper((string) $u->role?->name), $managementRoles, true);
+
+                                        if ($isSameDivisi) {
+                                            $sameDivisi[$u->id] = $label;
+                                        } elseif ($isManagement) {
+                                            $divisiName = $u->divisi?->name ? " - Divisi {$u->divisi->name}" : '';
+                                            $managementCross[$u->id] = "{$label}{$divisiName}";
+                                        } else {
+                                            $divisiName = $u->divisi?->name ? " - Divisi {$u->divisi->name}" : '';
+                                            $otherUsers[$u->id] = "{$label}{$divisiName}";
+                                        }
+                                    }
+
+                                    $groups = [];
+                                    if (! empty($sameDivisi)) {
+                                        $groups['Satu Divisi'] = $sameDivisi;
+                                    }
+                                    if (! empty($managementCross)) {
+                                        $groups['Atasan Manajemen & Lintas Divisi'] = $managementCross;
+                                    }
+                                    if (! empty($otherUsers)) {
+                                        $groups['Karyawan Lainnya (Lintas Divisi)'] = $otherUsers;
+                                    }
+
+                                    return $groups;
+                                }
+
+                                $management = [];
+                                $others = [];
+
+                                foreach ($allUsers as $u) {
+                                    $label = $formatUser($u);
+                                    $isManagement = in_array(strtoupper((string) $u->role?->name), $managementRoles, true);
+
+                                    if ($isManagement) {
+                                        $management[$u->id] = $label;
+                                    } else {
+                                        $others[$u->id] = $label;
+                                    }
+                                }
+
+                                $groups = [];
+                                if (! empty($management)) {
+                                    $groups['Atasan & Manajemen'] = $management;
+                                }
+                                if (! empty($others)) {
+                                    $groups['Karyawan Lainnya'] = $others;
+                                }
+
+                                return $groups;
                             })
                             ->default(fn () => auth()->id())
                             ->disabled(fn (?User $record): bool => $record === null && auth()->user()?->role?->name !== 'ADMIN')
                             ->dehydrated()
                             ->label('Approval Line')
-                            ->helperText(fn (?User $record): string => $record === null
-                                ? 'Otomatis mengikuti user login saat create (admin bisa pilih).'
-                                : 'Bisa dipilih lintas divisi sesuai struktur approval.')
+                            ->helperText(function (callable $get, ?User $record): string {
+                                return static::approvalLineSuggestionText(
+                                    $get('divisi_id') ? (int) $get('divisi_id') : null,
+                                    $get('area_id') ? (int) $get('area_id') : null,
+                                    $get('role_id') ? (int) $get('role_id') : null,
+                                    $get('position_id') ? (int) $get('position_id') : null,
+                                    $record?->id ? (int) $record->id : null,
+                                    $record === null,
+                                );
+                            })
                             ->columnSpan(2),
                     ])
                     ->collapsible()
@@ -275,6 +396,356 @@ class UserResource extends Resource
         }
 
         return $data;
+    }
+
+    public static function createsApprovalCycle(int $recordId, int $approvalId): bool
+    {
+        return ApprovalResolverService::createsApprovalCycle($recordId, $approvalId);
+    }
+
+    public static function shouldApplySuggestedApproval(mixed $currentApprovalId, mixed $previousSuggestionId, ?int $recordId, int $authId): bool
+    {
+        if (blank($currentApprovalId)) {
+            return true;
+        }
+
+        if (filled($previousSuggestionId) && (int) $currentApprovalId === (int) $previousSuggestionId) {
+            return true;
+        }
+
+        return $recordId === null
+            && blank($previousSuggestionId)
+            && (int) $currentApprovalId === $authId;
+    }
+
+    public static function approvalLineSuggestionText(
+        ?int $divisiId,
+        ?int $areaId,
+        ?int $roleId,
+        ?int $positionId,
+        ?int $recordId,
+        bool $creating,
+    ): string {
+        $outcome = ApprovalResolverService::resolveOutcome(
+            divisiId: $divisiId,
+            areaId: $areaId,
+            roleId: $roleId,
+            positionId: $positionId,
+            excludeUserId: $recordId,
+        );
+        $approver = $outcome['approver'];
+
+        if ($approver instanceof User && is_string($outcome['label'])) {
+            return "Disarankan otomatis: {$outcome['label']} ({$approver->nama_lengkap}). Anda tetap dapat mengubahnya sesuai kebutuhan.";
+        }
+
+        if ($outcome['blocked_by_cycle']) {
+            return 'Aturan yang cocok membentuk siklus approval, jadi tidak ada saran otomatis. Pilih atasan lain secara manual.';
+        }
+
+        if ($outcome['excluded_self']) {
+            return 'Aturan yang cocok menunjuk karyawan ini sendiri, jadi tidak ada saran otomatis. Pilih atasan lain secara manual.';
+        }
+
+        return $creating
+            ? 'Dikelompokkan berdasarkan divisi yang dipilih, atau pilih atasan lintas divisi.'
+            : 'Dikelompokkan berdasarkan divisi terpilih, atau pilih atasan lintas divisi.';
+    }
+
+    /**
+     * @param  callable(string): mixed  $get
+     * @param  callable(string, mixed): void  $set
+     */
+    public static function suggestApprovalLine(
+        callable $get,
+        callable $set,
+        ?User $record,
+        ?int $divisiId,
+        ?int $areaId,
+        ?int $roleId,
+        ?int $positionId,
+    ): void {
+        if (auth()->user()?->role?->name !== 'ADMIN') {
+            return;
+        }
+
+        $recordId = $record?->id ? (int) $record->id : null;
+        $suggested = ApprovalResolverService::resolve(
+            divisiId: $divisiId,
+            areaId: $areaId,
+            roleId: $roleId,
+            positionId: $positionId,
+            excludeUserId: $recordId,
+        );
+
+        if ($suggested === null) {
+            return;
+        }
+
+        if (static::shouldApplySuggestedApproval(
+            $get('approval_id'),
+            $get('suggested_approval_id'),
+            $recordId,
+            (int) auth()->id(),
+        )) {
+            $set('approval_id', $suggested->id);
+        }
+
+        $set('suggested_approval_id', $suggested->id);
+    }
+
+    /**
+     * @param  Collection<int, User>  $records
+     * @return array{updated: int, skipped_cycles: int, skipped_self: int}
+     */
+    public static function assignApprovalLine(Collection $records, int $targetApproverId): array
+    {
+        $result = DB::transaction(function () use ($records, $targetApproverId): array {
+            $updated = 0;
+            $skippedCycles = 0;
+            $skippedSelf = 0;
+
+            foreach ($records as $record) {
+                if ((int) $record->id === $targetApproverId) {
+                    $skippedSelf++;
+
+                    continue;
+                }
+
+                if (static::createsApprovalCycle((int) $record->id, $targetApproverId)) {
+                    $skippedCycles++;
+
+                    continue;
+                }
+
+                $record->update(['approval_id' => $targetApproverId]);
+                $updated++;
+            }
+
+            return [
+                'updated' => $updated,
+                'skipped_cycles' => $skippedCycles,
+                'skipped_self' => $skippedSelf,
+            ];
+        });
+
+        ApprovalScopeService::clearMemo();
+
+        return $result;
+    }
+
+    /**
+     * @param  array{updated: int, skipped_cycles: int, skipped_self: int}  $result
+     * @return array{title: string, body: string, status: 'success'|'warning'}
+     */
+    public static function approvalLineAssignmentMessage(array $result, string $approverName): array
+    {
+        $parts = [];
+
+        if ($result['updated'] > 0) {
+            $parts[] = "{$result['updated']} karyawan berhasil dipindahkan ke atasan {$approverName}.";
+        }
+
+        if ($result['skipped_cycles'] > 0) {
+            $parts[] = "{$result['skipped_cycles']} karyawan dilewati karena relasi approval membentuk siklus.";
+        }
+
+        if ($result['skipped_self'] > 0) {
+            $parts[] = "{$result['skipped_self']} karyawan dilewati karena tidak boleh menjadi atasan dirinya sendiri.";
+        }
+
+        if ($parts === []) {
+            $parts[] = 'Tidak ada karyawan yang diubah.';
+        }
+
+        return [
+            'title' => $result['updated'] > 0 ? 'Approval Line Berhasil Diperbarui' : 'Approval Line Tidak Diubah',
+            'body' => implode(' ', $parts),
+            'status' => $result['updated'] > 0 ? 'success' : 'warning',
+        ];
+    }
+
+    /**
+     * @param  Collection<int, User>  $records
+     * @return array{updated: int, unchanged: int, skipped_cycles: int, skipped_self: int, unresolved: int}
+     */
+    public static function syncApprovalLines(Collection $records): array
+    {
+        $records = $records
+            ->unique(fn (User $user): int => (int) $user->getKey())
+            ->sortBy(fn (User $user): int => (int) $user->getKey())
+            ->values();
+
+        /** @var array<int, int|null> $originalApprovalIds */
+        $originalApprovalIds = [];
+        foreach ($records as $record) {
+            $originalApprovalIds[(int) $record->getKey()] = static::nullableUserId($record->approval_id);
+        }
+
+        // Each pass only promotes someone to a better approver that is safe
+        // against the approval links already stored. The cap stops a corrupt
+        // graph from looping if that assumption ever fails.
+        $safetyCap = max(1, $records->count() * 20);
+
+        DB::transaction(function () use ($records, $safetyCap): void {
+            for ($pass = 0; $pass < $safetyCap; $pass++) {
+                $changed = false;
+
+                foreach ($records as $record) {
+                    $record->refresh();
+                    $suggested = static::resolveRecordOutcome($record)['approver'];
+
+                    if (! $suggested instanceof User) {
+                        continue;
+                    }
+
+                    if ((int) $record->approval_id === (int) $suggested->id) {
+                        continue;
+                    }
+
+                    $record->update(['approval_id' => $suggested->id]);
+                    $changed = true;
+                }
+
+                if (! $changed) {
+                    break;
+                }
+            }
+        });
+
+        $updated = 0;
+        $unchanged = 0;
+        $skippedCycles = 0;
+        $skippedSelf = 0;
+        $unresolved = 0;
+
+        foreach ($records as $record) {
+            $record->refresh();
+            $outcome = static::resolveRecordOutcome($record);
+            $suggested = $outcome['approver'];
+            $original = $originalApprovalIds[(int) $record->getKey()] ?? null;
+            $current = static::nullableUserId($record->approval_id);
+
+            if ($suggested instanceof User && $current === (int) $suggested->id) {
+                if ($original === $current) {
+                    $unchanged++;
+                } else {
+                    $updated++;
+                }
+
+                continue;
+            }
+
+            if ($current !== $original) {
+                $updated++;
+
+                continue;
+            }
+
+            if ($outcome['blocked_by_cycle']) {
+                $skippedCycles++;
+
+                continue;
+            }
+
+            if ($outcome['excluded_self']) {
+                $skippedSelf++;
+
+                continue;
+            }
+
+            $unresolved++;
+        }
+
+        ApprovalScopeService::clearMemo();
+
+        return [
+            'updated' => $updated,
+            'unchanged' => $unchanged,
+            'skipped_cycles' => $skippedCycles,
+            'skipped_self' => $skippedSelf,
+            'unresolved' => $unresolved,
+        ];
+    }
+
+    /**
+     * @return array{approver: User|null, blocked_by_cycle: bool, excluded_self: bool, source: string|null, rule_name: string|null, label: string|null}
+     */
+    private static function resolveRecordOutcome(User $record): array
+    {
+        return ApprovalResolverService::resolveOutcome(
+            divisiId: $record->divisi_id ? (int) $record->divisi_id : null,
+            areaId: $record->area_id ? (int) $record->area_id : null,
+            roleId: $record->role_id ? (int) $record->role_id : null,
+            positionId: $record->position_id ? (int) $record->position_id : null,
+            excludeUserId: (int) $record->id,
+        );
+    }
+
+    private static function nullableUserId(mixed $id): ?int
+    {
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        return (int) $id;
+    }
+
+    /**
+     * @param  array{updated: int, unchanged: int, skipped_cycles: int, skipped_self: int, unresolved: int}  $result
+     * @return array{title: string, body: string, status: 'success'|'warning'}
+     */
+    public static function syncApprovalLinesMessage(array $result): array
+    {
+        $parts = [];
+
+        if ($result['updated'] > 0) {
+            $parts[] = "{$result['updated']} karyawan disesuaikan dengan matriks aturan.";
+        }
+
+        if ($result['unchanged'] > 0) {
+            $parts[] = "{$result['unchanged']} karyawan sudah sesuai dengan aturan.";
+        }
+
+        if ($result['skipped_cycles'] > 0) {
+            $parts[] = "{$result['skipped_cycles']} karyawan dilewati karena relasi approval membentuk siklus.";
+        }
+
+        if (($result['skipped_self'] ?? 0) > 0) {
+            $parts[] = "{$result['skipped_self']} karyawan dilewati karena tidak boleh menjadi atasan dirinya sendiri.";
+        }
+
+        if ($result['unresolved'] > 0) {
+            $parts[] = "{$result['unresolved']} karyawan tidak memiliki aturan atau Kepala Divisi yang cocok.";
+        }
+
+        if ($parts === []) {
+            $parts[] = 'Tidak ada karyawan yang dievaluasi.';
+        }
+
+        return [
+            'title' => $result['updated'] > 0 ? 'Sinkronisasi Approval Selesai' : 'Tidak Ada Approval Line yang Berubah',
+            'body' => implode(' ', $parts),
+            'status' => $result['updated'] > 0 ? 'success' : 'warning',
+        ];
+    }
+
+    /**
+     * @param  array{title: string, body: string, status: 'success'|'warning'}  $message
+     */
+    private static function sendResultNotification(array $message): void
+    {
+        $notification = Notification::make()
+            ->title($message['title'])
+            ->body($message['body']);
+
+        if ($message['status'] === 'warning') {
+            $notification->warning();
+        } else {
+            $notification->success();
+        }
+
+        $notification->send();
     }
 
     public static function table(Table $table): Table
@@ -544,6 +1015,56 @@ class UserResource extends Resource
                                 ->body("{$count} karyawan berhasil dipindahkan ke posisi {$positionName}.")
                                 ->success()
                                 ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('update_approval_line')
+                        ->label('Ubah Approval Line Massal')
+                        ->icon('heroicon-o-user-plus')
+                        ->color('warning')
+                        ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                        ->authorize(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                        ->authorizationMessage('Hanya admin yang dapat mengubah Approval Line secara massal.')
+                        ->slideOver()
+                        ->modalWidth('md')
+                        ->modalHeading('Ubah Atasan / Approval Line Karyawan Terpilih')
+                        ->modalDescription('Pilih atasan baru yang akan ditetapkan untuk seluruh karyawan yang telah dicentang.')
+                        ->modalSubmitActionLabel('Terapkan Atasan Baru')
+                        ->authorizeIndividualRecords('update')
+                        ->form([
+                            Select::make('approval_id')
+                                ->label('Approval Line Baru')
+                                ->options(fn (): array => User::whereNull('deleted_at')->orderBy('nama_lengkap')->pluck('nama_lengkap', 'id')->all())
+                                ->searchable()
+                                ->preload()
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            $targetApproverId = (int) $data['approval_id'];
+                            $approver = User::find($targetApproverId);
+                            $approverName = $approver?->nama_lengkap ?? 'atasan baru';
+                            $result = static::assignApprovalLine($records, $targetApproverId);
+
+                            static::sendResultNotification(
+                                static::approvalLineAssignmentMessage($result, $approverName),
+                            );
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('sync_approval_rules')
+                        ->label('Sinkronkan Sesuai Matriks Aturan')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('success')
+                        ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                        ->authorize(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                        ->authorizationMessage('Hanya admin yang dapat menyinkronkan Approval Line.')
+                        ->requiresConfirmation()
+                        ->modalHeading('Sinkronkan Approval Line Sesuai Matriks Aturan')
+                        ->modalDescription('Sistem akan mengevaluasi aturan matriks approval dan Kepala Divisi yang berlaku untuk setiap karyawan yang dicentang, lalu memperbarui Approval Line mereka secara otomatis.')
+                        ->modalSubmitActionLabel('Sinkronkan Sekarang')
+                        ->authorizeIndividualRecords('update')
+                        ->action(function (Collection $records): void {
+                            static::sendResultNotification(
+                                static::syncApprovalLinesMessage(static::syncApprovalLines($records)),
+                            );
                         })
                         ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make(),

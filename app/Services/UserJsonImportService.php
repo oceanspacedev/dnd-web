@@ -251,9 +251,45 @@ class UserJsonImportService
             $userData[$field] = $template->getAttribute($field);
         }
 
+        $userData['approval_id'] = static::resolveImportedApprovalId($userData);
+
         User::create($userData);
 
         return $passwordFingerprint;
+    }
+
+    /**
+     * Keep an active peer approver. Otherwise use the matrix or division manager.
+     * A peer that points at an archived approver, with no replacement, is rejected.
+     *
+     * @param  array<string, mixed>  $userData
+     */
+    private static function resolveImportedApprovalId(array $userData): ?int
+    {
+        $peerApprovalId = isset($userData['approval_id']) ? (int) $userData['approval_id'] : 0;
+        $peerApproverIsActive = $peerApprovalId !== 0
+            && User::query()->whereKey($peerApprovalId)->exists();
+
+        if ($peerApproverIsActive) {
+            return $peerApprovalId;
+        }
+
+        $resolvedApprover = ApprovalResolverService::resolve(
+            divisiId: isset($userData['divisi_id']) ? (int) $userData['divisi_id'] : null,
+            areaId: isset($userData['area_id']) ? (int) $userData['area_id'] : null,
+            roleId: isset($userData['role_id']) ? (int) $userData['role_id'] : null,
+            positionId: isset($userData['position_id']) ? (int) $userData['position_id'] : null,
+        );
+
+        if ($resolvedApprover !== null) {
+            return (int) $resolvedApprover->id;
+        }
+
+        if ($peerApprovalId !== 0) {
+            throw new RuntimeException('Pola DND memiliki approval yang tidak aktif; perlu review manual.');
+        }
+
+        return null;
     }
 
     /**
@@ -433,10 +469,6 @@ class UserJsonImportService
         }
 
         $template = $candidates->first();
-        if ($template->approval_id !== null
-            && ! User::query()->whereKey($template->approval_id)->exists()) {
-            throw new RuntimeException('Pola DND memiliki approval yang tidak aktif; perlu review manual.');
-        }
 
         return $template;
     }

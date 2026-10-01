@@ -6,6 +6,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\KpiStaffGuide;
 use App\Filament\Pages\KpiSupervisorGuide;
 use App\Filament\Pages\UserPositionGuide;
+use App\Filament\Resources\ApprovalRules\Pages\ManageApprovalRules;
 use App\Filament\Resources\Areas\Pages\ManageAreas;
 use App\Filament\Resources\Attendances\Pages\CreateAttendance;
 use App\Filament\Resources\Attendances\Pages\ListAttendances;
@@ -111,6 +112,7 @@ class FilamentResourceCrudTest extends TestCase
         Livewire::test(ManageDivisis::class)->assertSuccessful();
         Livewire::test(ManagePositions::class)->assertSuccessful();
         Livewire::test(ManageRoles::class)->assertSuccessful();
+        Livewire::test(ManageApprovalRules::class)->assertSuccessful();
         Livewire::test(ManageKpiCategories::class)->assertSuccessful();
         Livewire::test(ManageKpiDescriptions::class)->assertSuccessful();
         Livewire::test(ManageCutpoints::class)->assertSuccessful();

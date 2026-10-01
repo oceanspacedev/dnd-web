@@ -31,4 +31,16 @@ class Divisi extends Model
     {
         return $this->belongsTo(Area::class);
     }
+
+    /** @return BelongsTo<User, $this> */
+    public function manager(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'manager_id');
+    }
+
+    /** @return HasMany<ApprovalRule, $this> */
+    public function approvalRules(): HasMany
+    {
+        return $this->hasMany(ApprovalRule::class);
+    }
 }

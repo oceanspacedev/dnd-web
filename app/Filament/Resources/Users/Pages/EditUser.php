@@ -60,23 +60,7 @@ class EditUser extends EditRecord
 
     private function createsApprovalCycle(int $recordId, int $approvalId): bool
     {
-        $visited = [];
-        $currentId = $approvalId;
-
-        while ($currentId !== 0) {
-            if ($currentId === $recordId) {
-                return true;
-            }
-
-            if (isset($visited[$currentId])) {
-                break;
-            }
-
-            $visited[$currentId] = true;
-            $currentId = (int) (User::where('id', $currentId)->value('approval_id') ?? 0);
-        }
-
-        return false;
+        return UserResource::createsApprovalCycle($recordId, $approvalId);
     }
 
     protected function getHeaderActions(): array

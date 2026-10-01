@@ -33,6 +33,15 @@ class RoleResource extends Resource
                     ->required()
                     ->maxLength(255),
 
+                TextInput::make('level')
+                    ->label('Level Hirarki (Grade)')
+                    ->helperText('Label grade jabatan. Tidak memilih atasan dan tidak mengubah scope approval. Staff=10, TL=20, SPV=30, Manager=40, Chief=50, BOD=60, Admin=100.')
+                    ->numeric()
+                    ->integer()
+                    ->minValue(0)
+                    ->default(10)
+                    ->required(),
+
                 Toggle::make('requires_approval')
                     ->label('Wajib Approval')
                     ->helperText('Aktifkan jika pengguna dengan role ini memerlukan persetujuan (approval) atasan.')
@@ -48,6 +57,10 @@ class RoleResource extends Resource
                 TextColumn::make('name')
                     ->label('Nama Role')
                     ->searchable()
+                    ->sortable(),
+
+                TextColumn::make('level')
+                    ->label('Level')
                     ->sortable(),
 
                 IconColumn::make('requires_approval')
