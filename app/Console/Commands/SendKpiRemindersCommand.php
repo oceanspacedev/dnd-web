@@ -66,15 +66,16 @@ class SendKpiRemindersCommand extends Command
 
         $now = Date::now();
         $today = $now->copy()->startOfDay();
-        $periodStart = $now->copy()->startOfMonth();
-        $periodEnd = $periodStart->copy()->addMonth();
-        $periodeLabel = $now->isoFormat('MMMM YYYY');
 
         foreach ($settings as $setting) {
             $this->info("Memproses Aturan: [{$setting->title}] (Tipe: {$setting->type})");
 
-            $deadlineDate = $today->copy()->day(min($setting->deadline_day, $today->daysInMonth));
-            $daysDiff = $today->diffInDays($deadlineDate, false); // Positive if before deadline, 0 if deadline, negative if past deadline
+            $resolved = $this->resolveDeadlineAndPeriod($setting, $today);
+            $deadlineDate = $resolved['deadlineDate'];
+            $periodStart = $resolved['periodStart'];
+            $periodEnd = $resolved['periodEnd'];
+            $periodeLabel = $resolved['periodeLabel'];
+            $daysDiff = $resolved['daysDiff'];
 
             $shouldTrigger = false;
             $reminderOffsets = is_array($setting->reminder_days_before) ? $setting->reminder_days_before : [];
@@ -94,6 +95,8 @@ class SendKpiRemindersCommand extends Command
 
                 continue;
             }
+
+            $this->info("Periode target: {$periodeLabel} | Tenggat: {$deadlineDate->format('d M Y')} (Selisih: {$daysDiff} hari)");
 
             // Identify target users
             $targetUsers = $this->identifyTargetUsers($setting, $periodStart, $periodEnd);
@@ -142,6 +145,53 @@ class SendKpiRemindersCommand extends Command
         $this->info('Selesai memproses seluruh pengingat KPI.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve deadline date and target KPI period for a given setting.
+     *
+     * @return array{deadlineDate: Carbon, periodStart: Carbon, periodEnd: Carbon, periodeLabel: string, daysDiff: int}
+     */
+    public function resolveDeadlineAndPeriod(KpiReminderSetting $setting, Carbon $today): array
+    {
+        $deadlineDay = (int) $setting->deadline_day;
+        $currentMonthDeadline = $today->copy()->day(min($deadlineDay, $today->daysInMonth));
+        $nextMonth = $today->copy()->addMonth();
+        $nextMonthDeadline = $nextMonth->copy()->day(min($deadlineDay, $nextMonth->daysInMonth));
+
+        $reminderOffsets = is_array($setting->reminder_days_before)
+            ? array_map('intval', $setting->reminder_days_before)
+            : [];
+
+        // Check if today matches an upcoming deadline in the next month (e.g. today is late in month, reminder is H-7 before day 5 of next month)
+        $daysDiffNext = (int) $today->diffInDays($nextMonthDeadline, false);
+        if ($today->day > $deadlineDay && in_array($daysDiffNext, $reminderOffsets, true)) {
+            $deadlineDate = $nextMonthDeadline;
+            $daysDiff = $daysDiffNext;
+        } else {
+            $deadlineDate = $currentMonthDeadline;
+            $daysDiff = (int) $today->diffInDays($currentMonthDeadline, false);
+        }
+
+        // Determine target KPI period:
+        // For 'pengisian_kpi' with early-month deadline (<= 15), staff are completing the previous month's KPI
+        if ($setting->type === 'pengisian_kpi' && $deadlineDay <= 15) {
+            $periodDate = $deadlineDate->copy()->subMonth();
+        } else {
+            $periodDate = $deadlineDate->copy();
+        }
+
+        $periodStart = $periodDate->copy()->startOfMonth();
+        $periodEnd = $periodStart->copy()->addMonth();
+        $periodeLabel = $periodStart->isoFormat('MMMM YYYY');
+
+        return [
+            'deadlineDate' => $deadlineDate,
+            'periodStart' => $periodStart,
+            'periodEnd' => $periodEnd,
+            'periodeLabel' => $periodeLabel,
+            'daysDiff' => $daysDiff,
+        ];
     }
 
     /**

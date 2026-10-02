@@ -224,6 +224,82 @@ class KpiReminderCommandTest extends TestCase
             ->assertExitCode(Command::FAILURE);
     }
 
+    public function test_early_month_filling_deadline_targets_previous_month_kpi(): void
+    {
+        Date::setTestNow('2026-10-02 08:00:00');
+
+        $userWithSeptemberKpi = $this->createUser('Staff September', phone: '081234567890');
+        $userWithOctoberKpi = $this->createUser('Staff Oktober', phone: '081234567891');
+
+        $this->createKpiDetail($userWithSeptemberKpi, '2026-09-01', 'RESULT', null, null);
+        $this->createKpiDetail($userWithOctoberKpi, '2026-10-01', 'RESULT', null, null);
+
+        $setting = KpiReminderSetting::create([
+            'title' => 'Pengingat Pengisian KPI',
+            'type' => 'pengisian_kpi',
+            'deadline_day' => 5,
+            'reminder_days_before' => [3, 2, 1, 0],
+            'send_overdue_reminder' => false,
+            'send_email' => false,
+            'send_whatsapp' => true,
+            'email_subject' => 'Pengingat KPI',
+            'email_body' => 'Halo {nama}',
+            'whatsapp_template' => 'Halo {nama}, periode {periode}, tenggat {tenggat}',
+            'is_active' => true,
+        ]);
+
+        $command = resolve(SendKpiRemindersCommand::class);
+        $resolved = $command->resolveDeadlineAndPeriod($setting, Date::parse('2026-10-02 00:00:00'));
+
+        $this->assertSame('2026-10-05', $resolved['deadlineDate']->toDateString());
+        $this->assertSame('2026-09-01 00:00:00', $resolved['periodStart']->toDateTimeString());
+        $this->assertSame('2026-10-01 00:00:00', $resolved['periodEnd']->toDateTimeString());
+        $this->assertSame('September 2026', $resolved['periodeLabel']);
+        $this->assertSame(3, $resolved['daysDiff']);
+
+        $targets = $this->targetIdsForPeriod($setting, $resolved['periodStart'], $resolved['periodEnd']);
+        $this->assertSame([$userWithSeptemberKpi->id], $targets);
+    }
+
+    public function test_early_month_creation_deadline_targets_current_month_kpi(): void
+    {
+        Date::setTestNow('2026-10-02 08:00:00');
+
+        $setting = KpiReminderSetting::create([
+            'title' => 'Pengingat Pembuatan KPI',
+            'type' => 'pembuatan_kpi',
+            'deadline_day' => 5,
+            'reminder_days_before' => [3, 2, 1, 0],
+            'send_overdue_reminder' => false,
+            'send_email' => false,
+            'send_whatsapp' => true,
+            'email_subject' => 'Pengingat KPI',
+            'is_active' => true,
+        ]);
+
+        $command = resolve(SendKpiRemindersCommand::class);
+        $resolved = $command->resolveDeadlineAndPeriod($setting, Date::parse('2026-10-02 00:00:00'));
+
+        $this->assertSame('2026-10-05', $resolved['deadlineDate']->toDateString());
+        $this->assertSame('2026-10-01 00:00:00', $resolved['periodStart']->toDateTimeString());
+        $this->assertSame('2026-11-01 00:00:00', $resolved['periodEnd']->toDateTimeString());
+        $this->assertSame('Oktober 2026', $resolved['periodeLabel']);
+        $this->assertSame(3, $resolved['daysDiff']);
+    }
+
+    private function targetIdsForPeriod(KpiReminderSetting $setting, $periodStart, $periodEnd): array
+    {
+        $method = new ReflectionMethod(SendKpiRemindersCommand::class, 'identifyTargetUsers');
+        $targets = $method->invoke(
+            resolve(SendKpiRemindersCommand::class),
+            $setting,
+            $periodStart,
+            $periodEnd,
+        );
+
+        return collect($targets)->pluck('id')->sort()->values()->all();
+    }
+
     private function targetIds(KpiReminderSetting $setting): array
     {
         $method = new ReflectionMethod(SendKpiRemindersCommand::class, 'identifyTargetUsers');
