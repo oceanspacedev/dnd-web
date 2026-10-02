@@ -25,7 +25,9 @@ class ObservabilityPackagesTest extends TestCase
         $this->assertFileExists($root.'/config/horizon.php');
         $this->assertFileExists($root.'/config/log-viewer.php');
         $this->assertStringContainsString('HorizonServiceProvider::class', $providers);
-        $this->assertStringContainsString('ObservabilityAccess::filamentNavigationItems()', (string) file_get_contents($root.'/app/Providers/Filament/AdminPanelProvider.php'));
+        $this->assertStringContainsString('PanelsRenderHook::SIDEBAR_FOOTER', (string) file_get_contents($root.'/app/Providers/Filament/AdminPanelProvider.php'));
+        $this->assertFileExists($root.'/resources/views/filament/partials/sidebar-observability.blade.php');
+        $this->assertFileExists($root.'/resources/views/vendor/mekaya/livewire/partials/mekaya-sidebar-footer.blade.php');
         $this->assertStringContainsString('horizon:snapshot', (string) file_get_contents($root.'/routes/console.php'));
         $horizon = (string) file_get_contents($root.'/config/horizon.php');
         $this->assertStringContainsString("'queue' => ['notifications', 'default', 'exports']", $horizon);
