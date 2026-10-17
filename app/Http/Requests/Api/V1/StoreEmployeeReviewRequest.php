@@ -16,7 +16,7 @@ class StoreEmployeeReviewRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['required', 'exists:users,id'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
             'periode' => ['required', 'string', 'max:50'],
             'responsiveness' => ['required', 'integer', 'min:1', 'max:5'],
             'problem_solver' => ['required', 'integer', 'min:1', 'max:5'],
@@ -29,6 +29,7 @@ class StoreEmployeeReviewRequest extends FormRequest
     {
         return [
             'user_id.required' => 'Karyawan wajib dipilih.',
+            'user_id.integer' => 'Karyawan tidak valid.',
             'periode.required' => 'Periode review (e.g. 2026-09) wajib diisi.',
             'responsiveness.required' => 'Rating responsiveness (1-5) wajib diisi.',
             'problem_solver.required' => 'Rating problem solver (1-5) wajib diisi.',

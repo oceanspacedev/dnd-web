@@ -57,7 +57,7 @@ class ListUsers extends ListRecords
                     ->label('Import User')
                     ->icon('heroicon-s-arrow-up-tray')
                     ->color('gray')
-                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (): bool => static::getResource()::canImportUsers())
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File Excel:')
@@ -97,7 +97,7 @@ class ListUsers extends ListRecords
                     ->action(function (array $data) {
                         return $this->processJsonImport($data);
                     })
-                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (): bool => static::getResource()::canImportUsers())
                     ->modalWidth('md')
                     ->modalHeading('Import User dari File JSON')
                     ->modalSubmitActionLabel('Import JSON'),
@@ -111,7 +111,8 @@ class ListUsers extends ListRecords
 
     public function processImport(array $data)
     {
-        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+        // Import mencocokkan karyawan lintas badan usaha, jadi khusus super admin di menu Karyawan.
+        abort_unless(static::getResource()::canImportUsers(), 403);
 
         try {
             set_time_limit(300);
@@ -172,7 +173,7 @@ class ListUsers extends ListRecords
 
     public function processJsonImport(array $data)
     {
-        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+        abort_unless(static::getResource()::canImportUsers(), 403);
 
         try {
             set_time_limit(300);
@@ -276,6 +277,11 @@ class ListUsers extends ListRecords
 
     public function getTabs(): array
     {
+        // Tim Saya hanya berisi anggota tim aktif, jadi tidak punya tab Arsip.
+        if (! static::getResource()::canViewArchived()) {
+            return [];
+        }
+
         return [
             'all' => Tab::make('Semua')
                 ->modifyQueryUsing(fn (Builder $query) => $query->withoutTrashed()),

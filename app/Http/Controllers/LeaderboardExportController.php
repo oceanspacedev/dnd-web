@@ -7,7 +7,9 @@ use App\Models\Attendance;
 use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,6 +18,13 @@ class LeaderboardExportController extends Controller
 {
     public function export(Request $request)
     {
+        $actor = $request->user();
+        $actor = $actor instanceof User ? $actor : null;
+        // null = tanpa batas badan usaha (super admin & non-admin, seperti sebelumnya);
+        // selain itu admin per badan usaha: karyawan dengan users.area_id di area_ids,
+        // ditambah tim approval line + dirinya sendiri (user_ids).
+        $scope = LeaderboardScoreService::viewerScope($actor);
+
         $periodType = $request->input('period_type', 'month');
         $selectedPeriod = $periodType === 'year'
             ? ($request->year ? $request->year : Date::now()->format('Y'))
@@ -23,9 +32,24 @@ class LeaderboardExportController extends Controller
         $divisionId = $request->division;
         $areaId = $request->area;
 
+        // Parameter area dari klien tidak boleh memperluas cakupan admin per badan usaha;
+        // badan usaha tim/dirinya tetap boleh dipilih (hanya menyisakan tim/dirinya di sana).
+        abort_if(
+            $scope !== null && filled($areaId) && ! in_array((int) $areaId, LeaderboardScoreService::selectableAreaIds($scope), true),
+            403,
+            'Anda tidak memiliki akses ke badan usaha ini.',
+        );
+
         $leaderboardData = [];
 
         $userQuery = User::with(['role', 'divisi', 'area', 'position']);
+
+        if ($scope !== null) {
+            $userQuery->where(function ($scoped) use ($scope): void {
+                $scoped->whereIn('area_id', $scope['area_ids'])
+                    ->orWhereIn('id', $scope['user_ids']);
+            });
+        }
 
         // Apply filters if any
         if ($divisionId) {
@@ -37,7 +61,7 @@ class LeaderboardExportController extends Controller
         }
 
         $userIds = (clone $userQuery)->pluck('id')->all();
-        $detailScopeUserIds = $this->resolveDetailScopeUserIds($userIds);
+        $detailScopeUserIds = $this->resolveDetailScopeUserIds($userIds, $actor);
         $includeDetails = count($detailScopeUserIds) > 0;
 
         if ($periodType === 'year') {
@@ -79,7 +103,7 @@ class LeaderboardExportController extends Controller
             });
 
             foreach ($users as $user) {
-                if ($user->role && $user->role->name === 'ADMIN') {
+                if (DataAccessService::isAdmin($user)) {
                     continue;
                 }
 
@@ -189,7 +213,7 @@ class LeaderboardExportController extends Controller
 
             $userQuery->chunk(100, function ($users) use (&$leaderboardData) {
                 foreach ($users as $user) {
-                    if ($user->role && $user->role->name === 'ADMIN') {
+                    if (DataAccessService::isAdmin($user)) {
                         continue;
                     }
 
@@ -295,13 +319,15 @@ class LeaderboardExportController extends Controller
         );
     }
 
-    protected function resolveDetailScopeUserIds(array $filteredUserIds): array
+    protected function resolveDetailScopeUserIds(array $filteredUserIds, ?User $actor): array
     {
-        if (auth()->user()->role_id == 1) {
+        // Admin: seluruh hasil filter. Untuk admin per badan usaha, hasil filter sudah
+        // dibatasi ke badan usahanya + tim + dirinya pada query populasi di export().
+        if (DataAccessService::isAdmin($actor)) {
             return array_values($filteredUserIds);
         }
 
-        $teamUserIds = $this->getRecursiveSubordinateUserIds((int) auth()->id());
+        $teamUserIds = $this->getRecursiveSubordinateUserIds((int) $actor?->getKey());
 
         return array_values(array_intersect($filteredUserIds, $teamUserIds));
     }

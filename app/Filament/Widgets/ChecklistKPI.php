@@ -2,18 +2,20 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\Divisi;
 use App\Models\Kpi;
 use App\Models\KpiDescription;
 use App\Models\KpiDetail;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Exception;
 use Filament\Notifications\Notification;
 use Filament\Widgets\Widget;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 
@@ -52,6 +54,10 @@ class ChecklistKPI extends Widget
         $currentMonth = Date::now()->month;
         $currentYear = Date::now()->year;
 
+        // user_id adalah properti publik Livewire (bisa diubah klien): validasi ke daftar user yang diizinkan.
+        $users = $this->getUsers();
+        $viewedUserId = $this->resolveViewedUserId($users);
+
         $with = [
             'kpi_detail',
             'kpi_detail.kpi_description',
@@ -84,11 +90,7 @@ class ChecklistKPI extends Widget
                 ->whereMonth('date', $date->month)
                 ->whereYear('date', $date->year);
 
-            if ($this->user_id) {
-                $kpisQuery->where('user_id', $this->user_id);
-            } else {
-                $kpisQuery->where('user_id', Auth::id());
-            }
+            $kpisQuery->where('user_id', $viewedUserId);
         }
 
         $kpis = $kpisQuery->orderBy('date', 'DESC')->get();
@@ -140,17 +142,101 @@ class ChecklistKPI extends Widget
         return [
             'groupedKpis' => $groupedKpisByYearAndCategory,
             'totalScore' => $totalScore,
-            'users' => $this->getUsers(),
-            'divisions' => Divisi::all(),
+            'users' => $users,
         ];
+    }
+
+    /**
+     * User yang checklist-nya ditampilkan. Pilihan di luar daftar yang diizinkan kembali ke diri sendiri.
+     *
+     * @param  Collection<int, User>  $users
+     */
+    protected function resolveViewedUserId(Collection $users): int
+    {
+        $actorId = (int) Auth::id();
+
+        if (blank($this->user_id) || ! is_numeric($this->user_id)) {
+            return $actorId;
+        }
+
+        $requestedId = (int) $this->user_id;
+
+        if ($requestedId === $actorId || $users->contains(fn (User $user): bool => (int) $user->getKey() === $requestedId)) {
+            return $requestedId;
+        }
+
+        $this->user_id = null;
+
+        return $actorId;
+    }
+
+    /**
+     * Pilihan user tampil untuk semua role selain STAFF (seperti sebelumnya); isinya dibatasi getUsers().
+     */
+    public function canChooseUser(): bool
+    {
+        return DataAccessService::isAdmin(Auth::user())
+            || Auth::user()?->role?->name !== 'STAFF';
+    }
+
+    /**
+     * Tombol ubah checklist hanya untuk KPI milik user yang boleh dilihat aktor di widget ini.
+     */
+    public function canUpdateKpi($kpi): bool
+    {
+        return $kpi instanceof Kpi && $this->canManageChecklistOf($kpi);
+    }
+
+    /**
+     * Cakupan ubah checklist = cakupan lihat (getUsers): super admin semua; admin badan usaha:
+     * badan usaha yang diizinkan + tim + diri sendiri, tanpa checklist akun ADMIN lain; lainnya: tim
+     * (approval line) + diri sendiri. Sengaja tidak memakai KpiPolicy agar atasan non-MANAGER/COORDINATOR tetap bisa mengisi checklist timnya.
+     */
+    protected function canManageChecklistOf(Kpi $kpi): bool
+    {
+        return DataAccessService::canWriteForUser(Auth::user(), $kpi->ownerForAccessCheck());
+    }
+
+    /**
+     * Setiap mutasi memakai id dari klien: pastikan pemilik KPI-nya berada dalam cakupan aktor.
+     */
+    protected function authorizeKpiDetail(KpiDetail $kpiDetail): void
+    {
+        $kpiDetail->loadMissing('kpi');
+
+        abort_unless($kpiDetail->kpi instanceof Kpi, 404);
+
+        if (! $this->canManageChecklistOf($kpiDetail->kpi)) {
+            throw new AuthorizationException('This action is unauthorized.');
+        }
+    }
+
+    /**
+     * Deskripsi ekstra task hanya boleh ikut dihapus bila tidak dipakai detail lain (termasuk yang
+     * sudah dihapus). Deskripsi KPI adalah master bersama: create by position, Copy KPI, dan API
+     * bisa memakai id yang sama untuk karyawan lain, termasuk di badan usaha lain.
+     */
+    protected function isDescriptionOnlyUsedBy(KpiDetail $extraTask): bool
+    {
+        return KpiDetail::withTrashed()
+            ->where('kpi_description_id', $extraTask->kpi_description_id)
+            ->whereKeyNot($extraTask->getKey())
+            ->doesntExist();
     }
 
     protected function getUsers()
     {
-        if (auth()->user()->role_id == 1) {
-            // If user is admin (role_id 1), show all users except user with id 1
+        $actor = auth()->user();
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            // Super admin: semua user kecuali user dengan id 1
             return User::where('id', '<>', 1)
                 ->whereNull('deleted_at')
+                ->orderBy('nama_lengkap')
+                ->get();
+        } elseif (DataAccessService::isAreaScopedAdmin($actor)) {
+            // Admin badan usaha tertentu: karyawan di badan usaha yang diizinkan + tim + diri sendiri
+            return DataAccessService::scopeOwnedRecords(User::whereNull('deleted_at'), $actor, 'users.id')
                 ->orderBy('nama_lengkap')
                 ->get();
         } else {
@@ -166,7 +252,10 @@ class ChecklistKPI extends Widget
 
     public function openUpdateModal($kpiDetailId)
     {
-        $this->kpiDetail = KpiDetail::with(['kpi', 'kpi_description'])->findOrFail($kpiDetailId);
+        $kpiDetail = KpiDetail::with(['kpi', 'kpi_description'])->findOrFail($kpiDetailId);
+        $this->authorizeKpiDetail($kpiDetail);
+
+        $this->kpiDetail = $kpiDetail;
 
         if (! $this->ensureKpiDetailEditable($this->kpiDetail)) {
             return;
@@ -181,6 +270,7 @@ class ChecklistKPI extends Widget
     public function openExtraTaskModal($kpiDetailId)
     {
         $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($kpiDetailId);
+        $this->authorizeKpiDetail($parentKpiDetail);
 
         if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
             return;
@@ -197,6 +287,7 @@ class ChecklistKPI extends Widget
     public function changeKpiStatus($kpiDetailId, $type)
     {
         $kpiDetail = KpiDetail::with('kpi')->findOrFail($kpiDetailId);
+        $this->authorizeKpiDetail($kpiDetail);
 
         if (! $this->ensureKpiDetailEditable($kpiDetail)) {
             return;
@@ -211,11 +302,11 @@ class ChecklistKPI extends Widget
 
     public function submitUpdateKpi()
     {
-        if (! $this->kpiDetail) {
+        if (! $this->kpiDetail instanceof KpiDetail) {
             return;
         }
 
-        $this->kpiDetail->loadMissing('kpi');
+        $this->authorizeKpiDetail($this->kpiDetail);
         if (! $this->ensureKpiDetailEditable($this->kpiDetail)) {
             return;
         }
@@ -258,6 +349,7 @@ class ChecklistKPI extends Widget
         try {
             // Ambil detail parent KPI
             $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($this->parent_id);
+            $this->authorizeKpiDetail($parentKpiDetail);
 
             if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
                 return;
@@ -310,6 +402,8 @@ class ChecklistKPI extends Widget
             // Close the modal (keeping this from the original code)
             $this->dispatch('close-modal', id: 'extraTaskModal');
 
+        } catch (AuthorizationException $e) {
+            throw $e;
         } catch (Exception $e) {
             // Flash error ke session
             session()->flash('error', 'Terjadi kesalahan saat menyimpan ekstra task: '.$e->getMessage());
@@ -320,12 +414,14 @@ class ChecklistKPI extends Widget
     {
         try {
             // Cari data extra task berdasarkan ID
-            $extraTask = KpiDetail::findOrFail($extraTaskId);
+            $extraTask = KpiDetail::with('kpi')->findOrFail($extraTaskId);
+            $this->authorizeKpiDetail($extraTask);
 
             // Pastikan data yang dihapus adalah ekstra task
             if ($extraTask->is_extra_task == 1) {
                 // Ambil parent dari extra task
                 $parentKpiDetail = KpiDetail::with('kpi')->findOrFail($extraTask->parent_id);
+                $this->authorizeKpiDetail($parentKpiDetail);
 
                 if (! $this->ensureKpiDetailEditable($parentKpiDetail)) {
                     return;
@@ -354,9 +450,9 @@ class ChecklistKPI extends Widget
                     'value_result' => $newValueResult,
                 ]);
 
-                // Hapus kpi_description terkait, jika ada
-                if ($extraTask->kpi_description_id) {
-                    $extraTask->kpi_description->delete(); // Hapus kpi_description
+                // Hapus kpi_description terkait, jika ada dan hanya dipakai ekstra task ini
+                if ($extraTask->kpi_description_id && $this->isDescriptionOnlyUsedBy($extraTask)) {
+                    $extraTask->kpi_description?->delete(); // Hapus kpi_description
                 }
 
                 // Hapus data extra task
@@ -370,6 +466,8 @@ class ChecklistKPI extends Widget
             } else {
                 session()->flash('error', 'Data bukan ekstra task.');
             }
+        } catch (AuthorizationException $e) {
+            throw $e;
         } catch (Exception $e) {
             session()->flash('error', 'Terjadi kesalahan saat menghapus ekstra task: '.$e->getMessage());
         }
@@ -380,7 +478,8 @@ class ChecklistKPI extends Widget
         $kpiMonth = Date::parse($kpiDate)->startOfMonth();
         $deadline = $this->resolveChecklistDeadline($kpiMonth);
         $now = Date::now();
-        $isAdmin = (int) auth()->user()->role_id === 1;
+        // Semua admin bebas dari batas periode; cakupan record tetap dicek lewat authorizeKpiDetail().
+        $isAdmin = DataAccessService::isAdmin(auth()->user());
         $isClosed = ! $isAdmin && $now->gt($deadline);
         $daysLeft = $isClosed ? 0 : (int) max(0, $now->diffInDays($deadline, false));
 
@@ -403,7 +502,7 @@ class ChecklistKPI extends Widget
 
     public function canEditKpiDate($kpiDate): bool
     {
-        if ((int) auth()->user()->role_id === 1) {
+        if (DataAccessService::isAdmin(auth()->user())) {
             return true;
         }
 

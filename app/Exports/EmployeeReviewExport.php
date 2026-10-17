@@ -14,26 +14,20 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class EmployeeReviewExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
     /**
+     * @param  array<int>|null  $userIds  Pemilik penilaian yang boleh diekspor. null = seluruh karyawan;
+     *                                    pemanggil HTTP/Livewire mengisi cakupan actor (EmployeeReviewPolicy::visibleUserIds).
+     */
+    public function __construct(private readonly ?array $userIds = null) {}
+
+    /**
      * @return Collection
      */
     public function collection(): Enumerable
     {
-        $authUser = auth()->user();
-
-        if (! $authUser) {
-            return collect();
-        }
-
-        $authUserId = (int) $authUser->id;
-        $query = EmployeeReview::query()->with('user');
-
-        if ($authUser->role?->name !== 'ADMIN') {
-            $query->whereHas('user', function ($query) use ($authUserId) {
-                $query->where('approval_id', $authUserId);
-            });
-        }
-
-        return $query
+        // Filter langsung pada user_id agar penilaian karyawan yang sudah dihapus tetap ikut.
+        return EmployeeReview::query()
+            ->with('user')
+            ->when($this->userIds !== null, fn ($query) => $query->whereIn('user_id', $this->userIds))
             ->get()
             ->map(function ($review) {
                 return [

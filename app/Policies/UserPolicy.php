@@ -4,15 +4,27 @@ namespace App\Policies;
 
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 
 class UserPolicy
 {
     private function canManageAll(User $user): bool
     {
-        return $user->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess($user);
     }
 
-    private function canManageScoped(User $user): bool
+    /**
+     * Menu Karyawan: admin dengan akses badan usaha (seluruh atau sebagian).
+     */
+    private function canManageEmployees(User $user): bool
+    {
+        return DataAccessService::canAccessEmployees($user);
+    }
+
+    /**
+     * Menu Tim Saya: atasan berdasarkan approval line.
+     */
+    public function canManageTeam(User $user): bool
     {
         return ! empty($this->getManagedUserIds($user))
             || in_array($user->role?->name, ['MANAGER', 'COORDINATOR', 'TEAM LEADER', 'CHIEF', 'BOD'], true);
@@ -32,11 +44,16 @@ class UserPolicy
             return true;
         }
 
-        if ($model->role?->name === 'ADMIN') {
+        // Akun ADMIN hanya dikelola admin dengan akses seluruh badan usaha.
+        if ($model->role?->name === User::ROLE_ADMIN) {
             return false;
         }
 
-        if (! $this->canManageScoped($user)) {
+        if (DataAccessService::isEmployeeInScope($user, $model)) {
+            return true;
+        }
+
+        if (! $this->canManageTeam($user)) {
             return false;
         }
 
@@ -48,7 +65,7 @@ class UserPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $this->canManageAll($user) || $this->canManageScoped($user);
+        return $this->canManageEmployees($user) || $this->canManageTeam($user);
     }
 
     /**
@@ -64,7 +81,7 @@ class UserPolicy
      */
     public function create(User $user): bool
     {
-        return $this->canManageAll($user) || $this->canManageScoped($user);
+        return $this->canManageEmployees($user) || $this->canManageTeam($user);
     }
 
     /**
@@ -97,5 +114,13 @@ class UserPolicy
     public function forceDelete(User $user, User $model): bool
     {
         return $this->canAccessRecord($user, $model);
+    }
+
+    /**
+     * Only admins with access to every badan usaha may grant the ADMIN role or change data access.
+     */
+    public function manageDataAccess(User $user): bool
+    {
+        return $this->canManageAll($user);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DataAccessService;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -48,11 +49,28 @@ class Kpi extends Model
         return $this->hasMany(KpiDetail::class, 'kpi_id');
     }
 
+    /**
+     * Pemilik KPI untuk cek cakupan data (DataAccessService::canSeeUser): pakai relasi user yang sudah
+     * di-eager-load agar tidak ada query users.area_id per baris; selain itu id-nya
+     * (relasi belum dimuat, karyawan soft-deleted, atau user_id sudah diubah).
+     */
+    public function ownerForAccessCheck(): User|int|string|null
+    {
+        if ($this->relationLoaded('user')
+            && $this->user instanceof User
+            && (int) $this->user->getKey() === (int) $this->user_id) {
+            return $this->user;
+        }
+
+        return $this->user_id;
+    }
+
     public function isChecklistLockedFor(?User $user = null): bool
     {
         $user ??= auth()->user();
 
-        if ($user?->role?->name === 'ADMIN') {
+        // Semua admin bebas dari batas periode; cakupan record tetap dicek lewat KpiPolicy.
+        if (DataAccessService::isAdmin($user)) {
             return false;
         }
 

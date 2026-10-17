@@ -2,8 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\TeamMembers\TeamMemberResource;
 use App\Filament\Resources\Users\UserResource;
-use App\Services\ApprovalScopeService;
 use Filament\Pages\Page;
 
 class UserPositionGuide extends Page
@@ -22,23 +22,29 @@ class UserPositionGuide extends Page
 
     protected string $view = 'filament.pages.user-position-guide';
 
+    /**
+     * Admin dengan akses badan usaha (menu Karyawan) atau atasan dengan tim (menu Tim Saya).
+     */
     public static function canAccess(): bool
     {
-        $user = auth()->user();
-        if (! $user) {
+        if (! auth()->check()) {
             return false;
         }
 
-        if ($user->role?->name === 'ADMIN') {
-            return true;
-        }
-
-        return ! empty(ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->id))
-            || in_array($user->role?->name, ['MANAGER', 'COORDINATOR', 'TEAM LEADER', 'CHIEF', 'BOD'], true);
+        return UserResource::canViewAny() || TeamMemberResource::canViewAny();
     }
 
     public function getUserListUrl(): string
     {
-        return UserResource::getUrl('index');
+        return UserResource::canViewAny()
+            ? UserResource::getUrl('index')
+            : TeamMemberResource::getUrl('index');
+    }
+
+    public function getUserListLabel(): string
+    {
+        return UserResource::canViewAny()
+            ? 'Buka Menu Karyawan'
+            : 'Buka Menu Tim Saya';
     }
 }

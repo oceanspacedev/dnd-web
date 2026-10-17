@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ApprovalRules;
 
 use App\Filament\Resources\ApprovalRules\Pages\ManageApprovalRules;
 use App\Models\ApprovalRule;
+use App\Services\DataAccessService;
 use Closure;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -37,9 +38,12 @@ class ApprovalRuleResource extends Resource
 
     protected static ?int $navigationSort = 5;
 
+    /**
+     * Aturan approval berlaku lintas badan usaha: khusus super admin.
+     */
     public static function canViewAny(): bool
     {
-        return auth()->user()?->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess(auth()->user());
     }
 
     public static function shouldRegisterNavigation(): bool

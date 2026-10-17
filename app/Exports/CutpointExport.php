@@ -13,14 +13,23 @@ class CutpointExport implements FromCollection, WithHeadings, WithMapping
 {
     protected string $month;
 
-    public function __construct(string $month)
+    /** @var array<int>|null */
+    protected ?array $userIds;
+
+    /**
+     * @param  array<int>|null  $userIds  Pemilik data yang boleh diekspor. null = seluruh karyawan;
+     *                                    pemanggil HTTP/Livewire wajib mengisi cakupan actor.
+     */
+    public function __construct(string $month, ?array $userIds = null)
     {
         $this->month = $month;
+        $this->userIds = $userIds;
     }
 
     public function collection(): Enumerable
     {
         return Overopen::with(['user', 'leader', 'user.area', 'user.divisi'])
+            ->when($this->userIds !== null, fn ($query) => $query->whereIn('user_id', $this->userIds))
             ->whereBetween(
                 'daily',
                 [

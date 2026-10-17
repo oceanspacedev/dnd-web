@@ -4,7 +4,12 @@ namespace App\Policies;
 
 use App\Models\Divisi;
 use App\Models\User;
+use App\Services\DataAccessService;
 
+/**
+ * Divisi adalah master data lintas badan usaha: hanya super admin
+ * (ADMIN dengan akses seluruh badan usaha) yang boleh melihat dan mengelolanya.
+ */
 class DivisiPolicy
 {
     /**
@@ -12,7 +17,7 @@ class DivisiPolicy
      */
     public function viewAny(User $user): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -20,7 +25,7 @@ class DivisiPolicy
      */
     public function view(User $user, Divisi $divisi): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -28,7 +33,7 @@ class DivisiPolicy
      */
     public function create(User $user): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -36,7 +41,7 @@ class DivisiPolicy
      */
     public function update(User $user, Divisi $divisi): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -44,7 +49,15 @@ class DivisiPolicy
      */
     public function delete(User $user, Divisi $divisi): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk delete models.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -52,7 +65,15 @@ class DivisiPolicy
      */
     public function restore(User $user, Divisi $divisi): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk restore models.
+     */
+    public function restoreAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -60,6 +81,19 @@ class DivisiPolicy
      */
     public function forceDelete(User $user, Divisi $divisi): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk permanently delete models.
+     */
+    public function forceDeleteAny(User $user): bool
+    {
+        return $this->canManage($user);
+    }
+
+    private function canManage(User $user): bool
+    {
+        return DataAccessService::hasGlobalAccess($user);
     }
 }

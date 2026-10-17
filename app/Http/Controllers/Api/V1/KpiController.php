@@ -16,6 +16,7 @@ use App\Models\KpiDetail;
 use App\Models\KpiType;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,7 +36,10 @@ class KpiController extends Controller
         $query = Kpi::with(['user', 'kpi_category', 'kpi_type', 'kpi_detail.kpi_description']);
         $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            // Admin badan usaha tertentu: KPI karyawan di badan usaha yang diizinkan + tim + diri sendiri.
+            DataAccessService::scopeOwnedRecords($query, $actor, 'kpis.user_id');
+        } elseif (! DataAccessService::hasGlobalAccess($actor)) {
             $visibleUserIds = array_merge(
                 [(int) ($actor?->id ?? 0)],
                 ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
@@ -111,7 +115,16 @@ class KpiController extends Controller
 
         $validated = $request->validated();
         $target = new Kpi(['user_id' => (int) $validated['user_id']]);
-        $this->authorize('view', $target);
+        $this->authorize('update', $target);
+
+        // KPI baru belum punya detail, jadi parent_id selalu menunjuk detail KPI lain (bisa milik karyawan di luar cakupan).
+        foreach ($validated['details'] ?? [] as $detailData) {
+            abort_if(
+                ! empty($detailData['parent_id']),
+                422,
+                'parent_id harus merujuk ke detail pada KPI yang sama.',
+            );
+        }
 
         $kpi = Kpi::create([
             'user_id' => $validated['user_id'],
@@ -175,7 +188,7 @@ class KpiController extends Controller
         $validated = $request->validated();
 
         if (array_key_exists('user_id', $validated)) {
-            $this->authorize('view', new Kpi(['user_id' => (int) $validated['user_id']]));
+            $this->authorize('update', new Kpi(['user_id' => (int) $validated['user_id']]));
         }
 
         $kpi->update($validated);
@@ -421,6 +434,9 @@ class KpiController extends Controller
      */
     public function userSummary(Request $request, int $userId): JsonResponse
     {
+        // Otorisasi dulu agar keberadaan karyawan di luar cakupan tidak terungkap lewat 404.
+        $this->authorize('view', new Kpi(['user_id' => $userId]));
+
         $user = User::with(['role', 'position'])->find($userId);
 
         if (! $user) {
@@ -429,8 +445,6 @@ class KpiController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
-
-        $this->authorize('view', new Kpi(['user_id' => $userId]));
 
         $query = Kpi::with(['kpi_category', 'kpi_type', 'kpi_detail.kpi_description'])
             ->where('user_id', $userId);

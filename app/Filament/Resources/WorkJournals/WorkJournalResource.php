@@ -6,7 +6,9 @@ use App\Filament\Exports\WorkJournalExporter;
 use App\Filament\Resources\WorkJournals\Pages\ManageWorkJournals;
 use App\Models\User;
 use App\Models\WorkJournal;
+use App\Policies\WorkJournalPolicy;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -14,7 +16,6 @@ use Filament\Actions\EditAction;
 use Filament\Actions\ExportBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
@@ -39,13 +40,21 @@ class WorkJournalResource extends Resource
 
     protected static ?int $navigationSort = 1;
 
+    /**
+     * Super admin: ADMIN dengan akses seluruh badan usaha.
+     */
     public static function canAccessAllJournals(?User $user = null): bool
     {
         $user ??= auth()->user();
 
-        return (bool) $user && $user->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess($user);
     }
 
+    /**
+     * Bawahan approval (langsung + satu level). Kosong untuk super admin (melihat semua).
+     *
+     * @return array<int>
+     */
     public static function getManagedUserIds(?User $user = null): array
     {
         $user ??= auth()->user();
@@ -57,22 +66,15 @@ class WorkJournalResource extends Resource
             return [];
         }
 
-        $managed = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->id);
-        if (empty($managed)) {
-            $managed = User::where('approval_id', $user->id)->pluck('id')->all();
-        }
-
-        return $managed;
+        return ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->id);
     }
 
     public static function form(Schema $schema): Schema
     {
+        // Pemilik jurnal tidak diambil dari form (state Livewire bisa dimanipulasi):
+        // jurnal baru selalu milik user login (ManageWorkJournals), edit tidak mengubah pemilik.
         return $schema
             ->components([
-                Hidden::make('user_id')
-                    ->default(fn () => auth()->id())
-                    ->dehydrated(),
-
                 TextInput::make('user_nama_lengkap')
                     ->label('Nama Karyawan')
                     ->formatStateUsing(fn ($record) => $record?->user?->nama_lengkap ?? auth()->user()?->nama_lengkap)
@@ -87,7 +89,8 @@ class WorkJournalResource extends Resource
                     ->required()
                     ->rules([
                         fn ($record) => function (string $attribute, $value, \Closure $fail) use ($record) {
-                            $userId = auth()->id();
+                            // Unik per pemilik jurnal (admin bisa mengedit jurnal karyawan lain).
+                            $userId = $record?->user_id ?? auth()->id();
                             $query = WorkJournal::where('user_id', $userId)
                                 ->whereDate('date', $value)
                                 ->whereNull('deleted_at');
@@ -166,21 +169,16 @@ class WorkJournalResource extends Resource
                     ->relationship(
                         name: 'user',
                         titleAttribute: 'nama_lengkap',
-                        modifyQueryUsing: function (Builder $query): Builder {
-                            $user = auth()->user();
-                            $query->whereNull('deleted_at')->orderBy('nama_lengkap');
-
-                            if (! static::canAccessAllJournals($user)) {
-                                $managed = static::getManagedUserIds($user);
-                                $managed[] = $user->id;
-
-                                return $query->whereIn('id', array_unique($managed));
-                            }
-
-                            return $query;
-                        }
+                        // Opsi karyawan mengikuti cakupan daftar jurnal.
+                        modifyQueryUsing: fn (Builder $query): Builder => WorkJournalPolicy::scopeVisible(
+                            $query->whereNull('deleted_at')->orderBy('nama_lengkap'),
+                            auth()->user(),
+                            $query->qualifyColumn('id'),
+                        ),
                     )
-                    ->visible(fn () => static::canAccessAllJournals(auth()->user()) || ! empty(static::getManagedUserIds(auth()->user()))),
+                    ->visible(fn () => static::canAccessAllJournals(auth()->user())
+                        || DataAccessService::isAreaScopedAdmin(auth()->user())
+                        || ! empty(static::getManagedUserIds(auth()->user()))),
 
                 Filter::make('date')
                     ->form([
@@ -204,16 +202,19 @@ class WorkJournalResource extends Resource
                     ->modalWidth('md'),
                 EditAction::make()
                     ->modalWidth('md')
-                    ->visible(fn ($record) => static::canAccessAllJournals(auth()->user()) || (int) $record->user_id === (int) auth()->id()),
+                    ->visible(fn ($record) => (bool) auth()->user()?->can('update', $record)),
                 DeleteAction::make()
-                    ->visible(fn ($record) => static::canAccessAllJournals(auth()->user()) || (int) $record->user_id === (int) auth()->id()),
+                    ->visible(fn ($record) => (bool) auth()->user()?->can('delete', $record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     ExportBulkAction::make()
                         ->label('Ekspor Pilihan')
                         ->exporter(WorkJournalExporter::class),
-                    DeleteBulkAction::make(),
+                    // Setiap jurnal terpilih dicek dengan WorkJournalPolicy::delete (atasan tidak boleh
+                    // menghapus jurnal bawahan lewat aksi massal).
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords(),
                 ]),
             ]);
     }
@@ -227,21 +228,17 @@ class WorkJournalResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        // Super admin: semua; admin per badan usaha: badan usaha yang diizinkan + tim + diri sendiri;
+        // lainnya: diri sendiri + bawahan approval.
         $user = auth()->user();
+        $query = WorkJournalPolicy::scopeVisible(parent::getEloquentQuery(), $user);
 
-        if (! $user) {
-            return $query->whereIn('user_id', []);
+        // Hak lihat/edit/hapus admin per badan usaha dicek per baris dari badan usaha & role pemilik:
+        // muat sekaligus agar tidak ada query per baris.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            $query->with('user.role');
         }
 
-        if (static::canAccessAllJournals($user)) {
-            return $query;
-        }
-
-        // Supervisor can see own + all managed subordinates
-        $managedUserIds = static::getManagedUserIds($user);
-        $managedUserIds[] = (int) $user->id;
-
-        return $query->whereIn('user_id', array_unique($managedUserIds));
+        return $query;
     }
 }

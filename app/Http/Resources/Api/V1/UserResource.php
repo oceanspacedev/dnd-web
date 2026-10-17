@@ -16,6 +16,11 @@ class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // Akses data badan usaha hanya bermakna untuk role ADMIN.
+        $dataAccess = $this->resource->isAdmin()
+            ? ($this->data_access === User::DATA_ACCESS_SELECTED ? User::DATA_ACCESS_SELECTED : User::DATA_ACCESS_ALL)
+            : null;
+
         return [
             'id' => $this->id,
             'employee_id' => $this->employee_id,
@@ -45,6 +50,13 @@ class UserResource extends JsonResource
                 'username' => $this->approval->username,
                 'employee_id' => $this->approval->employee_id,
             ] : null,
+            'data_access' => $dataAccess,
+            'data_access_area_ids' => $this->whenLoaded(
+                'dataAccessAreas',
+                fn (): ?array => $dataAccess === User::DATA_ACCESS_SELECTED
+                    ? $this->dataAccessAreas->pluck('id')->map(static fn ($id): int => (int) $id)->sort()->values()->all()
+                    : null,
+            ),
             'flags' => [
                 'dr' => (bool) $this->dr,
                 'wn' => (bool) $this->wn,

@@ -6,7 +6,7 @@ use App\Exports\AttendanceExport;
 use App\Exports\AttendanceImportTemplateExport;
 use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Imports\AttendanceImport;
-use App\Services\ApprovalScopeService;
+use App\Policies\AttendancePolicy;
 use App\Support\StoredSpreadsheetUpload;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -37,14 +37,16 @@ class ListAttendances extends ListRecords
                     $currentPeriod = Date::now()->format('Y-m');
                     $fileName = "attendance_import_template_{$currentPeriod}.xlsx";
 
-                    return Excel::download(new AttendanceImportTemplateExport, $fileName);
+                    // Template hanya berisi karyawan yang boleh diisi datanya oleh user (tanpa akun ADMIN untuk admin per badan usaha).
+                    return Excel::download(new AttendanceImportTemplateExport(AttendancePolicy::writableUserIds(auth()->user())), $fileName);
                 }),
             ActionGroup::make([
                 Action::make('export')
                     ->label('Export')
                     ->icon('heroicon-s-arrow-down-tray')
                     ->action(function () {
-                        return Excel::download(new AttendanceExport, 'attendance_data.xlsx');
+                        // Export mengikuti cakupan daftar Kehadiran.
+                        return Excel::download(new AttendanceExport(AttendancePolicy::visibleUserIds(auth()->user())), 'attendance_data.xlsx');
                     }),
                 Action::make('import')
                     ->icon('heroicon-s-arrow-up-tray')
@@ -75,10 +77,8 @@ class ListAttendances extends ListRecords
     public function processImport(array $data)
     {
         try {
-            $allowedUserIds = null;
-            if (! AttendanceResource::canAccessAllAttendance(auth()->user())) {
-                $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            }
+            // null = seluruh karyawan; selain itu hanya karyawan yang boleh diisi datanya oleh user.
+            $allowedUserIds = AttendancePolicy::writableUserIds(auth()->user());
 
             if (! isset($data['file']) || empty($data['file'])) {
                 Notification::make()

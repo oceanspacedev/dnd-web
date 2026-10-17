@@ -440,8 +440,9 @@ class UserJsonImportService
         ]);
 
         $positionIds = static::matchingMasterIds(Position::query(), $positionName);
+        // Akun ADMIN tidak pernah dijadikan pola user baru (role ADMIN hanya diberikan manual oleh super admin).
         $adminRoleIds = Role::query()
-            ->whereRaw('LOWER(TRIM(name)) = ?', ['admin'])
+            ->whereRaw('LOWER(TRIM(name)) = ?', [strtolower(User::ROLE_ADMIN)])
             ->pluck('id');
 
         $query = User::query()

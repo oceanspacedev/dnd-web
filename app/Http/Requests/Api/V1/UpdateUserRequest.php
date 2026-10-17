@@ -2,19 +2,29 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Models\Role;
 use App\Models\User;
+use App\Services\DataAccessService;
 use App\Support\WhatsAppNumber;
+use Closure;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
 
 class UpdateUserRequest extends FormRequest
 {
+    /** Dipakai untuk id yang tidak ada maupun di luar akses data. */
+    public const APPROVAL_OUT_OF_SCOPE = 'Approval line tidak valid atau berada di luar akses data Anda.';
+
+    private ?User $targetUser = null;
+
+    private bool $targetResolved = false;
+
     public function authorize(): bool
     {
-        $userId = $this->route('id') ?? $this->route('user');
-        $target = User::query()->find($userId);
+        $target = $this->targetUser();
         $user = $this->user();
 
         if (! $user instanceof User) {
@@ -22,13 +32,17 @@ class UpdateUserRequest extends FormRequest
         }
 
         return $target instanceof User
-            && (! $this->exists('no_hp') || $user->role?->name === 'ADMIN')
+            && (! $this->exists('no_hp') || DataAccessService::isAdmin($user))
+            // Akses data badan usaha hanya diatur admin dengan akses seluruh badan usaha.
+            && (! $this->sendsDataAccess() || DataAccessService::hasGlobalAccess($user))
             && $user->can('update', $target);
     }
 
     public function rules(): array
     {
         $userId = $this->route('id') ?? $this->route('user');
+        $actor = $this->user();
+        $isScopedAdmin = DataAccessService::isAreaScopedAdmin($actor instanceof User ? $actor : null);
 
         return [
             'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
@@ -43,11 +57,22 @@ class UpdateUserRequest extends FormRequest
                 Rule::unique('users', 'no_hp')->ignore($userId),
             ],
             'employee_id' => ['nullable', 'string', 'max:100', Rule::unique('users', 'employee_id')->ignore($userId)],
-            'role_id' => ['sometimes', 'required', 'exists:roles,id'],
-            'area_id' => ['nullable', 'exists:areas,id'],
+            'role_id' => ['bail', 'sometimes', 'required', 'exists:roles,id', $this->keepsLastGlobalAdmin()],
+            // Admin badan usaha tidak boleh memindahkan karyawan ke badan usaha di luar aksesnya.
+            'area_id' => $isScopedAdmin
+                ? ['bail', 'sometimes', 'required', 'exists:areas,id', $this->areaWithinScope()]
+                : ['nullable', 'exists:areas,id'],
             'divisi_id' => ['nullable', 'exists:divisis,id'],
             'position_id' => ['nullable', 'exists:positions,id'],
-            'approval_id' => ['nullable', 'exists:users,id'],
+            'approval_id' => ['bail', 'nullable', 'integer', 'exists:users,id', $this->approvalWithinScope()],
+            'data_access' => ['bail', 'nullable', 'string', Rule::in([User::DATA_ACCESS_ALL, User::DATA_ACCESS_SELECTED]), $this->notRestrictingOwnAccess()],
+            'data_access_area_ids' => [
+                Rule::requiredIf(fn (): bool => $this->input('data_access') === User::DATA_ACCESS_SELECTED && $this->assignsAdminRole()),
+                'nullable',
+                'array',
+                $this->areaIdsOnlyForSelected(),
+            ],
+            'data_access_area_ids.*' => ['integer', 'distinct', 'exists:areas,id'],
             'dr' => ['boolean'],
             'wn' => ['boolean'],
             'wr' => ['boolean'],
@@ -66,6 +91,13 @@ class UpdateUserRequest extends FormRequest
             'no_hp.regex' => 'Format No. HP WhatsApp Indonesia tidak valid.',
             'no_hp.unique' => 'No. HP sudah digunakan oleh user lain.',
             'role_id.exists' => 'Role yang dipilih tidak valid.',
+            'area_id.required' => 'Badan usaha wajib dipilih.',
+            'area_id.exists' => 'Badan usaha yang dipilih tidak valid.',
+            // Pesan sama dengan id di luar akses agar tidak membocorkan id karyawan yang ada.
+            'approval_id.exists' => self::APPROVAL_OUT_OF_SCOPE,
+            'data_access.in' => 'Akses data harus all atau selected.',
+            'data_access_area_ids.required' => 'Pilih minimal satu badan usaha untuk akses data selected.',
+            'data_access_area_ids.*.exists' => 'Badan usaha akses data tidak valid.',
         ];
     }
 
@@ -89,5 +121,187 @@ class UpdateUserRequest extends FormRequest
         $this->merge([
             'no_hp' => WhatsAppNumber::toLocal((string) $value) ?? $value,
         ]);
+    }
+
+    private function targetUser(): ?User
+    {
+        if (! $this->targetResolved) {
+            $userId = $this->route('id') ?? $this->route('user');
+            $this->targetUser = User::query()->find($userId);
+            $this->targetResolved = true;
+        }
+
+        return $this->targetUser;
+    }
+
+    private function sendsDataAccess(): bool
+    {
+        return $this->exists('data_access') || $this->exists('data_access_area_ids');
+    }
+
+    /**
+     * Role akhir karyawan (role baru di payload, atau role saat ini) adalah ADMIN.
+     */
+    private function assignsAdminRole(): bool
+    {
+        $roleId = $this->input('role_id', $this->targetUser()?->role_id);
+
+        return is_scalar($roleId)
+            && Role::query()->whereKey($roleId)->value('name') === User::ROLE_ADMIN;
+    }
+
+    private function areaWithinScope(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            // Badan usaha yang tidak berubah tetap boleh (mis. anggota tim di badan usaha lain).
+            if (is_scalar($value) && (string) $value === (string) $this->targetUser()?->area_id) {
+                return;
+            }
+
+            $actor = $this->user();
+
+            if (! DataAccessService::canAccessArea($actor instanceof User ? $actor : null, is_scalar($value) ? (string) $value : null)) {
+                $fail('Badan usaha berada di luar akses data Anda.');
+            }
+        };
+    }
+
+    /**
+     * Approval line baru harus karyawan yang terlihat oleh actor; nilai yang tidak berubah tetap boleh.
+     *
+     * Menjadikan diri sendiri approval line memasukkan bawahan langsung karyawan ini ke tim actor,
+     * jadi admin badan usaha hanya boleh bila seluruh bawahan langsungnya sudah terlihat olehnya.
+     * Tanpa cek ini admin badan usaha bisa menarik karyawan badan usaha lain ke timnya.
+     * Sama dengan UserResource::approvalWidensActorScope; aturan atasan non-admin tidak berubah.
+     */
+    private function approvalWithinScope(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if (is_scalar($value) && (string) $value === (string) $this->targetUser()?->approval_id) {
+                return;
+            }
+
+            $actor = $this->user();
+            $actor = $actor instanceof User ? $actor : null;
+
+            // Hanya admin badan usaha tertentu yang dibatasi; aturan atasan lain tetap seperti sebelumnya.
+            if (! DataAccessService::isAreaScopedAdmin($actor)) {
+                return;
+            }
+
+            if (! is_scalar($value) || ! DataAccessService::canSeeUser($actor, (int) $value)) {
+                $fail(self::APPROVAL_OUT_OF_SCOPE);
+
+                return;
+            }
+
+            if (
+                $actor instanceof User
+                && (int) $value === (int) $actor->getKey()
+                && DataAccessService::isAreaScopedAdmin($actor)
+                && $this->hasDirectReportsOutsideScope($actor)
+            ) {
+                $fail('Anda tidak dapat menjadi approval line karyawan ini karena bawahannya berada di luar akses data Anda.');
+            }
+        };
+    }
+
+    /**
+     * Bawahan langsung (aktif) karyawan target yang tidak terlihat oleh actor.
+     */
+    private function hasDirectReportsOutsideScope(User $actor): bool
+    {
+        $target = $this->targetUser();
+
+        if (! $target instanceof User) {
+            return false;
+        }
+
+        return User::query()
+            ->where('approval_id', $target->getKey())
+            ->pluck('id')
+            ->contains(fn (mixed $id): bool => ! DataAccessService::canSeeUser($actor, (int) $id));
+    }
+
+    /**
+     * Akses data akhir setelah update: nilai yang dikirim, atau nilai saat ini.
+     */
+    private function resultingDataAccess(): string
+    {
+        $requested = $this->input('data_access');
+
+        if (is_string($requested) && $requested !== '') {
+            return $requested;
+        }
+
+        return $this->targetUser()?->data_access === User::DATA_ACCESS_SELECTED
+            ? User::DATA_ACCESS_SELECTED
+            : User::DATA_ACCESS_ALL;
+    }
+
+    /**
+     * Daftar badan usaha hanya bermakna untuk admin dengan akses selected; jangan diabaikan diam-diam.
+     */
+    private function areaIdsOnlyForSelected(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if (! is_array($value) || $value === [] || ! $this->assignsAdminRole()) {
+                return;
+            }
+
+            if ($this->resultingDataAccess() === User::DATA_ACCESS_ALL) {
+                $fail('Badan usaha akses data hanya dapat diisi untuk akses data selected.');
+            }
+        };
+    }
+
+    /**
+     * Super admin tidak boleh membatasi akses data akunnya sendiri (sama seperti form Filament).
+     */
+    private function notRestrictingOwnAccess(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if ($value === User::DATA_ACCESS_SELECTED && $this->targetsActor()) {
+                $fail('Anda tidak dapat membatasi akses data akun Anda sendiri.');
+            }
+        };
+    }
+
+    /**
+     * Super admin terakhir tidak boleh melepas role ADMIN dari akunnya sendiri.
+     */
+    private function keepsLastGlobalAdmin(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            $target = $this->targetUser();
+
+            if (! $target instanceof User || ! $this->targetsActor() || ! DataAccessService::hasGlobalAccess($target)) {
+                return;
+            }
+
+            if (is_scalar($value) && Role::query()->whereKey($value)->value('name') === User::ROLE_ADMIN) {
+                return;
+            }
+
+            $otherGlobalAdminExists = User::query()
+                ->whereKeyNot($target->getKey())
+                ->whereHas('role', fn (Builder $roleQuery) => $roleQuery->where('name', User::ROLE_ADMIN))
+                ->where(fn (Builder $access) => $access
+                    ->whereNull('data_access')
+                    ->orWhere('data_access', '!=', User::DATA_ACCESS_SELECTED))
+                ->exists();
+
+            if (! $otherGlobalAdminExists) {
+                $fail('Minimal harus ada satu admin dengan akses seluruh badan usaha.');
+            }
+        };
+    }
+
+    private function targetsActor(): bool
+    {
+        $actor = $this->user();
+        $target = $this->targetUser();
+
+        return $actor instanceof User && $target instanceof User && $target->is($actor);
     }
 }

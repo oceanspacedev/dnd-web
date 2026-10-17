@@ -4,7 +4,13 @@ namespace App\Policies;
 
 use App\Models\ApprovalRule;
 use App\Models\User;
+use App\Services\DataAccessService;
 
+/**
+ * Aturan approval adalah master data lintas badan usaha: hanya super admin
+ * (ADMIN dengan akses seluruh badan usaha) yang boleh melihat dan mengelolanya.
+ * Aturan tanpa area berlaku untuk seluruh badan usaha.
+ */
 class ApprovalRulePolicy
 {
     /**
@@ -12,7 +18,7 @@ class ApprovalRulePolicy
      */
     public function viewAny(User $user): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
     }
 
     /**
@@ -20,7 +26,7 @@ class ApprovalRulePolicy
      */
     public function view(User $user, ApprovalRule $approvalRule): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
     }
 
     /**
@@ -28,7 +34,7 @@ class ApprovalRulePolicy
      */
     public function create(User $user): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
     }
 
     /**
@@ -36,7 +42,7 @@ class ApprovalRulePolicy
      */
     public function update(User $user, ApprovalRule $approvalRule): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
     }
 
     /**
@@ -44,7 +50,15 @@ class ApprovalRulePolicy
      */
     public function delete(User $user, ApprovalRule $approvalRule): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk delete models.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -52,7 +66,15 @@ class ApprovalRulePolicy
      */
     public function restore(User $user, ApprovalRule $approvalRule): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk restore models.
+     */
+    public function restoreAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -60,11 +82,19 @@ class ApprovalRulePolicy
      */
     public function forceDelete(User $user, ApprovalRule $approvalRule): bool
     {
-        return $this->isAdmin($user);
+        return $this->canManage($user);
     }
 
-    private function isAdmin(User $user): bool
+    /**
+     * Determine whether the user can bulk permanently delete models.
+     */
+    public function forceDeleteAny(User $user): bool
     {
-        return $user->role?->name === 'ADMIN';
+        return $this->canManage($user);
+    }
+
+    private function canManage(User $user): bool
+    {
+        return DataAccessService::hasGlobalAccess($user);
     }
 }

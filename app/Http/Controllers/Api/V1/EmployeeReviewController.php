@@ -11,7 +11,7 @@ use App\Models\Attendance;
 use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
 use App\Services\KpiScoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,14 +30,10 @@ class EmployeeReviewController extends Controller
         $this->authorize('viewAny', EmployeeReview::class);
 
         $query = EmployeeReview::with('user');
-        $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
-            $query->whereIn(
-                'user_id',
-                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
-            );
-        }
+        // Super admin: semua data; admin per badan usaha: badan usaha yang diizinkan, tim approval,
+        // dan dirinya sendiri; atasan: bawahan approval.
+        EmployeeReviewPolicy::scopeVisible($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -101,9 +97,14 @@ class EmployeeReviewController extends Controller
         $this->authorize('create', EmployeeReview::class);
 
         $validated = $request->validated();
-        $this->authorize('view', new EmployeeReview(['user_id' => (int) $validated['user_id']]));
 
-        $existing = EmployeeReview::where('user_id', $validated['user_id'])
+        // Satu id yang sama untuk cek akses, cek duplikat, dan simpan. Target dicek dengan hak tulis
+        // (admin per badan usaha tidak boleh menilai akun ADMIN, termasuk dirinya sendiri).
+        $userId = (int) $validated['user_id'];
+        $validated['user_id'] = $userId;
+        $this->authorize('update', new EmployeeReview(['user_id' => $userId]));
+
+        $existing = EmployeeReview::where('user_id', $userId)
             ->where('periode', $validated['periode'])
             ->first();
 

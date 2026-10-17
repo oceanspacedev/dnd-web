@@ -16,7 +16,7 @@ class StoreCutpointRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['required', 'exists:users,id'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
             'point' => ['required', 'numeric', 'min:0'],
             'periode' => ['required', 'string', 'max:50'],
             'keterangan' => ['required', 'string'],
@@ -27,6 +27,7 @@ class StoreCutpointRequest extends FormRequest
     {
         return [
             'user_id.required' => 'Karyawan yang dipotong poin wajib dipilih.',
+            'user_id.integer' => 'Karyawan tidak valid.',
             'point.required' => 'Besaran poin potongan wajib diisi.',
             'periode.required' => 'Periode (e.g. 2026-09) wajib diisi.',
             'keterangan.required' => 'Keterangan/alasan pemotongan poin wajib diisi.',

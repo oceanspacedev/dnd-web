@@ -2,6 +2,9 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Models\User;
+use App\Services\DataAccessService;
+use Closure;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -16,11 +19,11 @@ class StoreMonthlyRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['nullable', 'exists:users,id'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
             'task' => ['required', 'string'],
             'date' => ['required', 'date'],
             'tipe' => ['nullable', 'string', 'max:100'],
-            'tag_id' => ['nullable', 'exists:users,id'],
+            'tag_id' => ['nullable', 'integer', 'exists:users,id', $this->visibleToAreaScopedAdmin()],
             'value_plan' => ['nullable', 'numeric', 'min:0'],
             'value_actual' => ['nullable', 'numeric', 'min:0'],
             'status_non' => ['nullable', 'string', 'max:100'],
@@ -35,6 +38,27 @@ class StoreMonthlyRequest extends FormRequest
             'task.required' => 'Nama/deskripsi rencana bulanan wajib diisi.',
             'date.required' => 'Tanggal/bulan rencana wajib diisi.',
         ];
+    }
+
+    /**
+     * Admin per badan usaha hanya boleh merujuk karyawan yang terlihat olehnya
+     * (badan usaha yang diizinkan, tim approval, atau dirinya sendiri).
+     */
+    private function visibleToAreaScopedAdmin(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            $actor = $this->user();
+
+            if (
+                filled($value)
+                && is_scalar($value)
+                && $actor instanceof User
+                && DataAccessService::isAreaScopedAdmin($actor)
+                && ! DataAccessService::canSeeUser($actor, (string) $value)
+            ) {
+                $fail('Karyawan yang ditandai berada di luar akses data Anda.');
+            }
+        };
     }
 
     protected function failedValidation(Validator $validator)

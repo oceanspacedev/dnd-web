@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -29,6 +30,14 @@ class User extends Authenticatable implements FilamentUser, HasName
     use HasFactory;
 
     use Notifiable, SoftDeletes;
+
+    public const ROLE_ADMIN = 'ADMIN';
+
+    /** Admin melihat seluruh badan usaha. */
+    public const DATA_ACCESS_ALL = 'all';
+
+    /** Admin hanya melihat badan usaha di relasi dataAccessAreas. */
+    public const DATA_ACCESS_SELECTED = 'selected';
 
     protected static function booted(): void
     {
@@ -124,6 +133,21 @@ class User extends Authenticatable implements FilamentUser, HasName
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    /**
+     * Badan usaha yang boleh diakses admin dengan akses data 'selected'.
+     *
+     * @return BelongsToMany<Area, $this>
+     */
+    public function dataAccessAreas(): BelongsToMany
+    {
+        return $this->belongsToMany(Area::class, 'user_area_access')->withTimestamps();
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role?->name === self::ROLE_ADMIN;
     }
 
     /** @return BelongsTo<Divisi, $this> */

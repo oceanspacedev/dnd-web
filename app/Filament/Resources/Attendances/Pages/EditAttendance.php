@@ -3,7 +3,8 @@
 namespace App\Filament\Resources\Attendances\Pages;
 
 use App\Filament\Resources\Attendances\AttendanceResource;
-use App\Services\ApprovalScopeService;
+use App\Policies\AttendancePolicy;
+use App\Services\DataAccessService;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -18,14 +19,15 @@ class EditAttendance extends EditRecord
             return;
         }
 
+        // Validasi ulang target di server: jangan percaya state Livewire.
         $data = $this->form->getState();
-        $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-        $isValidSubordinate = in_array((int) $data['user_id'], $managedUserIds, true);
 
-        if (! $isValidSubordinate) {
+        if (! AttendancePolicy::canManageUser(auth()->user(), $data['user_id'] ?? null)) {
             Notification::make()
                 ->title('User tidak valid')
-                ->body('Anda hanya bisa mengubah data kehadiran untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
+                ->body(DataAccessService::isAreaScopedAdmin(auth()->user())
+                    ? 'Anda hanya bisa mengubah data kehadiran untuk karyawan di badan usaha yang diizinkan atau tim approval Anda, selain akun ADMIN (termasuk diri sendiri).'
+                    : 'Anda hanya bisa mengubah data kehadiran untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
                 ->danger()
                 ->send();
 

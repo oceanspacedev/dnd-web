@@ -12,19 +12,24 @@ class EditUser extends EditRecord
 {
     protected static string $resource = UserResource::class;
 
+    // Data karyawan dan daftar badan usaha (relasi) disimpan atomik.
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function beforeSave(): void
     {
-        $data = $this->form->getState();
+        // Baca state mentah (sudah lolos validasi): getState() kedua akan ikut menyimpan relasi
+        // (mis. daftar badan usaha akses data) sebelum pengecekan di bawah sempat membatalkan simpan.
+        $rawApprovalId = data_get($this->form->getRawState(), 'approval_id');
         $record = $this->getRecord();
 
         if (! $record instanceof User) {
-            $this->halt();
+            $this->halt(shouldRollbackDatabaseTransaction: true);
 
             return;
         }
 
         $recordId = (int) $record->id;
-        $approvalId = isset($data['approval_id']) ? (int) $data['approval_id'] : 0;
+        $approvalId = filled($rawApprovalId) && is_scalar($rawApprovalId) ? (int) $rawApprovalId : 0;
 
         if ($approvalId === 0) {
             return;
@@ -37,7 +42,7 @@ class EditUser extends EditRecord
                 ->danger()
                 ->send();
 
-            $this->halt();
+            $this->halt(shouldRollbackDatabaseTransaction: true);
 
             return;
         }
@@ -49,18 +54,29 @@ class EditUser extends EditRecord
                 ->danger()
                 ->send();
 
-            $this->halt();
+            $this->halt(shouldRollbackDatabaseTransaction: true);
         }
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        return UserResource::mutateAuthorizedData($data);
+        $record = $this->getRecord();
+
+        return static::getResource()::mutateAuthorizedData($data, $record instanceof User ? $record : null);
+    }
+
+    protected function afterSave(): void
+    {
+        $record = $this->getRecord();
+
+        if ($record instanceof User) {
+            static::getResource()::normalizeDataAccess($record);
+        }
     }
 
     private function createsApprovalCycle(int $recordId, int $approvalId): bool
     {
-        return UserResource::createsApprovalCycle($recordId, $approvalId);
+        return static::getResource()::createsApprovalCycle($recordId, $approvalId);
     }
 
     protected function getHeaderActions(): array

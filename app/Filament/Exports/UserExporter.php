@@ -3,9 +3,11 @@
 namespace App\Filament\Exports;
 
 use App\Models\User;
+use App\Services\DataAccessService;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
+use Illuminate\Database\Eloquent\Builder;
 
 class UserExporter extends Exporter
 {
@@ -39,6 +41,25 @@ class UserExporter extends Exporter
             ExportColumn::make('updated_at')
                 ->label('updated_at'),
         ];
+    }
+
+    /**
+     * Pertahanan berlapis: dipanggil saat aksi export dijalankan (sebelum query diserialisasi ke job).
+     * Query tabel tiap menu (Karyawan / Tim Saya) sudah lebih sempit; di sini dipastikan export tidak
+     * pernah memuat karyawan di luar badan usaha, tim, atau diri actor.
+     *
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    public static function modifyQuery(Builder $query): Builder
+    {
+        $actor = auth()->user();
+
+        if (! $actor instanceof User) {
+            return $query;
+        }
+
+        return DataAccessService::scopeOwnedRecords($query, $actor, $query->qualifyColumn('id'));
     }
 
     public static function getCompletedNotificationBody(Export $export): string

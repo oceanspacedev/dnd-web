@@ -8,6 +8,7 @@ use App\Models\KpiDescription;
 use App\Observers\KpiCategoryObserver;
 use App\Observers\KpiDescriptionObserver;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Support\ObservabilityAccess;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Grid;
@@ -26,6 +27,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // Octane resets scoped bindings between requests and queue jobs.
         $this->app->scoped(ApprovalScopeService::class);
+        $this->app->scoped(DataAccessService::class);
     }
 
     /**

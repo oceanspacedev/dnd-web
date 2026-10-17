@@ -21,6 +21,7 @@ use App\Models\Monthly;
 use App\Models\User;
 use App\Models\Weekly;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -126,7 +127,7 @@ class ActivityController extends Controller
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
-        $this->authorize('view', new Daily(['user_id' => (int) $validated['user_id']]));
+        $this->authorize('update', new Daily(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'daily';
         $validated['ontime'] = $validated['ontime'] ?? true;
@@ -418,7 +419,7 @@ class ActivityController extends Controller
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
-        $this->authorize('view', new Weekly(['user_id' => (int) $validated['user_id']]));
+        $this->authorize('update', new Weekly(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'weekly';
         $validated['is_add'] = true;
@@ -565,7 +566,7 @@ class ActivityController extends Controller
         $currentUser = auth()->user();
 
         $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
-        $this->authorize('view', new Monthly(['user_id' => (int) $validated['user_id']]));
+        $this->authorize('update', new Monthly(['user_id' => (int) $validated['user_id']]));
         $validated['add_id'] = $currentUser?->id;
         $validated['tipe'] = $validated['tipe'] ?? 'monthly';
         $validated['is_add'] = true;
@@ -643,8 +644,13 @@ class ActivityController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $userId = $request->query('user_id', auth()->id());
-        $this->authorize('view', new Daily(['user_id' => (int) $userId]));
+        // Normalisasi sekali: id yang diotorisasi harus sama persis dengan id yang dipakai query
+        // (user_id[] dsb. ditolak agar (int) cast tidak memeriksa user yang berbeda).
+        $validated = $request->validate([
+            'user_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $userId = (int) ($validated['user_id'] ?? auth()->id());
+        $this->authorize('view', new Daily(['user_id' => $userId]));
         $today = Date::today()->format('Y-m-d');
 
         $dailyQuery = Daily::where('user_id', $userId);
@@ -663,7 +669,7 @@ class ActivityController extends Controller
             'success' => true,
             'message' => 'Ringkasan aktivitas kerja berhasil diambil.',
             'data' => [
-                'user_id' => (int) $userId,
+                'user_id' => $userId,
                 'date' => $today,
                 'daily' => [
                     'total_today' => $totalDailyToday,
@@ -686,13 +692,20 @@ class ActivityController extends Controller
 
     /**
      * Restrict activity list queries to the authenticated user's own records
-     * and the one-level approval scope. Admins retain company-wide visibility.
+     * and the one-level approval scope. Super admins retain company-wide visibility;
+     * area-scoped admins see their allowed badan usaha plus their team and themselves.
      *
      * @param  Builder<Daily|Weekly|Monthly>  $query
      */
     private function applyVisibleUserScope($query, ?User $actor): void
     {
-        if ($actor?->role?->name === 'ADMIN') {
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            return;
+        }
+
+        if (DataAccessService::isAdmin($actor)) {
+            DataAccessService::scopeOwnedRecords($query, $actor);
+
             return;
         }
 

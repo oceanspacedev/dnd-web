@@ -12,6 +12,12 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
 class AttendanceImportTemplateExport implements FromCollection, ShouldAutoSize, WithHeadings
 {
     /**
+     * @param  array<int>|null  $userIds  Karyawan yang dimasukkan ke template. null = seluruh karyawan;
+     *                                    pemanggil HTTP/Livewire mengisi cakupan actor (AttendancePolicy::visibleUserIds).
+     */
+    public function __construct(private readonly ?array $userIds = null) {}
+
+    /**
      * Fetch data for export: only users' full names and current period.
      */
     public function collection(): Enumerable
@@ -19,6 +25,7 @@ class AttendanceImportTemplateExport implements FromCollection, ShouldAutoSize, 
         $currentPeriod = Date::now()->format('Y-m'); // Current month in YYYY-MM format
 
         return User::whereNull('deleted_at')
+            ->when($this->userIds !== null, fn ($query) => $query->whereIn('id', $this->userIds))
             ->select('employee_id', 'nama_lengkap')
             ->get()
             ->filter(function ($user) {

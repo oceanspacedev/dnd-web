@@ -9,6 +9,7 @@ use App\Http\Resources\Api\V1\CutpointResource;
 use App\Models\Cutpoint;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -27,7 +28,11 @@ class CutpointController extends Controller
         $query = Cutpoint::with('user');
         $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
+        // Super admin melihat seluruh badan usaha; admin per badan usaha melihat badan usaha
+        // yang diizinkan, tim approval, dan dirinya sendiri.
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            DataAccessService::scopeOwnedRecords($query, $actor, $query->qualifyColumn('user_id'));
+        } elseif (! DataAccessService::hasGlobalAccess($actor)) {
             if ($actor?->id === 3) {
                 $query->whereIn(
                     'user_id',
@@ -103,7 +108,12 @@ class CutpointController extends Controller
         $this->authorize('create', Cutpoint::class);
 
         $validated = $request->validated();
-        $this->authorize('view', new Cutpoint(['user_id' => (int) $validated['user_id']]));
+
+        // Satu id yang sama untuk cek akses dan simpan. Target dicek dengan hak tulis
+        // (admin per badan usaha tidak boleh memotong poin akun ADMIN, termasuk dirinya sendiri).
+        $userId = (int) $validated['user_id'];
+        $validated['user_id'] = $userId;
+        $this->authorize('update', new Cutpoint(['user_id' => $userId]));
 
         $cutpoint = Cutpoint::create($validated);
         $cutpoint->load('user');

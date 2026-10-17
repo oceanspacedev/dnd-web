@@ -315,6 +315,7 @@
                 <ul class="mt-2 list-disc space-y-1 pl-5">
                     <li>Opsi yang tampil pada form export/copy mengikuti role pengguna.</li>
                     <li>Jika opsi tertentu tidak muncul, berarti fitur tersebut dibatasi oleh hak akses akun.</li>
+                    <li>Admin dengan akses badan usaha tertentu hanya melihat data karyawan di badan usaha tersebut, ditambah data timnya dan dirinya sendiri.</li>
                 </ul>
             </div>
         </x-filament::section>

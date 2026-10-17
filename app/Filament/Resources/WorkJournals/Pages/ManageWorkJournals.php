@@ -66,7 +66,13 @@ class ManageWorkJournals extends ManageRecords
             CreateAction::make()
                 ->label('Tulis Jurnal Baru')
                 ->icon('heroicon-o-plus')
-                ->modalWidth('md'),
+                ->modalWidth('md')
+                // Pemilik jurnal ditentukan server, bukan dari state form.
+                ->mutateDataUsing(function (array $data): array {
+                    $data['user_id'] = auth()->id();
+
+                    return $data;
+                }),
         ];
     }
 }

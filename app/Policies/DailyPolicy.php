@@ -5,12 +5,16 @@ namespace App\Policies;
 use App\Models\Daily;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 
 class DailyPolicy
 {
+    /**
+     * Super admin: ADMIN dengan akses seluruh badan usaha.
+     */
     private function canManageAll(User $user): bool
     {
-        return $user->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess($user);
     }
 
     private function canManageScoped(User $user): bool
@@ -24,10 +28,19 @@ class DailyPolicy
         ], true);
     }
 
-    private function canAccessRecord(User $user, Daily $daily): bool
+    private function canAccessRecord(User $user, Daily $daily, bool $write = false): bool
     {
         if ($this->canManageAll($user) || (int) $daily->user_id === (int) $user->id) {
             return true;
+        }
+
+        // Admin per badan usaha: pemilik data di badan usaha yang diizinkan atau di tim approval-nya.
+        // Model bisa belum tersimpan (cek target saat create), jadi badan usaha dibaca dari user_id.
+        if (DataAccessService::isAdmin($user)) {
+            // Mengubah data akun ADMIN lain hanya untuk super admin.
+            return $write
+                ? DataAccessService::canWriteForUser($user, $daily->user_id)
+                : DataAccessService::canSeeUser($user, $daily->user_id);
         }
 
         if (! $this->canManageScoped($user)) {
@@ -58,11 +71,11 @@ class DailyPolicy
 
     public function update(User $user, Daily $daily): bool
     {
-        return $this->canAccessRecord($user, $daily);
+        return $this->canAccessRecord($user, $daily, write: true);
     }
 
     public function delete(User $user, Daily $daily): bool
     {
-        return $this->canAccessRecord($user, $daily);
+        return $this->canAccessRecord($user, $daily, write: true);
     }
 }

@@ -80,7 +80,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
                 'nama_lengkap' => $row['nama_lengkap'] ?? '',
                 'employee_id' => $row['id_karyawan'] ?? '',
                 'periode' => $row['periode'] ?? 'Tidak diketahui',
-                'reason' => 'User di luar scope approval Anda',
+                'reason' => 'User di luar cakupan akses data Anda',
             ];
             $this->skippedCount++;
 

@@ -3,15 +3,20 @@
 namespace App\Support;
 
 use App\Models\User;
+use App\Services\DataAccessService;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Gate;
 
 final class ObservabilityAccess
 {
+    /**
+     * Horizon dan Log Viewer memuat data antrean/log dari seluruh badan usaha,
+     * jadi hanya super admin (ADMIN dengan akses seluruh badan usaha) yang boleh membuka.
+     */
     public static function allowed(?Authenticatable $user): bool
     {
-        return $user instanceof User && $user->role?->name === 'ADMIN';
+        return $user instanceof User && DataAccessService::hasGlobalAccess($user);
     }
 
     public static function register(): void

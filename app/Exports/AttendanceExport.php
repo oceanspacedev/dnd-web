@@ -3,7 +3,6 @@
 namespace App\Exports;
 
 use App\Models\Attendance;
-use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
@@ -15,14 +14,21 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class AttendanceExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
     /**
+     * @param  array<int>|null  $userIds  Pemilik data yang boleh diekspor. null = seluruh karyawan;
+     *                                    pemanggil HTTP/Livewire mengisi cakupan actor (AttendancePolicy::visibleUserIds).
+     */
+    public function __construct(private readonly ?array $userIds = null) {}
+
+    /**
      * Mengambil data koleksi untuk ekspor
      *
      * @return Collection
      */
     public function collection(): Enumerable
     {
-        // Ambil semua data attendance yang diperlukan
+        // Ambil data attendance dalam cakupan (termasuk milik karyawan yang sudah dihapus)
         return Attendance::with('user') // Pastikan relasi dengan model User tersedia
+            ->when($this->userIds !== null, fn ($query) => $query->whereIn('user_id', $this->userIds))
             ->get()
             ->map(function ($attendance) {
                 return [

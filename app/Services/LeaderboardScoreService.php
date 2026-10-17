@@ -15,39 +15,145 @@ use Illuminate\Support\Facades\DB;
 class LeaderboardScoreService
 {
     /**
+     * Populasi leaderboard menurut viewer.
+     *
+     * - null  => tanpa batas badan usaha: super admin, dan non-admin (leaderboard perusahaan
+     *            untuk gamifikasi tetap seperti sebelumnya).
+     * - int[] => admin per badan usaha: badan usaha yang diizinkan (users.area_id). Ini hanya
+     *            bagian badan usaha; populasi lengkap (+ tim + dirinya) ada di viewerScope().
+     *
+     * @return array<int>|null
+     */
+    public static function viewerAreaScope(?User $viewer): ?array
+    {
+        if (! DataAccessService::isAreaScopedAdmin($viewer)) {
+            return null;
+        }
+
+        return DataAccessService::allowedAreaIds($viewer) ?? [];
+    }
+
+    /**
+     * Cakupan leaderboard lengkap menurut viewer (areas ∪ tim ∪ diri sendiri, sama dengan modul lain).
+     *
+     * - null => tanpa batas (lihat viewerAreaScope()).
+     * - area_ids => badan usaha yang diizinkan (users.area_id).
+     * - user_ids => tim approval line (ApprovalScopeService) + viewer sendiri, di badan usaha mana pun.
+     *
+     * Hanya admin per badan usaha yang memicu query tim; viewer lain tidak menambah query.
+     *
+     * @return array{area_ids: list<int>, user_ids: list<int>}|null
+     */
+    public static function viewerScope(?User $viewer): ?array
+    {
+        $areaIds = self::viewerAreaScope($viewer);
+
+        if ($areaIds === null || ! $viewer instanceof User) {
+            return null;
+        }
+
+        $viewerId = (int) $viewer->getKey();
+        $userIds = ApprovalScopeService::getManagedUserIdsOneLevelDown($viewerId);
+        $userIds[] = $viewerId;
+
+        return [
+            'area_ids' => array_values(array_unique(array_map(static fn ($id): int => (int) $id, $areaIds))),
+            'user_ids' => array_values(array_unique(array_map(static fn ($id): int => (int) $id, $userIds))),
+        ];
+    }
+
+    /**
+     * Badan usaha yang boleh dipakai sebagai filter oleh viewer bercakupan:
+     * badan usaha yang diizinkan + badan usaha tempat tim/dirinya berada.
+     *
+     * @param  array{area_ids: list<int>, user_ids: list<int>}  $scope
+     * @return list<int>
+     */
+    public static function selectableAreaIds(array $scope): array
+    {
+        $memberAreaIds = $scope['user_ids'] === []
+            ? []
+            : User::query()
+                ->whereIn('id', $scope['user_ids'])
+                ->whereNotNull('area_id')
+                ->distinct()
+                ->pluck('area_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+
+        return array_values(array_unique(array_merge($scope['area_ids'], $memberAreaIds)));
+    }
+
+    /**
      * Ranked API scores for a period. User models are not loaded until hydrateUsers().
      *
+     * Cache dipakai bersama semua viewer (kunci tanpa cakupan); pembatasan cakupan
+     * diterapkan setelah cache dibaca lalu peringkat dinomori ulang 1..N.
+     *
+     * Cakupan aktif bila salah satu dari $allowedAreaIds / $allowedUserIds tidak null:
+     * baris dipertahankan bila area_id ada di $allowedAreaIds ATAU user_id ada di $allowedUserIds.
+     * Filter $areaId di luar $allowedAreaIds hanya menyisakan $allowedUserIds di badan usaha itu.
+     *
+     * @param  array<int>|null  $allowedAreaIds  null (bersama $allowedUserIds null) = seluruh badan usaha.
+     * @param  array<int>|null  $allowedUserIds  tim + viewer sendiri (lihat viewerScope()).
      * @return list<array<string, mixed>>
      */
-    public function rankedScores(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null): array
+    public function rankedScores(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null, ?array $allowedAreaIds = null, ?array $allowedUserIds = null): array
     {
+        $scoped = $allowedAreaIds !== null || $allowedUserIds !== null;
+        $areaLookup = array_flip(array_map(static fn ($id): int => (int) $id, $allowedAreaIds ?? []));
+        $userLookup = array_flip(array_map(static fn ($id): int => (int) $id, $allowedUserIds ?? []));
+
+        if ($scoped) {
+            // Filter area di luar cakupan tidak boleh memperluas populasi.
+            $areaOutsideScope = $areaId !== null && ! isset($areaLookup[$areaId]);
+
+            if ($userLookup === [] && ($areaLookup === [] || $areaOutsideScope)) {
+                return [];
+            }
+        }
+
         $rows = Cache::remember(
             $this->cacheKey($periode, $areaId, $divisiId),
             $this->ttl(),
             fn (): array => $this->computeRankedScores($periode, $areaId, $divisiId),
         );
 
+        $renumber = false;
+
+        if ($scoped) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => isset($userLookup[(int) $row['user_id']])
+                    || ($row['area_id'] !== null && isset($areaLookup[(int) $row['area_id']])),
+            ));
+            $renumber = true;
+        }
+
         $search = is_string($search) ? trim($search) : '';
 
-        if ($search === '') {
+        if ($search !== '') {
+            $needle = mb_strtolower($search);
+            $rows = array_values(array_filter(
+                $rows,
+                function (array $row) use ($needle): bool {
+                    return str_contains(mb_strtolower((string) $row['nama_lengkap']), $needle)
+                        || str_contains(mb_strtolower((string) $row['username']), $needle);
+                },
+            ));
+            $renumber = true;
+        }
+
+        if (! $renumber) {
             return $rows;
         }
 
-        $needle = mb_strtolower($search);
-        $filtered = array_values(array_filter(
-            $rows,
-            function (array $row) use ($needle): bool {
-                return str_contains(mb_strtolower((string) $row['nama_lengkap']), $needle)
-                    || str_contains(mb_strtolower((string) $row['username']), $needle);
-            },
-        ));
-
-        foreach ($filtered as $index => &$row) {
+        foreach ($rows as $index => &$row) {
             $row['rank'] = $index + 1;
         }
         unset($row);
 
-        return $filtered;
+        return $rows;
     }
 
     /**

@@ -6,7 +6,7 @@ use App\Exports\EmployeeReviewExport;
 use App\Exports\EmployeeReviewImportTemplateExport;
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
 use App\Imports\EmployeeReviewImport;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
 use App\Support\StoredSpreadsheetUpload;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -37,14 +37,16 @@ class ListEmployeeReviews extends ListRecords
                     $currentPeriod = Date::now()->format('Y-m');
                     $fileName = "employee_review_import_template_{$currentPeriod}.xlsx";
 
-                    return Excel::download(new EmployeeReviewImportTemplateExport, $fileName);
+                    // Template hanya berisi karyawan yang boleh diisi datanya oleh user (tanpa akun ADMIN untuk admin per badan usaha).
+                    return Excel::download(new EmployeeReviewImportTemplateExport(EmployeeReviewPolicy::writableUserIds(auth()->user())), $fileName);
                 }),
             ActionGroup::make([
                 Action::make('export')
                     ->label('Export')
                     ->icon('heroicon-s-arrow-down-tray')
                     ->action(function () {
-                        return Excel::download(new EmployeeReviewExport, 'employee_review_data.xlsx');
+                        // Export mengikuti cakupan daftar Penilaian.
+                        return Excel::download(new EmployeeReviewExport(EmployeeReviewPolicy::visibleUserIds(auth()->user())), 'employee_review_data.xlsx');
                     }),
                 Action::make('import')
                     ->icon('heroicon-s-arrow-up-tray')
@@ -75,10 +77,8 @@ class ListEmployeeReviews extends ListRecords
     public function processImport(array $data)
     {
         try {
-            $allowedUserIds = null;
-            if (auth()->user()->role?->name !== 'ADMIN') {
-                $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            }
+            // null = seluruh karyawan; selain itu hanya karyawan yang boleh diisi datanya oleh user.
+            $allowedUserIds = EmployeeReviewPolicy::writableUserIds(auth()->user());
 
             if (! isset($data['file']) || empty($data['file'])) {
                 Notification::make()

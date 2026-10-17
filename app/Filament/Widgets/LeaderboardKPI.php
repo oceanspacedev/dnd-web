@@ -6,9 +6,12 @@ use App\Models\Area;
 use App\Models\Divisi;
 use App\Models\User;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
 use Filament\Widgets\Widget;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
+use Livewire\Attributes\Locked;
 
 class LeaderboardKPI extends Widget
 {
@@ -18,6 +21,7 @@ class LeaderboardKPI extends Widget
 
     protected int|string|array $columnSpan = 'full';
 
+    #[Locked]
     public $user_id;
 
     public $month;
@@ -25,6 +29,9 @@ class LeaderboardKPI extends Widget
     public $area;
 
     public $division;
+
+    /** @var list<int>|null */
+    protected ?array $selectableAreaIdsMemo = null;
 
     public function mount($user_id = null, $month = null): void
     {
@@ -36,11 +43,27 @@ class LeaderboardKPI extends Widget
 
     protected function getAreas()
     {
-        return Area::all();
+        $scope = $this->viewerScope();
+
+        if ($scope === null) {
+            return Area::all();
+        }
+
+        // Admin per badan usaha hanya bisa memilih badan usaha yang diizinkan
+        // ditambah badan usaha tempat tim/dirinya berada.
+        return Area::query()->whereIn('id', $this->selectableAreaIds($scope))->get();
     }
 
     protected function getDivisions()
     {
+        $scope = $this->viewerScope();
+
+        if ($scope !== null) {
+            $this->enforceFilterScope();
+
+            return $this->scopedDivisionsQuery($scope)->get();
+        }
+
         if ($this->area) {
             return Divisi::where('area_id', $this->area)->get();
         }
@@ -48,8 +71,86 @@ class LeaderboardKPI extends Widget
         return Divisi::all();
     }
 
+    /**
+     * Cakupan leaderboard viewer: null = seluruh badan usaha (super admin & non-admin);
+     * selain itu admin per badan usaha (area_ids) + tim approval line dan dirinya (user_ids).
+     *
+     * @return array{area_ids: list<int>, user_ids: list<int>}|null
+     */
+    protected function viewerScope(): ?array
+    {
+        $viewer = auth()->user();
+
+        return LeaderboardScoreService::viewerScope($viewer instanceof User ? $viewer : null);
+    }
+
+    /**
+     * @param  array{area_ids: list<int>, user_ids: list<int>}  $scope
+     * @return list<int>
+     */
+    protected function selectableAreaIds(array $scope): array
+    {
+        // Memo per request (properti protected tidak ikut state Livewire).
+        return $this->selectableAreaIdsMemo ??= LeaderboardScoreService::selectableAreaIds($scope);
+    }
+
+    /**
+     * Divisi yang berisi karyawan terlihat di badan usaha terpilih (atau semua badan usaha yang diizinkan),
+     * termasuk divisi tim/dirinya. Pakai users.area_id, bukan divisis.area_id, karena keduanya bisa berbeda.
+     *
+     * @param  array{area_ids: list<int>, user_ids: list<int>}  $scope
+     * @return Builder<Divisi>
+     */
+    protected function scopedDivisionsQuery(array $scope): Builder
+    {
+        $selectedAreaId = filled($this->area) ? (int) $this->area : null;
+        $areaIds = $selectedAreaId !== null
+            ? array_values(array_intersect([$selectedAreaId], $scope['area_ids']))
+            : $scope['area_ids'];
+
+        $members = User::query()
+            ->select('divisi_id')
+            ->whereNotNull('divisi_id')
+            ->where(function (Builder $visible) use ($areaIds, $scope, $selectedAreaId): void {
+                $visible->whereIn('area_id', $areaIds)
+                    ->orWhere(function (Builder $team) use ($scope, $selectedAreaId): void {
+                        $team->whereIn('id', $scope['user_ids'])
+                            ->when($selectedAreaId !== null, fn (Builder $query) => $query->where('area_id', $selectedAreaId));
+                    });
+            });
+
+        return Divisi::query()->whereIn('id', $members);
+    }
+
+    /**
+     * $area dan $division adalah prop publik Livewire yang bisa diubah klien:
+     * validasi ulang terhadap cakupan admin per badan usaha, nilai di luar cakupan dikosongkan.
+     */
+    protected function enforceFilterScope(): void
+    {
+        $scope = $this->viewerScope();
+
+        if ($scope === null) {
+            return;
+        }
+
+        $area = (string) ($this->area ?? '');
+
+        if ($area !== '' && (! ctype_digit($area) || ! in_array((int) $area, $this->selectableAreaIds($scope), true))) {
+            $this->area = '';
+        }
+
+        $division = (string) ($this->division ?? '');
+
+        if ($division !== '' && (! ctype_digit($division) || ! $this->scopedDivisionsQuery($scope)->whereKey((int) $division)->exists())) {
+            $this->division = '';
+        }
+    }
+
     protected function getLeaderboardData()
     {
+        $this->enforceFilterScope();
+
         $period = is_string($this->month)
             && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $this->month)
                 ? $this->month
@@ -58,11 +159,28 @@ class LeaderboardKPI extends Widget
         $division = (string) ($this->division ?? '');
         $ttl = max(1, (int) config('kpi.cache_ttl_seconds.leaderboard', 60));
 
-        return Cache::remember(
+        // Kunci cache tanpa cakupan viewer (dipakai bersama); batasi cakupan setelah dibaca.
+        $rows = Cache::remember(
             "leaderboard:panel:{$period}:{$area}:{$division}",
             $ttl,
             fn (): array => $this->computeLeaderboardData($period),
         );
+
+        $scope = $this->viewerScope();
+
+        if ($scope === null) {
+            return $rows;
+        }
+
+        $allowedAreas = array_flip($scope['area_ids']);
+        $allowedUsers = array_flip($scope['user_ids']);
+
+        // Peringkat di blade = urutan array, jadi array_values() sekaligus menomori ulang 1..N.
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => isset($allowedUsers[(int) $row['user']->id])
+                || isset($allowedAreas[(int) $row['user']->area_id]),
+        ));
     }
 
     /**

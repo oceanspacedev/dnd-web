@@ -8,7 +8,7 @@ use App\Http\Requests\Api\V1\UpdateAttendanceRequest;
 use App\Http\Resources\Api\V1\AttendanceResource;
 use App\Models\Attendance;
 use App\Models\User;
-use App\Services\ApprovalScopeService;
+use App\Policies\AttendancePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,17 +25,10 @@ class AttendanceController extends Controller
         $this->authorize('viewAny', Attendance::class);
 
         $query = Attendance::with('user');
-        $actor = $request->user();
 
-        if (
-            $actor?->role?->name !== 'ADMIN'
-            && strtolower((string) ($actor?->username ?? '')) !== 'darkini'
-        ) {
-            $query->whereIn(
-                'user_id',
-                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
-            );
-        }
+        // Super admin / user khusus kehadiran: semua data; admin per badan usaha: badan usaha yang
+        // diizinkan, tim approval, dan dirinya sendiri; atasan: bawahan approval.
+        AttendancePolicy::scopeVisible($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -103,9 +96,14 @@ class AttendanceController extends Controller
         $this->authorize('create', Attendance::class);
 
         $validated = $request->validated();
-        $this->authorize('view', new Attendance(['user_id' => (int) $validated['user_id']]));
 
-        $existing = Attendance::where('user_id', $validated['user_id'])
+        // Satu id yang sama untuk cek akses, cek duplikat, dan simpan. Target dicek dengan hak tulis
+        // (admin per badan usaha tidak boleh mencatat untuk akun ADMIN, termasuk dirinya sendiri).
+        $userId = (int) $validated['user_id'];
+        $validated['user_id'] = $userId;
+        $this->authorize('update', new Attendance(['user_id' => $userId]));
+
+        $existing = Attendance::where('user_id', $userId)
             ->where('periode', $validated['periode'])
             ->first();
 

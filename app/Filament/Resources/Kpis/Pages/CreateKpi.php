@@ -7,6 +7,7 @@ use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Exception;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
@@ -56,7 +57,13 @@ class CreateKpi extends CreateRecord
                 ->whereNull('deleted_at')
                 ->where('position_id', $data['position_id']);
 
-            if (Auth::user()?->role?->name !== 'ADMIN') {
+            $actor = Auth::user();
+
+            if (DataAccessService::isAreaScopedAdmin($actor)) {
+                // Posisi dipakai lintas badan usaha: admin badan usaha tertentu hanya membuat KPI
+                // untuk karyawan di badan usaha yang diizinkan, tim, dan dirinya sendiri.
+                DataAccessService::scopeOwnedRecords($usersQuery, $actor, 'users.id');
+            } elseif (! DataAccessService::hasGlobalAccess($actor)) {
                 $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) Auth::id());
                 if ($managedUserIds === []) {
                     Notification::make()

@@ -7,7 +7,8 @@ use App\Filament\Resources\Attendances\Pages\EditAttendance;
 use App\Filament\Resources\Attendances\Pages\ListAttendances;
 use App\Models\Attendance;
 use App\Models\User;
-use App\Services\ApprovalScopeService;
+use App\Policies\AttendancePolicy;
+use App\Services\DataAccessService;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -26,27 +27,18 @@ class AttendanceResource extends Resource
 {
     protected static ?string $model = Attendance::class;
 
-    private const GLOBAL_ATTENDANCE_USERNAMES = ['darkini'];
-
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calendar-date-range';
 
     protected static ?string $navigationLabel = 'Kehadiran';
 
     protected static ?int $navigationSort = 3;
 
+    /**
+     * Seluruh data kehadiran: super admin atau user khusus kehadiran (lihat AttendancePolicy).
+     */
     public static function canAccessAllAttendance(?User $user = null): bool
     {
-        $user ??= auth()->user();
-
-        if (! $user) {
-            return false;
-        }
-
-        if ($user->role?->name === 'ADMIN') {
-            return true;
-        }
-
-        return in_array(strtolower((string) $user->username), self::GLOBAL_ATTENDANCE_USERNAMES, true);
+        return AttendancePolicy::canManageAllAttendance($user ?? auth()->user());
     }
 
     public static function form(Schema $schema): Schema
@@ -63,16 +55,9 @@ class AttendanceResource extends Resource
                                     ->whereNull('deleted_at')
                                     ->orderBy('nama_lengkap');
 
-                                if (! static::canAccessAllAttendance(auth()->user())) {
-                                    $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-                                    if ($managedUserIds === []) {
-                                        return [];
-                                    }
-
-                                    $query->whereIn('id', $managedUserIds);
-                                }
-
-                                return $query->pluck('nama_lengkap', 'id');
+                                // Opsi karyawan = yang boleh dicatat kehadirannya oleh user (Select menolak nilai di luar opsi).
+                                return AttendancePolicy::scopeWritableUsers($query, auth()->user())
+                                    ->pluck('nama_lengkap', 'id');
                             })
                             ->label('Pengguna')
                             ->required()
@@ -180,7 +165,9 @@ class AttendanceResource extends Resource
                     ->preload()
                     ->searchable()
                     ->options(function () {
-                        return Attendance::distinct('periode')
+                        // Periode hanya dari data kehadiran yang terlihat oleh user.
+                        return static::getEloquentQuery()
+                            ->distinct()
                             ->pluck('periode', 'periode')
                             ->toArray();
                     }),
@@ -190,7 +177,10 @@ class AttendanceResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Setiap baris dicek dengan AttendancePolicy::delete: admin per badan usaha melihat data
+                    // akun ADMIN (termasuk dirinya) tetapi tidak boleh menghapusnya.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords(),
                 ]),
             ]);
     }
@@ -213,15 +203,13 @@ class AttendanceResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $user = auth()->user();
+        $query = AttendancePolicy::scopeVisible(parent::getEloquentQuery(), $user);
 
-        if (! static::canAccessAllAttendance(auth()->user())) {
-            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            if ($managedUserIds === []) {
-                return $query->whereIn('user_id', []);
-            }
-
-            $query->whereIn('user_id', $managedUserIds);
+        // Hak edit/hapus admin per badan usaha dicek per baris dari badan usaha & role pemilik:
+        // muat sekaligus agar tidak ada query per baris.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            $query->with('user.role');
         }
 
         return $query;

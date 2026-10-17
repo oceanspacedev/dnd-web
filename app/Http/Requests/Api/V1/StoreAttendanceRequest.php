@@ -16,7 +16,7 @@ class StoreAttendanceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'user_id' => ['required', 'exists:users,id'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
             'periode' => ['required', 'string', 'max:50'],
             'work_days' => ['required', 'integer', 'min:0'],
             'late_less_30' => ['nullable', 'integer', 'min:0'],
@@ -29,6 +29,7 @@ class StoreAttendanceRequest extends FormRequest
     {
         return [
             'user_id.required' => 'Karyawan wajib dipilih.',
+            'user_id.integer' => 'Karyawan tidak valid.',
             'periode.required' => 'Periode presensi (e.g. 2026-09) wajib diisi.',
             'work_days.required' => 'Jumlah hari kerja wajib diisi.',
         ];

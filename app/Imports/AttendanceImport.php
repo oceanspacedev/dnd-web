@@ -81,7 +81,7 @@ class AttendanceImport implements ToModel
                 'nama_lengkap' => $row[1],
                 'employee_id' => $row[0],
                 'periode' => $row[2] ?? 'Tidak diketahui',
-                'reason' => 'User di luar scope approval Anda',
+                'reason' => 'User di luar cakupan akses data Anda',
             ];
             $this->skippedCount++;
 
