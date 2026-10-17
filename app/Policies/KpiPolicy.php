@@ -17,9 +17,12 @@ class KpiPolicy
         return DataAccessService::hasGlobalAccess($user);
     }
 
+    /**
+     * Atasan approval line (semua role atasan) mengelola data anggota timnya.
+     */
     private function canManageScoped(User $user): bool
     {
-        return in_array($user->role?->name, ['MANAGER', 'COORDINATOR'], true);
+        return DataAccessService::isTeamSupervisor($user);
     }
 
     /**

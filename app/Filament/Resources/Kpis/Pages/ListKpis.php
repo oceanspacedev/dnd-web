@@ -532,13 +532,15 @@ class ListKpis extends ListRecords
     }
 
     /**
-     * Pilihan user tampil untuk semua role selain STAFF (seperti sebelumnya); opsi dan validasi tetap dibatasi cakupan.
+     * Pilihan user tampil untuk admin, atasan (termasuk siapa pun yang punya bawahan), dan role selain STAFF
+     * seperti sebelumnya; opsi dan validasi tetap dibatasi cakupan.
      */
     protected static function canChooseOtherUsers(): bool
     {
         $actor = auth()->user();
 
         return DataAccessService::isAdmin($actor)
+            || DataAccessService::isTeamSupervisor($actor)
             || $actor?->role?->name !== 'STAFF';
     }
 

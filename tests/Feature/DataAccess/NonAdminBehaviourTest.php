@@ -34,14 +34,16 @@ class NonAdminBehaviourTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_kpi_user_pickers_are_hidden_only_for_staff(): void
+    public function test_kpi_user_pickers_are_hidden_only_for_staff_without_team(): void
     {
         $leaderWithoutTeam = $this->fixtureUser('lonely_lead', 'TEAM LEADER', $this->coo);
         $staffWithTeam = $this->fixtureUser('staff_lead', 'STAFF', $this->coo);
         $this->fixtureUser('staff_member', 'STAFF', $this->coo, $staffWithTeam);
         $scopedAdmin = $this->fixtureScopedAdmin('ojan', $this->coo, [$this->coo]);
 
-        foreach ([[$leaderWithoutTeam, true], [$staffWithTeam, false], [$scopedAdmin, true]] as [$actor, $expected]) {
+        $staffWithoutTeam = $this->fixtureUser('plain_staff', 'STAFF', $this->coo);
+
+        foreach ([[$leaderWithoutTeam, true], [$staffWithTeam, true], [$staffWithoutTeam, false], [$scopedAdmin, true]] as [$actor, $expected]) {
             $this->actingAs($actor);
             $this->resetAccessMemos();
 

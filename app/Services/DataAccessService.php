@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\DB;
  */
 class DataAccessService
 {
+    /** Role atasan yang mengelola tim lewat approval line (menu Tim Saya). */
+    public const SUPERVISOR_ROLES = ['TEAM LEADER', 'COORDINATOR', 'MANAGER', 'CHIEF', 'BOD'];
+
     /** @var array<int, array<int>> */
     private array $areaMemo = [];
 
@@ -76,6 +79,20 @@ class DataAccessService
         }
 
         return resolve(self::class)->selectedAreaIds((int) $user->getKey());
+    }
+
+    /**
+     * Atasan approval line: role atasan, atau siapa pun yang punya bawahan. Atasan mengelola data
+     * anggota timnya (ApprovalScopeService: bawahan langsung + satu level di bawahnya) di semua modul.
+     */
+    public static function isTeamSupervisor(?User $user): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return in_array($user->role?->name, self::SUPERVISOR_ROLES, true)
+            || ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->getKey()) !== [];
     }
 
     /**

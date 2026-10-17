@@ -171,12 +171,16 @@ class ChecklistKPI extends Widget
     }
 
     /**
-     * Pilihan user tampil untuk semua role selain STAFF (seperti sebelumnya); isinya dibatasi getUsers().
+     * Pilihan user tampil untuk admin, atasan (termasuk siapa pun yang punya bawahan), dan role selain STAFF
+     * seperti sebelumnya; isinya tetap dibatasi getUsers().
      */
     public function canChooseUser(): bool
     {
-        return DataAccessService::isAdmin(Auth::user())
-            || Auth::user()?->role?->name !== 'STAFF';
+        $actor = Auth::user();
+
+        return DataAccessService::isAdmin($actor)
+            || DataAccessService::isTeamSupervisor($actor)
+            || $actor?->role?->name !== 'STAFF';
     }
 
     /**
@@ -190,7 +194,7 @@ class ChecklistKPI extends Widget
     /**
      * Cakupan ubah checklist = cakupan lihat (getUsers): super admin semua; admin badan usaha:
      * badan usaha yang diizinkan + tim + diri sendiri, tanpa checklist akun ADMIN lain; lainnya: tim
-     * (approval line) + diri sendiri. Sengaja tidak memakai KpiPolicy agar atasan non-MANAGER/COORDINATOR tetap bisa mengisi checklist timnya.
+     * (approval line) + diri sendiri, sama dengan aturan atasan di KpiPolicy.
      */
     protected function canManageChecklistOf(Kpi $kpi): bool
     {

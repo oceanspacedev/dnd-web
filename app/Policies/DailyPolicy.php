@@ -17,15 +17,12 @@ class DailyPolicy
         return DataAccessService::hasGlobalAccess($user);
     }
 
+    /**
+     * Atasan approval line (semua role atasan) mengelola data anggota timnya.
+     */
     private function canManageScoped(User $user): bool
     {
-        return in_array($user->role?->name, [
-            'TEAM LEADER',
-            'COORDINATOR',
-            'MANAGER',
-            'CHIEF',
-            'BOD',
-        ], true);
+        return DataAccessService::isTeamSupervisor($user);
     }
 
     private function canAccessRecord(User $user, Daily $daily, bool $write = false): bool

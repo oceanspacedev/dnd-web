@@ -185,9 +185,12 @@ class AttendancePolicy
         return $attendance->user_id === null ? null : (int) $attendance->user_id;
     }
 
+    /**
+     * Atasan approval line (semua role atasan) mengelola data anggota timnya.
+     */
     private function canManageScoped(User $user): bool
     {
-        return in_array($user->role?->name, ['MANAGER', 'COORDINATOR'], true);
+        return DataAccessService::isTeamSupervisor($user);
     }
 
     /**

@@ -197,17 +197,27 @@ class KpiScopeTest extends TestCase
         $this->assertTrue(Gate::forUser($emptyAdmin)->allows('view', $this->makeKpi($emptyAdmin)));
         $this->assertFalse(Gate::forUser($emptyAdmin)->allows('view', $this->ulsKpi));
 
-        // Aturan MANAGER/COORDINATOR untuk non-admin tidak berubah.
+        // Atasan non-admin mengelola KPI timnya.
         $managerGate = Gate::forUser($this->manager);
         $this->assertTrue($managerGate->allows('update', $this->managerTeamKpi));
         $this->assertFalse($managerGate->allows('update', $this->gmdKpi));
         $this->assertTrue($managerGate->allows('create', Kpi::class));
 
+        // Semua role atasan (bukan hanya MANAGER/COORDINATOR) mengelola KPI timnya, tidak di luar tim.
         $teamLeader = $this->fixtureUser('team_leader', 'TEAM LEADER', $this->gmd);
         $teamLeaderMember = $this->fixtureUser('team_leader_member', 'STAFF', $this->gmd, $teamLeader);
         $this->resetAccessMemos();
-        $this->assertFalse(Gate::forUser($teamLeader)->allows('view', $this->makeKpi($teamLeaderMember)));
-        $this->assertFalse(Gate::forUser($teamLeader)->allows('create', Kpi::class));
+        $teamLeaderKpi = $this->makeKpi($teamLeaderMember);
+        $teamLeaderGate = Gate::forUser($teamLeader);
+        $this->assertTrue($teamLeaderGate->allows('view', $teamLeaderKpi));
+        $this->assertTrue($teamLeaderGate->allows('update', $teamLeaderKpi));
+        $this->assertTrue($teamLeaderGate->allows('create', Kpi::class));
+        $this->assertFalse($teamLeaderGate->allows('update', $this->gmdKpi));
+
+        // Atasan tanpa bawahan tidak bisa membuat KPI untuk orang lain.
+        $lonelyLeader = $this->fixtureUser('lonely_leader', 'TEAM LEADER', $this->gmd);
+        $this->resetAccessMemos();
+        $this->assertFalse(Gate::forUser($lonelyLeader)->allows('create', Kpi::class));
     }
 
     public function test_checklist_lock_is_bypassed_by_any_admin_only(): void
@@ -680,7 +690,7 @@ class KpiScopeTest extends TestCase
         $this->assertNull($outsideDetail->fresh()->value_result);
     }
 
-    public function test_team_leader_can_still_edit_team_checklist_but_not_outside_team(): void
+    public function test_team_leader_can_edit_team_kpi_and_checklist_but_not_outside_team(): void
     {
         $teamLeader = $this->fixtureUser('team_leader', 'TEAM LEADER', $this->gmd);
         $member = $this->fixtureUser('team_leader_member', 'STAFF', $this->gmd, $teamLeader);
@@ -689,13 +699,18 @@ class KpiScopeTest extends TestCase
         $memberDetail = $this->makeKpi($member)->kpi_detail()->firstOrFail();
         $outsideDetail = $this->gmdKpi->kpi_detail()->firstOrFail();
 
-        // KpiPolicy (menu KPI / API) tetap khusus MANAGER/COORDINATOR untuk non-admin.
-        $this->assertFalse(Gate::forUser($teamLeader)->allows('update', $memberDetail->kpi));
+        // Menu KPI / API: TEAM LEADER mengelola KPI anggota timnya seperti MANAGER/COORDINATOR.
+        $this->assertTrue(Gate::forUser($teamLeader)->allows('update', $memberDetail->kpi));
+        $this->assertFalse(Gate::forUser($teamLeader)->allows('update', $outsideDetail->kpi));
+
+        Sanctum::actingAs($teamLeader);
+        $this->putJson('/api/v1/kpis/'.$memberDetail->kpi_id, ['percentage' => 80])->assertOk();
+        $this->putJson('/api/v1/kpis/'.$outsideDetail->kpi_id, ['percentage' => 80])->assertForbidden();
 
         $this->actingAs($teamLeader);
         Livewire::actingAs($teamLeader);
 
-        // Checklist dashboard: atasan tetap bisa mengisi checklist anggota timnya (perilaku lama).
+        // Checklist dashboard: atasan mengisi checklist anggota timnya.
         Livewire::test(ChecklistKPI::class)
             ->set('user_id', $member->id)
             ->assertSee('Tugas team_leader_member')

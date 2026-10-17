@@ -26,8 +26,7 @@ class UserPolicy
      */
     public function canManageTeam(User $user): bool
     {
-        return ! empty($this->getManagedUserIds($user))
-            || in_array($user->role?->name, ['MANAGER', 'COORDINATOR', 'TEAM LEADER', 'CHIEF', 'BOD'], true);
+        return DataAccessService::isTeamSupervisor($user);
     }
 
     /**
