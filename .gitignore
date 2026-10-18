@@ -24,3 +24,6 @@ npm-debug.log
 yarn-error.log
 
 /public/import
+
+/tools/guide-gifs/node_modules
+/tools/guide-gifs/.work

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Filament\Pages\UserPositionGuide;
+use App\Filament\Resources\TeamMembers\Pages\ListTeamMembers;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Models\Role;
 use App\Models\User;
@@ -28,6 +29,17 @@ class UserPositionGuideTest extends TestCase
         $this->assertSame('Panduan Ubah Posisi', $guideAction->getLabel());
         $this->assertTrue($guideAction->isModalSlideOver());
         $this->assertSame('Panduan Merubah Posisi Karyawan Secara Massal', $guideAction->getModalHeading());
+    }
+
+    public function test_tim_saya_has_no_panduan_ubah_posisi_header_action(): void
+    {
+        $page = resolve(ListTeamMembers::class);
+        $actions = (new ReflectionMethod($page, 'getHeaderActions'))->invoke($page);
+        $names = collect($actions)->filter(fn ($action) => $action instanceof Action)->map->getName()->all();
+
+        $this->assertNotContains('panduan_ubah_posisi', $names);
+        $this->assertContains('create', $names);
+        $this->assertSame(array_keys($actions), range(0, count($actions) - 1));
     }
 
     public function test_user_position_guide_sidebar_page_is_configured_properly(): void
@@ -60,6 +72,43 @@ class UserPositionGuideTest extends TestCase
         Livewire::test(UserPositionGuide::class)
             ->assertSuccessful()
             ->assertSee('Panduan Ubah Posisi Karyawan')
-            ->assertSee('Cara Mengubah Posisi Banyak Karyawan Sekaligus');
+            ->assertSee('Cara Mengubah Posisi Banyak Karyawan Sekaligus')
+            ->assertSee('Cara Mengubah Posisi Satu Karyawan');
+    }
+
+    public function test_user_position_guide_renders_every_animated_gif(): void
+    {
+        $adminRole = Role::query()->create(['name' => 'ADMIN']);
+        $admin = User::query()->create([
+            'nama_lengkap' => 'Admin Test',
+            'username' => 'adm_'.uniqid(),
+            'password' => bcrypt('password'),
+            'role_id' => $adminRole->id,
+            'area_id' => 1,
+            'divisi_id' => 1,
+            'wn' => false,
+            'wr' => false,
+            'mn' => false,
+            'mr' => false,
+        ]);
+
+        $this->actingAs($admin);
+
+        $gifs = [
+            'ubah-posisi-massal.gif',
+            'ubah-posisi-tim-saya.gif',
+            'ubah-posisi-perorangan.gif',
+        ];
+
+        $page = Livewire::test(UserPositionGuide::class)->assertSuccessful();
+
+        foreach ($gifs as $gif) {
+            $path = 'images/panduan-ubah-posisi/'.$gif;
+
+            $this->assertFileExists(public_path($path));
+            $page->assertSeeHtml('<img src="'.asset($path).'"');
+        }
+
+        $page->assertSeeInOrder(['GIF 1.', 'GIF 2.', 'GIF 3.']);
     }
 }

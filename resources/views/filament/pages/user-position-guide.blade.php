@@ -39,7 +39,7 @@
                     <strong>Centang kotak seleksi</strong> di samping kiri nama-nama karyawan yang ingin dipindahkan (bisa memilih banyak orang sekaligus).
                 </li>
                 <li>
-                    Klik tombol menu <strong>Aksi Terpilih</strong> yang muncul di tabel, lalu pilih opsi <strong>Ubah Posisi Massal</strong>.
+                    Klik tombol menu <strong>Tindakan</strong> yang muncul di atas tabel, lalu pilih opsi <strong>Ubah Posisi Massal</strong>.
                 </li>
                 <li>
                     Pada panel samping (<em>slide-over</em>), pilih nama <strong>Posisi Baru</strong> yang dituju dari dropdown pencarian.
@@ -49,6 +49,24 @@
                 </li>
             </ol>
 
+            <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/10 dark:bg-gray-900/40">
+                <img src="{{ asset('images/panduan-ubah-posisi/ubah-posisi-massal.gif') }}"
+                    alt="GIF admin memfilter Area, mencentang beberapa karyawan, lalu menerapkan Ubah Posisi Massal di menu Karyawan"
+                    class="w-full rounded-lg border border-gray-200 dark:border-white/10" />
+                <p class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                    GIF 1. Admin: filter Area, centang karyawan, lalu Tindakan &gt; Ubah Posisi Massal (menu Karyawan)
+                </p>
+            </div>
+
+            <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/10 dark:bg-gray-900/40">
+                <img src="{{ asset('images/panduan-ubah-posisi/ubah-posisi-tim-saya.gif') }}"
+                    alt="GIF atasan membuka menu Tim Saya, mencentang anggota tim, lalu menerapkan Ubah Posisi Massal"
+                    class="w-full rounded-lg border border-gray-200 dark:border-white/10" />
+                <p class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                    GIF 2. Atasan: ubah posisi beberapa anggota tim sekaligus melalui menu Tim Saya
+                </p>
+            </div>
+
             <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-100">
                 <p class="font-semibold flex items-center gap-2">
                     <x-filament::icon icon="heroicon-m-light-bulb" class="h-5 w-5 text-sky-600 dark:text-sky-400" />
@@ -56,6 +74,36 @@
                 </p>
                 <p class="mt-1">
                     Jika nama posisi baru belum ada di daftar, Anda dapat langsung membuatnya melalui tombol <strong>tambah (+)</strong> di samping form pilihan posisi baru tanpa perlu pindah halaman.
+                </p>
+            </div>
+        </x-filament::section>
+
+        {{-- Section 2b: Ubah posisi satu karyawan --}}
+        <x-filament::section>
+            <x-slot name="heading">SOP - Cara Mengubah Posisi Satu Karyawan</x-slot>
+            <x-slot name="description">Gunakan cara ini bila hanya satu karyawan yang pindah posisi.</x-slot>
+
+            <ol class="list-decimal space-y-3 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                <li>
+                    Buka menu <strong>Karyawan</strong> (Admin) atau <strong>Tim Saya</strong> (Atasan), lalu ketik nama karyawan pada kolom <strong>Cari</strong>.
+                </li>
+                <li>
+                    Klik tombol <strong>Ubah</strong> di ujung kanan baris karyawan tersebut (geser tabel ke kanan bila tombolnya belum terlihat).
+                </li>
+                <li>
+                    Pada form karyawan, pilih posisi yang baru di kolom <strong>Posisi</strong>.
+                </li>
+                <li>
+                    Klik <strong>Simpan</strong>. Notifikasi <strong>Data berhasil disimpan</strong> menandakan posisi karyawan sudah diperbarui.
+                </li>
+            </ol>
+
+            <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/10 dark:bg-gray-900/40">
+                <img src="{{ asset('images/panduan-ubah-posisi/ubah-posisi-perorangan.gif') }}"
+                    alt="GIF mencari satu karyawan, membuka tombol Ubah, mengganti Posisi, lalu menyimpan"
+                    class="w-full rounded-lg border border-gray-200 dark:border-white/10" />
+                <p class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                    GIF 3. Ubah posisi satu karyawan: Cari, Ubah, pilih Posisi, lalu Simpan
                 </p>
             </div>
         </x-filament::section>

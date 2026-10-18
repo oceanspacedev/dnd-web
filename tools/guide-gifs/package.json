@@ -1,0 +1,19 @@
+{
+  "name": "dnd-web-guide-gifs",
+  "private": true,
+  "description": "Rekam ulang GIF panduan dnd-web (Playwright + ffmpeg) dari database demo berisi nama Faker.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "install-browser": "playwright-core install chromium-headless-shell",
+    "posisi": "node flows/posisi.js",
+    "akses": "node flows/akses.js",
+    "aturan": "node flows/aturan.js",
+    "wa-stub": "sh wa-stub.sh"
+  },
+  "devDependencies": {
+    "playwright-core": "1.58.2"
+  }
+}
