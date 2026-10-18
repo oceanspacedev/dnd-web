@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ApprovalRule;
 use App\Models\Area;
 use App\Models\Divisi;
 use App\Models\Position;
@@ -858,6 +859,182 @@ class UserJsonImportServiceTest extends TestCase
         $this->assertFalse(User::withTrashed()->where('employee_id', 'NEW-DELETED-APPROVER')->exists());
     }
 
+    public function test_new_user_keeps_active_peer_approval_when_matrix_rule_matches(): void
+    {
+        $position = Position::create(['name' => 'KEEP POSITION']);
+        $peerApprover = $this->createUser([
+            'employee_id' => 'PEER-APPROVER',
+            'nama_lengkap' => 'Peer Approver',
+            'username' => 'peer-approver',
+        ]);
+        $matrixApprover = $this->createUser([
+            'employee_id' => 'MATRIX-APPROVER',
+            'nama_lengkap' => 'Matrix Approver',
+            'username' => 'matrix-approver',
+        ]);
+        $template = $this->createUser([
+            'employee_id' => 'KEEP-TEMPLATE',
+            'nama_lengkap' => 'Keep Template',
+            'username' => 'keep-template',
+            'position_id' => $position->id,
+            'approval_id' => $peerApprover->id,
+        ]);
+
+        ApprovalRule::query()->create([
+            'name' => 'Aturan Divisi Keep',
+            'divisi_id' => $template->divisi_id,
+            'approver_id' => $matrixApprover->id,
+            'priority' => 10,
+            'is_active' => true,
+        ]);
+
+        $result = $this->importRows([
+            [
+                'employee_id' => 'KEEP-NEW',
+                'full_name' => 'Keep New User',
+                'area' => 'head office',
+                'divisi' => 'general',
+                'position' => 'keep position',
+                'initial_password' => 'Keep-Peer-Approval!2026',
+            ],
+        ]);
+
+        $this->assertImportCounts($result, 1, 0);
+        $newUser = User::query()->where('employee_id', 'KEEP-NEW')->firstOrFail();
+        $this->assertSame($peerApprover->id, $newUser->approval_id);
+    }
+
+    public function test_new_user_uses_matrix_when_peer_has_no_approval(): void
+    {
+        $position = Position::create(['name' => 'OPEN POSITION']);
+        $matrixApprover = $this->createUser([
+            'employee_id' => 'OPEN-MATRIX-APPROVER',
+            'nama_lengkap' => 'Open Matrix Approver',
+            'username' => 'open-matrix-approver',
+        ]);
+        $template = $this->createUser([
+            'employee_id' => 'OPEN-TEMPLATE',
+            'nama_lengkap' => 'Open Template',
+            'username' => 'open-template',
+            'position_id' => $position->id,
+            'approval_id' => null,
+        ]);
+
+        ApprovalRule::query()->create([
+            'name' => 'Aturan Divisi Open',
+            'divisi_id' => $template->divisi_id,
+            'approver_id' => $matrixApprover->id,
+            'priority' => 1,
+            'is_active' => true,
+        ]);
+
+        $result = $this->importRows([
+            [
+                'employee_id' => 'OPEN-NEW',
+                'full_name' => 'Open New User',
+                'area' => 'head office',
+                'divisi' => 'general',
+                'position' => 'open position',
+                'initial_password' => 'Open-Matrix-Approval!2026',
+            ],
+        ]);
+
+        $this->assertImportCounts($result, 1, 0);
+        $newUser = User::query()->where('employee_id', 'OPEN-NEW')->firstOrFail();
+        $this->assertSame($matrixApprover->id, $newUser->approval_id);
+    }
+
+    public function test_new_user_uses_matrix_when_peer_approval_is_inactive(): void
+    {
+        $position = Position::create(['name' => 'FALLBACK POSITION']);
+        $deletedApprover = $this->createUser([
+            'employee_id' => 'FALLBACK-DELETED-APPROVER',
+            'nama_lengkap' => 'Fallback Deleted Approver',
+            'username' => 'fallback-deleted-approver',
+        ]);
+        $deletedApprover->delete();
+        $matrixApprover = $this->createUser([
+            'employee_id' => 'FALLBACK-MATRIX-APPROVER',
+            'nama_lengkap' => 'Fallback Matrix Approver',
+            'username' => 'fallback-matrix-approver',
+        ]);
+        $template = $this->createUser([
+            'employee_id' => 'FALLBACK-TEMPLATE',
+            'nama_lengkap' => 'Fallback Template',
+            'username' => 'fallback-template',
+            'position_id' => $position->id,
+            'approval_id' => $deletedApprover->id,
+        ]);
+
+        ApprovalRule::query()->create([
+            'name' => 'Aturan Divisi Fallback',
+            'divisi_id' => $template->divisi_id,
+            'approver_id' => $matrixApprover->id,
+            'priority' => 1,
+            'is_active' => true,
+        ]);
+
+        $result = $this->importRows([
+            [
+                'employee_id' => 'FALLBACK-NEW',
+                'full_name' => 'Fallback New User',
+                'area' => 'head office',
+                'divisi' => 'general',
+                'position' => 'fallback position',
+                'initial_password' => 'Fallback-Matrix-Approval!2026',
+            ],
+        ]);
+
+        $this->assertImportCounts($result, 1, 0);
+        $newUser = User::query()->where('employee_id', 'FALLBACK-NEW')->firstOrFail();
+        $this->assertSame($matrixApprover->id, $newUser->approval_id);
+    }
+
+    public function test_new_user_uses_division_manager_when_peer_approval_is_inactive(): void
+    {
+        $position = Position::create(['name' => 'HEAD FALLBACK POSITION']);
+        $deletedApprover = $this->createUser([
+            'employee_id' => 'HEAD-DELETED-APPROVER',
+            'nama_lengkap' => 'Head Deleted Approver',
+            'username' => 'head-deleted-approver',
+        ]);
+        $deletedApprover->delete();
+        $manager = $this->createUser([
+            'employee_id' => 'HEAD-MANAGER',
+            'nama_lengkap' => 'Head Manager',
+            'username' => 'head-manager',
+        ]);
+        $divisi = Divisi::create([
+            'area_id' => $this->defaultArea->id,
+            'name' => 'MANAGED DIVISION',
+            'manager_id' => $manager->id,
+        ]);
+        $this->createUser([
+            'employee_id' => 'HEAD-TEMPLATE',
+            'nama_lengkap' => 'Head Template',
+            'username' => 'head-template',
+            'position_id' => $position->id,
+            'area_id' => $this->defaultArea->id,
+            'divisi_id' => $divisi->id,
+            'approval_id' => $deletedApprover->id,
+        ]);
+
+        $result = $this->importRows([
+            [
+                'employee_id' => 'HEAD-NEW',
+                'full_name' => 'Head New User',
+                'area' => 'head office',
+                'divisi' => 'managed division',
+                'position' => 'head fallback position',
+                'initial_password' => 'Head-Manager-Approval!2026',
+            ],
+        ]);
+
+        $this->assertImportCounts($result, 1, 0);
+        $newUser = User::query()->where('employee_id', 'HEAD-NEW')->firstOrFail();
+        $this->assertSame($manager->id, $newUser->approval_id);
+    }
+
     private function importRows(array $rows): array
     {
         return UserJsonImportService::importFromContent(
@@ -968,6 +1145,7 @@ class UserJsonImportServiceTest extends TestCase
         Schema::create('divisis', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('area_id');
+            $table->unsignedBigInteger('manager_id')->nullable();
             $table->string('name');
             $table->timestamps();
         });
@@ -1008,6 +1186,19 @@ class UserJsonImportServiceTest extends TestCase
             $table->string('id_notif')->nullable();
             $table->rememberToken();
             $table->softDeletes();
+            $table->timestamps();
+        });
+
+        Schema::create('approval_rules', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->unsignedBigInteger('area_id')->nullable();
+            $table->unsignedBigInteger('divisi_id')->nullable();
+            $table->unsignedBigInteger('position_id')->nullable();
+            $table->unsignedBigInteger('role_id')->nullable();
+            $table->unsignedBigInteger('approver_id')->nullable();
+            $table->integer('priority')->default(0);
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
     }

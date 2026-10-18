@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreWorkJournalRequest;
 use App\Http\Requests\Api\V1\UpdateWorkJournalRequest;
 use App\Http\Resources\Api\V1\WorkJournalResource;
-use App\Models\User;
 use App\Models\WorkJournal;
+use App\Policies\WorkJournalPolicy;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -26,15 +28,10 @@ class WorkJournalController extends Controller
         $this->authorize('viewAny', WorkJournal::class);
 
         $query = WorkJournal::with(['user.divisi', 'user.area', 'user.position']);
-        $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
-            $visibleUserIds = array_merge(
-                [(int) ($actor?->id ?? 0)],
-                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
-            );
-            $query->whereIn('user_id', array_values(array_unique($visibleUserIds)));
-        }
+        // Super admin: semua jurnal; admin per badan usaha: badan usaha yang diizinkan, tim approval,
+        // dan dirinya sendiri; lainnya: diri sendiri + bawahan approval.
+        WorkJournalPolicy::scopeVisible($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -113,24 +110,27 @@ class WorkJournalController extends Controller
 
     /**
      * Get journals of subordinates / team members for currently authenticated supervisor.
+     *
+     * Endpoint "Tim Saya": hanya tim approval line (bawahan langsung + satu level) untuk semua role,
+     * termasuk admin. Jurnal karyawan per badan usaha tersedia lewat index.
      */
     public function team(Request $request): JsonResponse
     {
         $currentUser = auth()->user();
-        $subordinateIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $currentUser->id);
-
-        if (empty($subordinateIds)) {
-            // Also include direct subordinates if approval_id matches
-            $subordinateIds = User::where('approval_id', $currentUser->id)->pluck('id')->all();
-        }
-
-        // If superadmin / no subordinates, allow viewing all or team
         $query = WorkJournal::with(['user.divisi', 'user.area', 'user.position']);
 
-        if ($currentUser->role?->name !== 'ADMIN' && ! empty($subordinateIds)) {
-            $query->whereIn('user_id', $subordinateIds);
-        } elseif ($currentUser->role?->name !== 'ADMIN' && empty($subordinateIds)) {
-            // User is not admin and has no subordinates
+        // Admin tetap melihat seluruh jurnal dalam cakupan akses datanya (super admin: semua, seperti sebelumnya).
+        if (DataAccessService::isAdmin($currentUser)) {
+            return $this->paginateTeamJournals(
+                DataAccessService::scopeOwnedRecords($query, $currentUser, 'work_journals.user_id'),
+                $request,
+            );
+        }
+
+        $subordinateIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $currentUser->id);
+
+        if ($subordinateIds === []) {
+            // User has no subordinates
             return response()->json([
                 'success' => true,
                 'message' => 'Anda belum memiliki bawahan langsung yang terdaftar.',
@@ -144,6 +144,14 @@ class WorkJournalController extends Controller
             ]);
         }
 
+        return $this->paginateTeamJournals($query->whereIn('user_id', $subordinateIds), $request);
+    }
+
+    /**
+     * @param  Builder<WorkJournal>  $query
+     */
+    private function paginateTeamJournals($query, Request $request): JsonResponse
+    {
         if ($date = $request->query('date')) {
             $query->whereDate('date', $date);
         }
@@ -215,10 +223,13 @@ class WorkJournalController extends Controller
 
         $validated = $request->validated();
         $currentUser = auth()->user();
-        if ($currentUser?->role?->name !== 'ADMIN') {
+        if (! DataAccessService::isAdmin($currentUser)) {
             $validated['user_id'] = $currentUser?->id;
         } else {
-            $validated['user_id'] = $validated['user_id'] ?? $currentUser?->id;
+            // Admin boleh mencatat jurnal karyawan lain; admin per badan usaha hanya dalam cakupannya dan
+            // bukan akun ADMIN lain (sudah divalidasi StoreWorkJournalRequest, dicek ulang lewat policy).
+            $validated['user_id'] = (int) ($validated['user_id'] ?? $currentUser?->id);
+            $this->authorize('update', new WorkJournal(['user_id' => $validated['user_id']]));
         }
         $validated['date'] = $validated['date'] ?? Date::now()->toDateString();
 

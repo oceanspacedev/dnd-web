@@ -7,6 +7,8 @@ use App\Models\Attendance;
 use App\Models\Divisi;
 use App\Models\EmployeeReview;
 use App\Models\User;
+use App\Support\Periode;
+use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
@@ -15,39 +17,145 @@ use Illuminate\Support\Facades\DB;
 class LeaderboardScoreService
 {
     /**
+     * Populasi leaderboard menurut viewer.
+     *
+     * - null  => tanpa batas badan usaha: super admin, dan non-admin (leaderboard perusahaan
+     *            untuk gamifikasi tetap seperti sebelumnya).
+     * - int[] => admin per badan usaha: badan usaha yang diizinkan (users.area_id). Ini hanya
+     *            bagian badan usaha; populasi lengkap (+ tim + dirinya) ada di viewerScope().
+     *
+     * @return array<int>|null
+     */
+    public static function viewerAreaScope(?User $viewer): ?array
+    {
+        if (! DataAccessService::isAreaScopedAdmin($viewer)) {
+            return null;
+        }
+
+        return DataAccessService::allowedAreaIds($viewer) ?? [];
+    }
+
+    /**
+     * Cakupan leaderboard lengkap menurut viewer (areas ∪ tim ∪ diri sendiri, sama dengan modul lain).
+     *
+     * - null => tanpa batas (lihat viewerAreaScope()).
+     * - area_ids => badan usaha yang diizinkan (users.area_id).
+     * - user_ids => tim approval line (ApprovalScopeService) + viewer sendiri, di badan usaha mana pun.
+     *
+     * Hanya admin per badan usaha yang memicu query tim; viewer lain tidak menambah query.
+     *
+     * @return array{area_ids: list<int>, user_ids: list<int>}|null
+     */
+    public static function viewerScope(?User $viewer): ?array
+    {
+        $areaIds = self::viewerAreaScope($viewer);
+
+        if ($areaIds === null || ! $viewer instanceof User) {
+            return null;
+        }
+
+        $viewerId = (int) $viewer->getKey();
+        $userIds = ApprovalScopeService::getManagedUserIdsOneLevelDown($viewerId);
+        $userIds[] = $viewerId;
+
+        return [
+            'area_ids' => array_values(array_unique(array_map(static fn ($id): int => (int) $id, $areaIds))),
+            'user_ids' => array_values(array_unique(array_map(static fn ($id): int => (int) $id, $userIds))),
+        ];
+    }
+
+    /**
+     * Badan usaha yang boleh dipakai sebagai filter oleh viewer bercakupan:
+     * badan usaha yang diizinkan + badan usaha tempat tim/dirinya berada.
+     *
+     * @param  array{area_ids: list<int>, user_ids: list<int>}  $scope
+     * @return list<int>
+     */
+    public static function selectableAreaIds(array $scope): array
+    {
+        $memberAreaIds = $scope['user_ids'] === []
+            ? []
+            : User::query()
+                ->whereIn('id', $scope['user_ids'])
+                ->whereNotNull('area_id')
+                ->distinct()
+                ->pluck('area_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+
+        return array_values(array_unique(array_merge($scope['area_ids'], $memberAreaIds)));
+    }
+
+    /**
      * Ranked API scores for a period. User models are not loaded until hydrateUsers().
      *
+     * Cache dipakai bersama semua viewer (kunci tanpa cakupan); pembatasan cakupan
+     * diterapkan setelah cache dibaca lalu peringkat dinomori ulang 1..N.
+     *
+     * Cakupan aktif bila salah satu dari $allowedAreaIds / $allowedUserIds tidak null:
+     * baris dipertahankan bila area_id ada di $allowedAreaIds ATAU user_id ada di $allowedUserIds.
+     * Filter $areaId di luar $allowedAreaIds hanya menyisakan $allowedUserIds di badan usaha itu.
+     *
+     * @param  array<int>|null  $allowedAreaIds  null (bersama $allowedUserIds null) = seluruh badan usaha.
+     * @param  array<int>|null  $allowedUserIds  tim + viewer sendiri (lihat viewerScope()).
      * @return list<array<string, mixed>>
      */
-    public function rankedScores(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null): array
+    public function rankedScores(string $periode, ?int $areaId = null, ?int $divisiId = null, ?string $search = null, ?array $allowedAreaIds = null, ?array $allowedUserIds = null): array
     {
+        $scoped = $allowedAreaIds !== null || $allowedUserIds !== null;
+        $areaLookup = array_flip(array_map(static fn ($id): int => (int) $id, $allowedAreaIds ?? []));
+        $userLookup = array_flip(array_map(static fn ($id): int => (int) $id, $allowedUserIds ?? []));
+
+        if ($scoped) {
+            // Filter area di luar cakupan tidak boleh memperluas populasi.
+            $areaOutsideScope = $areaId !== null && ! isset($areaLookup[$areaId]);
+
+            if ($userLookup === [] && ($areaLookup === [] || $areaOutsideScope)) {
+                return [];
+            }
+        }
+
         $rows = Cache::remember(
             $this->cacheKey($periode, $areaId, $divisiId),
             $this->ttl(),
             fn (): array => $this->computeRankedScores($periode, $areaId, $divisiId),
         );
 
+        $renumber = false;
+
+        if ($scoped) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => isset($userLookup[(int) $row['user_id']])
+                    || ($row['area_id'] !== null && isset($areaLookup[(int) $row['area_id']])),
+            ));
+            $renumber = true;
+        }
+
         $search = is_string($search) ? trim($search) : '';
 
-        if ($search === '') {
+        if ($search !== '') {
+            $needle = mb_strtolower($search);
+            $rows = array_values(array_filter(
+                $rows,
+                function (array $row) use ($needle): bool {
+                    return str_contains(mb_strtolower((string) $row['nama_lengkap']), $needle)
+                        || str_contains(mb_strtolower((string) $row['username']), $needle);
+                },
+            ));
+            $renumber = true;
+        }
+
+        if (! $renumber) {
             return $rows;
         }
 
-        $needle = mb_strtolower($search);
-        $filtered = array_values(array_filter(
-            $rows,
-            function (array $row) use ($needle): bool {
-                return str_contains(mb_strtolower((string) $row['nama_lengkap']), $needle)
-                    || str_contains(mb_strtolower((string) $row['username']), $needle);
-            },
-        ));
-
-        foreach ($filtered as $index => &$row) {
+        foreach ($rows as $index => &$row) {
             $row['rank'] = $index + 1;
         }
         unset($row);
 
-        return $filtered;
+        return $rows;
     }
 
     /**
@@ -145,10 +253,14 @@ class LeaderboardScoreService
             ->groupBy('kpis.user_id')
             ->pluck('raw_score', 'kpis.user_id');
 
+        // Versi aturan penilaian periode ini (memo per request, tanpa query per baris).
+        $rule = ScoringRuleService::forPeriode($periode);
+
+        // Kolom skor lengkap (termasuk component_counts) agar komponen baru seperti izin/mangkir ikut terhitung.
         $attendances = Attendance::query()
             ->whereIn('user_id', $userIds)
             ->where('periode', $periode)
-            ->get(['user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days'])
+            ->get(['user_id', ...Attendance::SCORING_COLUMNS])
             ->keyBy('user_id');
 
         $reviews = EmployeeReview::query()
@@ -161,33 +273,13 @@ class LeaderboardScoreService
 
         foreach ($users as $user) {
             $rawKpiScore = (float) ($rawKpiScores->get($user->id) ?? 0);
-            $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore);
+            $kpiScore = KpiScoringService::calculateFinalKpiScore($rawKpiScore, $rule);
+            $attendanceScore = PerformanceScoreCalculator::attendanceFor($attendances->get($user->id), $rule)->score;
+            $reviewScore = PerformanceScoreCalculator::reviewFor($reviews->get($user->id), $rule);
 
-            $att = $attendances->get($user->id);
-            $attScore15 = 0.0;
-            if ($att && (int) $att->work_days > 0) {
-                $workDays = (int) $att->work_days;
-                $lateLess = (int) ($att->late_less_30 ?? 0);
-                $lateMore = (int) ($att->late_more_30 ?? 0);
-                $sick = (int) ($att->sick_days ?? 0);
-                $initialAchv = (($workDays - $lateLess - $lateMore - $sick) / $workDays) * 100;
-                $penalty = ($lateLess * 1) + ($lateMore * 3) + ($sick * 5);
-                $finalAchv = max(0, $initialAchv - $penalty);
-                $attScore15 = ($finalAchv / 100) * 15;
-            }
+            $totalScore = $kpiScore + $attendanceScore + $reviewScore;
 
-            $rev = $reviews->get($user->id);
-            $revScore15 = 0.0;
-            if ($rev) {
-                $totPoints = (int) ($rev->responsiveness ?? 0)
-                    + (int) ($rev->problem_solver ?? 0)
-                    + (int) ($rev->helpfulness ?? 0)
-                    + (int) ($rev->initiative ?? 0);
-                $revScore15 = ($totPoints / 20) * 15;
-            }
-
-            $totalScore = $kpiScore70 + $attScore15 + $revScore15;
-
+            // Nama kunci *_70pct / *_15pct dipertahankan untuk klien lama; nilainya mengikuti bobot aturan periode.
             $leaderboard[] = [
                 'user_id' => (int) $user->id,
                 'nama_lengkap' => (string) $user->nama_lengkap,
@@ -196,11 +288,12 @@ class LeaderboardScoreService
                 'divisi_id' => $user->divisi_id ? (int) $user->divisi_id : null,
                 'position_id' => $user->position_id ? (int) $user->position_id : null,
                 'kpi_raw' => $rawKpiScore,
-                'kpi_score_70pct' => $kpiScore70,
-                'attendance_score_15pct' => $attScore15,
-                'review_score_15pct' => $revScore15,
+                'kpi_score_70pct' => $kpiScore,
+                'attendance_score_15pct' => $attendanceScore,
+                'review_score_15pct' => $reviewScore,
                 'total_score' => $totalScore,
                 'grade' => $this->grade($totalScore),
+                'scoring_rule_id' => $rule->id,
             ];
         }
 
@@ -225,9 +318,91 @@ class LeaderboardScoreService
         };
     }
 
+    /**
+     * Label bobot untuk judul kolom, mis. 70.0 => '70', 62.5 => '62.5'. Beberapa versi aturan dengan bobot
+     * berbeda (export tahunan yang melewati perubahan aturan) => '60/70'.
+     *
+     * @param  float|list<float>  $weights
+     */
+    public static function weightLabel(float|array $weights): string
+    {
+        $labels = [];
+
+        foreach ((array) $weights as $weight) {
+            $label = rtrim(rtrim(number_format((float) $weight, 2, '.', ''), '0'), '.');
+            $labels[$label] = (float) $weight;
+        }
+
+        asort($labels);
+
+        return implode('/', array_keys($labels));
+    }
+
+    /**
+     * Ringkasan versi aturan untuk respons API (metadata tambahan, bukan pengganti kunci lama).
+     *
+     * @return array{id: int|null, name: string, effective_from: string, kpi_weight: float, attendance_weight: float, review_weight: float, review_max_points: int}
+     */
+    public static function ruleSummary(ScoringRuleData $rule): array
+    {
+        return [
+            'id' => $rule->id,
+            'name' => $rule->name,
+            'effective_from' => $rule->effectiveFrom,
+            'kpi_weight' => $rule->kpiWeight,
+            'attendance_weight' => $rule->attendanceWeight,
+            'review_weight' => $rule->reviewWeight,
+            'review_max_points' => $rule->reviewMaxPoints,
+        ];
+    }
+
+    /**
+     * Periode aturan untuk nilai yang menggabungkan beberapa bulan sekaligus (ringkasan KPI seluruh waktu atau
+     * satu tahun, evaluasi terpadu dengan periode yang bukan 'Y-m'). Dipilih dari data, bukan dari tanggal hari
+     * ini, agar nilai data lama tidak berubah seiring waktu:
+     * - kelompok kandidat dicoba berurutan; periode valid terakhir dari kelompok pertama yang berisi data dipakai;
+     * - tanpa data sama sekali (nilai 0 di aturan mana pun) => bulan berjalan;
+     * - bila tahun 'YYYY' diminta, hasilnya dijepit ke Januari–Desember tahun itu.
+     *
+     * @param  list<iterable<mixed>>  $candidateGroups  nilai yang diterima Periode::normalize() (periode, tanggal KPI)
+     */
+    public static function dataRulePeriode(array $candidateGroups, ?string $year = null): string
+    {
+        $periode = null;
+
+        foreach ($candidateGroups as $candidates) {
+            foreach ($candidates as $value) {
+                $normalized = Periode::normalize($value);
+
+                if ($normalized !== null && ($periode === null || strcmp($normalized, $periode) > 0)) {
+                    $periode = $normalized;
+                }
+            }
+
+            if ($periode !== null) {
+                break;
+            }
+        }
+
+        $periode ??= Periode::current();
+
+        if ($year === null || preg_match('/^\d{4}$/D', $year) !== 1) {
+            return $periode;
+        }
+
+        if (strcmp($periode, $year.'-01') < 0) {
+            return $year.'-01';
+        }
+
+        return strcmp($periode, $year.'-12') > 0 ? $year.'-12' : $periode;
+    }
+
+    /**
+     * Versi cache aturan ikut di kunci: aturan/komponen yang berubah langsung terlihat tanpa menunggu TTL.
+     */
     private function cacheKey(string $periode, ?int $areaId, ?int $divisiId): string
     {
-        return 'leaderboard:api:'.$periode.':'.($areaId ?? 'all').':'.($divisiId ?? 'all');
+        return 'leaderboard:api:'.$periode.':'.($areaId ?? 'all').':'.($divisiId ?? 'all').':r'.ScoringRuleService::cacheVersion();
     }
 
     private function ttl(): int

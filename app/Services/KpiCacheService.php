@@ -31,18 +31,27 @@ class KpiCacheService
 
     public static function getPositionsForUser(): array
     {
+        $actor = Auth::user();
         $userId = Auth::id();
-        $userRoleName = Auth::user()->role?->name;
+        $userRoleName = $actor?->role?->name;
+        $hasGlobalAccess = DataAccessService::hasGlobalAccess($actor);
+        $isAreaScopedAdmin = DataAccessService::isAreaScopedAdmin($actor);
 
-        $cacheKey = self::versionedKey("positions_user_{$userId}_{$userRoleName}");
+        // Cakupan badan usaha ikut kunci cache agar perubahan akses data tidak memakai daftar lama.
+        $scopeKey = DataAccessService::scopeKey($actor);
+        $cacheKey = self::versionedKey("positions_writable_user_{$userId}_{$userRoleName}_{$scopeKey}");
 
-        return Cache::remember($cacheKey, self::getCacheTtl('positions', 300), function () use ($userRoleName, $userId) {
+        return Cache::remember($cacheKey, self::getCacheTtl('positions', 300), function () use ($actor, $hasGlobalAccess, $isAreaScopedAdmin, $userId) {
             $usersQuery = User::query()
                 ->whereNull('deleted_at')
                 ->whereNotNull('position_id')
                 ->orderBy('nama_lengkap');
 
-            if ($userRoleName !== 'ADMIN') {
+            if ($isAreaScopedAdmin) {
+                // Admin badan usaha tertentu: karyawan di badan usaha yang diizinkan + tim + diri sendiri, tanpa
+                // akun ADMIN lain; sama dengan target pembuatan KPI per posisi (CreateKpi).
+                DataAccessService::scopeWritableUsers($usersQuery, $actor);
+            } elseif (! $hasGlobalAccess) {
                 $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown($userId);
 
                 if ($managedUserIds === []) {

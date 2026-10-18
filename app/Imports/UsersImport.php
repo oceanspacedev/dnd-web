@@ -7,6 +7,7 @@ use App\Models\Divisi;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\DataAccessService;
 use Exception;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
@@ -16,6 +17,9 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 class UsersImport implements ToModel, WithHeadingRow
 {
     protected array $errors = [];
+
+    /** @var list<string> Catatan untuk ringkasan import (mis. ADMIN yang dibatasi ke badan usahanya). */
+    protected array $notices = [];
 
     protected int $rowCounter = 1; // Row 1 is heading row
 
@@ -156,9 +160,16 @@ class UsersImport implements ToModel, WithHeadingRow
             }
 
             $positionId = $this->resolvePositionId($row);
+            $assignsAdmin = $role->name === User::ROLE_ADMIN;
 
             if ($user) {
-                // Update existing user
+                $promotedToAdmin = $assignsAdmin && ! User::isAdminRoleId($user->role_id);
+
+                if (! $assignsAdmin) {
+                    $this->ensureAnotherGlobalAdminRemains($user, $role);
+                }
+
+                // Update existing user. Promosi menjadi ADMIN dibatasi ke badan usaha sendiri oleh model User.
                 $updateData = [
                     'role_id' => $role->id,
                     'area_id' => $area->id,
@@ -181,6 +192,10 @@ class UsersImport implements ToModel, WithHeadingRow
                 }
 
                 $user->update($updateData);
+
+                if ($promotedToAdmin) {
+                    $this->noteRestrictedAdmin($currentRowNum, $user);
+                }
             } else {
                 if ($namaLengkap === '') {
                     throw new Exception('Nama lengkap tidak boleh kosong');
@@ -188,8 +203,8 @@ class UsersImport implements ToModel, WithHeadingRow
 
                 $passwordInput = $this->getValue($row, ['password']);
 
-                // Create new user directly
-                User::create([
+                // Create new user directly. ADMIN baru tidak pernah otomatis menjadi super admin.
+                $created = User::create([
                     'nama_lengkap' => strtoupper($namaLengkap),
                     'username' => $username,
                     'employee_id' => $employeeId,
@@ -206,7 +221,13 @@ class UsersImport implements ToModel, WithHeadingRow
                     'approval_id' => $approval ? $approval->id : null,
                     'position_id' => $positionId,
                     'password' => ! empty($passwordInput) ? bcrypt($passwordInput) : static::$defaultPasswordHash,
+                    ...($assignsAdmin ? ['data_access' => User::DATA_ACCESS_SELECTED] : []),
                 ]);
+
+                if ($assignsAdmin) {
+                    $created->grantOwnAreaAccess();
+                    $this->noteRestrictedAdmin($currentRowNum, $created);
+                }
             }
 
             $this->successCounter++;
@@ -373,6 +394,45 @@ class UsersImport implements ToModel, WithHeadingRow
     public function getErrors(): array
     {
         return $this->errors;
+    }
+
+    /**
+     * Catatan yang perlu ditinjau setelah import (baris tetap berhasil).
+     *
+     * @return list<string>
+     */
+    public function getNotices(): array
+    {
+        return $this->notices;
+    }
+
+    /**
+     * Sama dengan form Karyawan dan API: role ADMIN super admin terakhir tidak boleh dilepas (tidak ada lagi yang bisa
+     * memberi role ADMIN / akses seluruh badan usaha atau membuka pengaturan penilaian). Baris lain tetap diproses,
+     * jadi file yang menurunkan semua super admin tetap menyisakan satu.
+     */
+    protected function ensureAnotherGlobalAdminRemains(User $user, Role $role): void
+    {
+        // Nilai yang tersimpan, bukan relasi role yang mungkin sudah dimuat.
+        $isGlobalAdmin = User::isAdminRoleId($user->getOriginal('role_id'))
+            && $user->getOriginal('data_access') !== User::DATA_ACCESS_SELECTED;
+
+        if ($isGlobalAdmin && ! DataAccessService::anotherGlobalAdminExists($user)) {
+            throw new Exception(
+                'Role "'.$role->name.'" tidak dapat diberikan kepada '.$user->nama_lengkap
+                .': minimal harus ada satu admin dengan akses seluruh badan usaha.',
+            );
+        }
+    }
+
+    /**
+     * ADMIN dari import tidak pernah otomatis menjadi super admin: aksesnya Badan Usaha Tertentu.
+     * Catatan singkat per baris memakai daftar badan usaha yang benar-benar tersimpan (bisa daftar lama
+     * bila karyawan pernah menjadi admin badan usaha tertentu); petunjuk lanjutannya ditulis sekali di notifikasi.
+     */
+    protected function noteRestrictedAdmin(int|string $rowNumber, User $user): void
+    {
+        $this->notices[] = "Baris {$rowNumber}: {$user->nama_lengkap} ({$user->restrictedAccessSummary()})";
     }
 
     public function getSuccessCount(): int

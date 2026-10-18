@@ -4,9 +4,10 @@ namespace App\Filament\Resources\EmployeeReviews\Pages;
 
 use App\Exports\EmployeeReviewExport;
 use App\Exports\EmployeeReviewImportTemplateExport;
+use App\Filament\Resources\Attendances\Pages\ListAttendances;
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
 use App\Imports\EmployeeReviewImport;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
 use App\Support\StoredSpreadsheetUpload;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -37,14 +38,16 @@ class ListEmployeeReviews extends ListRecords
                     $currentPeriod = Date::now()->format('Y-m');
                     $fileName = "employee_review_import_template_{$currentPeriod}.xlsx";
 
-                    return Excel::download(new EmployeeReviewImportTemplateExport, $fileName);
+                    // Template hanya berisi karyawan yang boleh diisi datanya oleh user (tanpa akun ADMIN untuk admin per badan usaha).
+                    return Excel::download(new EmployeeReviewImportTemplateExport(EmployeeReviewPolicy::writableUserIds(auth()->user())), $fileName);
                 }),
             ActionGroup::make([
                 Action::make('export')
                     ->label('Export')
                     ->icon('heroicon-s-arrow-down-tray')
                     ->action(function () {
-                        return Excel::download(new EmployeeReviewExport, 'employee_review_data.xlsx');
+                        // Export mengikuti cakupan daftar Penilaian.
+                        return Excel::download(new EmployeeReviewExport(EmployeeReviewPolicy::visibleUserIds(auth()->user())), 'employee_review_data.xlsx');
                     }),
                 Action::make('import')
                     ->icon('heroicon-s-arrow-up-tray')
@@ -75,10 +78,8 @@ class ListEmployeeReviews extends ListRecords
     public function processImport(array $data)
     {
         try {
-            $allowedUserIds = null;
-            if (auth()->user()->role?->name !== 'ADMIN') {
-                $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            }
+            // null = seluruh karyawan; selain itu hanya karyawan yang boleh diisi datanya oleh user.
+            $allowedUserIds = EmployeeReviewPolicy::writableUserIds(auth()->user());
 
             if (! isset($data['file']) || empty($data['file'])) {
                 Notification::make()
@@ -102,20 +103,32 @@ class ListEmployeeReviews extends ListRecords
             }
 
             $summary = $import->getImportSummary();
+            $unfilled = $summary['unfilledCount'];
+            // Baris template yang belum dinilai diabaikan, bukan dianggap gagal atau disimpan sebagai penilaian 0.
+            $unfilledNote = $unfilled > 0 ? " {$unfilled} baris template belum dinilai (diabaikan)." : '';
 
             if ($summary['importedCount'] > 0) {
-                $message = "Data Penilaian berhasil diimport. {$summary['importedCount']} data ditambahkan, {$summary['skippedCount']} data dilewati.";
-                Notification::make()
-                    ->title($message)
-                    ->success()
-                    ->send();
+                $notification = Notification::make()
+                    ->title("Data Penilaian berhasil diimport. {$summary['importedCount']} data ditambahkan, {$summary['skippedCount']} data dilewati.{$unfilledNote}")
+                    ->success();
+            } elseif ($summary['skippedCount'] === 0) {
+                $notification = Notification::make()
+                    ->title($unfilled > 0
+                        ? "Tidak ada data yang diimport. Semua baris ({$unfilled}) belum diisi nilai penilaiannya."
+                        : 'Tidak ada data yang diimport. File tidak berisi baris data.')
+                    ->warning();
             } else {
-                $message = "Tidak ada data yang diimport. Semua data ({$summary['skippedCount']}) sudah ada atau tidak valid.";
-                Notification::make()
-                    ->title($message)
-                    ->warning()
-                    ->send();
+                $notification = Notification::make()
+                    ->title("Tidak ada data yang diimport. Semua data ({$summary['skippedCount']}) sudah ada atau tidak valid.{$unfilledNote}")
+                    ->warning();
             }
+
+            // Alasan baris dilewati (beberapa baris pertama): tetap tampil sampai ditutup agar sempat dibaca.
+            if (($details = ListAttendances::importSummaryDetails($summary)) !== null) {
+                $notification->body($details)->persistent();
+            }
+
+            $notification->send();
 
             session()->flash('skippedDetails', $summary['skippedDetails']);
         } catch (Throwable $e) {

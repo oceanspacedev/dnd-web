@@ -47,7 +47,7 @@ class ApprovalScopeService
             ->map(static fn ($id): int => (int) $id)
             ->all();
 
-        if ($directIds === []) {
+        if (array_diff($directIds, [$supervisorId]) === []) {
             return $this->memo[$supervisorId] = [];
         }
 
@@ -58,7 +58,8 @@ class ApprovalScopeService
             ->map(static fn ($id): int => (int) $id)
             ->all();
 
-        $result = array_values(array_unique(array_merge($directIds, $secondLevelIds)));
+        // Approval line ke diri sendiri (atau saling menyetujui) tidak menjadikan seseorang anggota timnya sendiri.
+        $result = array_values(array_diff(array_unique(array_merge($directIds, $secondLevelIds)), [$supervisorId]));
         $this->memo[$supervisorId] = $result;
 
         return $result;

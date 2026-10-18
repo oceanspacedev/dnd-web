@@ -4,7 +4,12 @@ namespace App\Policies;
 
 use App\Models\Position;
 use App\Models\User;
+use App\Services\DataAccessService;
 
+/**
+ * Posisi adalah master data lintas badan usaha: hanya super admin
+ * (ADMIN dengan akses seluruh badan usaha) yang boleh melihat dan mengelolanya.
+ */
 class PositionPolicy
 {
     /**
@@ -12,7 +17,7 @@ class PositionPolicy
      */
     public function viewAny(User $user): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -20,7 +25,7 @@ class PositionPolicy
      */
     public function view(User $user, Position $position): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -28,7 +33,7 @@ class PositionPolicy
      */
     public function create(User $user): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -36,7 +41,7 @@ class PositionPolicy
      */
     public function update(User $user, Position $position): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
     }
 
     /**
@@ -44,7 +49,15 @@ class PositionPolicy
      */
     public function delete(User $user, Position $position): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk delete models.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -52,7 +65,15 @@ class PositionPolicy
      */
     public function restore(User $user, Position $position): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk restore models.
+     */
+    public function restoreAny(User $user): bool
+    {
+        return $this->canManage($user);
     }
 
     /**
@@ -60,6 +81,19 @@ class PositionPolicy
      */
     public function forceDelete(User $user, Position $position): bool
     {
-        return in_array($user->role?->name, ['ADMIN']);
+        return $this->canManage($user);
+    }
+
+    /**
+     * Determine whether the user can bulk permanently delete models.
+     */
+    public function forceDeleteAny(User $user): bool
+    {
+        return $this->canManage($user);
+    }
+
+    private function canManage(User $user): bool
+    {
+        return DataAccessService::hasGlobalAccess($user);
     }
 }

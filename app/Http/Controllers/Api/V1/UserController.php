@@ -9,32 +9,65 @@ use App\Http\Resources\Api\V1\UserResource;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Services\UserJsonImportService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 /**
  * @tags Users / Karyawan
  */
 class UserController extends Controller
 {
+    /** Menu Karyawan: karyawan di badan usaha yang boleh diakses. */
+    public const SCOPE_EMPLOYEES = 'employees';
+
+    /** Menu Tim Saya: tim berdasarkan approval line. */
+    public const SCOPE_TEAM = 'team';
+
     /**
      * Get paginated list of employees with comprehensive filters.
+     *
+     * Query `scope` (opsional): `employees` = karyawan di badan usaha Anda (khusus admin),
+     * `team` = tim approval line Anda. Tanpa `scope` = seluruh karyawan yang boleh Anda lihat.
      */
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', User::class);
 
+        $scopeValidator = Validator::make($request->query(), [
+            'scope' => ['nullable', 'string', Rule::in([self::SCOPE_EMPLOYEES, self::SCOPE_TEAM])],
+        ], [
+            'scope.in' => 'Scope harus employees atau team.',
+        ]);
+
+        if ($scopeValidator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal.',
+                'errors' => $scopeValidator->errors(),
+            ], 422);
+        }
+
         $query = User::with(['role', 'area', 'divisi', 'position', 'approval']);
         $actor = $request->user();
+        $scope = $request->query('scope');
 
-        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
-            $query
-                ->whereIn('id', ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id))
-                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
+        if ($scope === self::SCOPE_EMPLOYEES) {
+            abort_unless(
+                DataAccessService::canAccessEmployees($actor),
+                403,
+                'Anda tidak memiliki akses data karyawan badan usaha.',
+            );
         }
+
+        $this->scopeVisibleUsers($query, $actor, is_string($scope) ? $scope : null);
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -67,6 +100,9 @@ class UserController extends Controller
 
         $perPage = max(1, min(100, (int) $request->query('per_page', 15)));
         $users = $query->orderBy('nama_lengkap')->paginate($perPage);
+        $users->getCollection()
+            ->filter(fn (User $user): bool => $user->isAdmin())
+            ->load('dataAccessAreas');
 
         return response()->json([
             'success' => true,
@@ -97,22 +133,17 @@ class UserController extends Controller
 
         $this->authorize('view', $user);
 
+        $this->loadDataAccessAreas($user);
+
         $subordinatesQuery = User::where('approval_id', $user->id)
             ->with(['role', 'position']);
         $actor = auth()->user();
 
-        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
-            $subordinatesQuery
-                ->whereIn(
-                    'id',
-                    ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id),
-                )
-                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
-        }
+        $this->scopeVisibleUsers($subordinatesQuery, $actor instanceof User ? $actor : null);
 
         $subordinates = $subordinatesQuery->get();
 
-        $userData = (new UserResource($user))->toArray(request());
+        $userData = (new UserResource($user))->resolve(request());
         $userData['subordinates'] = UserResource::collection($subordinates);
 
         return response()->json([
@@ -124,6 +155,9 @@ class UserController extends Controller
 
     /**
      * Create a new employee.
+     *
+     * Role ADMIN tanpa `data_access` dibuat dengan akses `selected` ke badan usaha karyawan itu sendiri
+     * (`area_id`), bukan super admin. Kirim `data_access: all` secara eksplisit untuk membuat super admin.
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
@@ -131,6 +165,7 @@ class UserController extends Controller
 
         $validated = $request->validated();
         $this->ensureCanAssignRole($request, $validated);
+        $dataAccess = $this->defaultNewAdminDataAccess($validated, $this->pullDataAccess($validated));
         $validated['password'] = Hash::make($validated['password']);
 
         // Default flags to 0 if not specified
@@ -140,8 +175,14 @@ class UserController extends Controller
         $validated['mn'] = $validated['mn'] ?? false;
         $validated['mr'] = $validated['mr'] ?? false;
 
-        $user = User::create($validated);
+        $user = DB::transaction(function () use ($validated, $dataAccess): User {
+            $user = User::create($validated);
+            $this->applyDataAccess($user, $dataAccess);
+
+            return $user;
+        });
         $user->load(['role', 'area', 'divisi', 'position', 'approval']);
+        $this->loadDataAccessAreas($user);
 
         return response()->json([
             'success' => true,
@@ -152,6 +193,8 @@ class UserController extends Controller
 
     /**
      * Update an employee.
+     *
+     * Mempromosikan karyawan menjadi ADMIN tanpa `data_access` memberi akses `selected` ke badan usahanya sendiri.
      */
     public function update(UpdateUserRequest $request, int $id): JsonResponse
     {
@@ -168,6 +211,7 @@ class UserController extends Controller
 
         $validated = $request->validated();
         $this->ensureCanAssignRole($request, $validated);
+        $dataAccess = $this->pullDataAccess($validated);
 
         if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
@@ -175,8 +219,12 @@ class UserController extends Controller
             unset($validated['password']);
         }
 
-        $user->update($validated);
+        DB::transaction(function () use ($user, $validated, $dataAccess): void {
+            $user->update($validated);
+            $this->applyDataAccess($user, $dataAccess);
+        });
         $user->load(['role', 'area', 'divisi', 'position', 'approval']);
+        $this->loadDataAccessAreas($user);
 
         return response()->json([
             'success' => true,
@@ -230,13 +278,8 @@ class UserController extends Controller
             ->with(['role', 'position'])
             ->orderBy('nama_lengkap');
 
-        if ($actor instanceof User && $actor->role?->name !== 'ADMIN') {
-            $visibleIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->id);
-            $visibleIds[] = (int) $actor->id;
-            $supervisorsQuery
-                ->whereIn('id', array_values(array_unique($visibleIds)))
-                ->whereHas('role', fn ($roleQuery) => $roleQuery->where('name', '!=', 'ADMIN'));
-        }
+        // Opsi approval line mengikuti akses data actor, termasuk dirinya sendiri.
+        $this->scopeVisibleUsers($supervisorsQuery, $actor instanceof User ? $actor : null, includeSelf: true);
 
         $supervisors = $supervisorsQuery
             ->get()
@@ -265,7 +308,8 @@ class UserController extends Controller
      */
     public function importJson(Request $request): JsonResponse
     {
-        abort_unless($request->user()?->role?->name === 'ADMIN', 403);
+        // Import menyentuh seluruh badan usaha: khusus admin dengan akses seluruh badan usaha.
+        abort_unless(DataAccessService::hasGlobalAccess($request->user()), 403);
 
         $request->validate([
             'file' => ['required', 'file', 'max:51200'], // max 50MB
@@ -303,21 +347,168 @@ class UserController extends Controller
     }
 
     /**
+     * Batasi query users ke karyawan yang boleh dilihat actor.
+     *
+     * - Super admin: tanpa batas (scope `team` tetap hanya tim approval line).
+     * - Admin badan usaha: badan usaha yang diizinkan + tim
+     *   (`employees` = badan usaha saja, `team` = tim saja).
+     * - Non-admin: tim approval line (aturan lama).
+     * Selain super admin, akun ADMIN tidak ditampilkan, termasuk akun sendiri: UserPolicy hanya
+     * mengizinkan super admin membuka akun ADMIN, jadi setiap baris di daftar tetap bisa dibuka.
+     * Profil sendiri tersedia lewat /auth/me; $includeSelf hanya untuk opsi approval line.
+     *
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    private function scopeVisibleUsers(Builder $query, ?User $actor, ?string $scope = null, bool $includeSelf = false): Builder
+    {
+        if (! $actor instanceof User) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $actorId = (int) $actor->id;
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            return $scope === self::SCOPE_TEAM
+                ? $query->whereIn('users.id', ApprovalScopeService::getManagedUserIdsOneLevelDown($actorId))
+                : $query;
+        }
+
+        if ($scope === self::SCOPE_EMPLOYEES) {
+            DataAccessService::scopeEmployees($query, $actor, 'users.area_id');
+        } elseif ($scope === self::SCOPE_TEAM || ! DataAccessService::isAdmin($actor)) {
+            $teamIds = ApprovalScopeService::getManagedUserIdsOneLevelDown($actorId);
+
+            if ($includeSelf) {
+                $teamIds[] = $actorId;
+            }
+
+            $query->whereIn('users.id', array_values(array_unique($teamIds)));
+        } else {
+            DataAccessService::scopeOwnedRecords($query, $actor, 'users.id', includeSelf: $includeSelf);
+        }
+
+        return $query->where(function (Builder $visible) use ($actorId, $includeSelf): void {
+            $visible->whereHas('role', fn (Builder $roleQuery) => $roleQuery->where('name', '!=', User::ROLE_ADMIN));
+
+            if ($includeSelf) {
+                $visible->orWhere('users.id', $actorId);
+            }
+        });
+    }
+
+    /**
+     * Ambil field akses data dari payload; diterapkan terpisah lewat applyDataAccess().
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array{data_access: string|null, area_ids: array<int>|null}|null
+     */
+    private function pullDataAccess(array &$validated): ?array
+    {
+        $sent = array_key_exists('data_access', $validated) || array_key_exists('data_access_area_ids', $validated);
+
+        $dataAccess = [
+            'data_access' => $validated['data_access'] ?? null,
+            'area_ids' => isset($validated['data_access_area_ids'])
+                ? array_values(array_unique(array_map('intval', $validated['data_access_area_ids'])))
+                : null,
+        ];
+
+        unset($validated['data_access'], $validated['data_access_area_ids']);
+
+        return $sent ? $dataAccess : null;
+    }
+
+    /**
+     * Fail closed: ADMIN baru tanpa data_access tidak menjadi super admin (default kolom 'all'),
+     * tetapi 'selected' dengan badan usaha karyawan itu sendiri. data_access eksplisit dari super admin tetap dipakai.
+     * Promosi lewat update ditangani model User.
+     *
+     * @param  array<string, mixed>  $validated
+     * @param  array{data_access: string|null, area_ids: array<int>|null}|null  $requested
+     * @return array{data_access: string|null, area_ids: array<int>|null}|null
+     */
+    private function defaultNewAdminDataAccess(array $validated, ?array $requested): ?array
+    {
+        if (filled($requested['data_access'] ?? null) || ! User::isAdminRoleId($validated['role_id'] ?? null)) {
+            return $requested;
+        }
+
+        $areaIds = $requested['area_ids'] ?? [];
+
+        if ($areaIds === [] && filled($validated['area_id'] ?? null)) {
+            $areaIds = [(int) $validated['area_id']];
+        }
+
+        return [
+            'data_access' => User::DATA_ACCESS_SELECTED,
+            'area_ids' => $areaIds,
+        ];
+    }
+
+    /**
+     * Simpan akses data badan usaha. Hanya berlaku untuk role ADMIN; role lain selalu
+     * kembali ke 'all' tanpa daftar badan usaha. Hak mengirim field ini dicek di FormRequest.
+     *
+     * @param  array{data_access: string|null, area_ids: array<int>|null}|null  $requested
+     */
+    private function applyDataAccess(User $user, ?array $requested): void
+    {
+        $user->load('role');
+
+        if (! $user->isAdmin()) {
+            if ($user->data_access === User::DATA_ACCESS_SELECTED) {
+                $user->forceFill(['data_access' => User::DATA_ACCESS_ALL])->save();
+                $user->dataAccessAreas()->detach();
+                DataAccessService::clearMemo();
+            }
+
+            return;
+        }
+
+        if ($requested === null) {
+            return;
+        }
+
+        $mode = $requested['data_access']
+            ?? ($user->data_access === User::DATA_ACCESS_SELECTED ? User::DATA_ACCESS_SELECTED : User::DATA_ACCESS_ALL);
+
+        $user->forceFill(['data_access' => $mode])->save();
+
+        if ($mode === User::DATA_ACCESS_ALL) {
+            $user->dataAccessAreas()->detach();
+        } elseif ($requested['area_ids'] !== null) {
+            $user->dataAccessAreas()->sync($requested['area_ids']);
+        }
+
+        DataAccessService::clearMemo();
+    }
+
+    private function loadDataAccessAreas(User $user): void
+    {
+        if ($user->isAdmin()) {
+            $user->load('dataAccessAreas');
+        }
+    }
+
+    /**
+     * Role ADMIN hanya boleh diberikan oleh admin dengan akses seluruh badan usaha.
+     *
      * @param  array<string, mixed>  $validated
      */
     private function ensureCanAssignRole(Request $request, array $validated): void
     {
         if (
             ! array_key_exists('role_id', $validated)
-            || $request->user()?->role?->name === 'ADMIN'
+            || DataAccessService::hasGlobalAccess($request->user())
         ) {
             return;
         }
 
         abort_if(
-            Role::query()->whereKey($validated['role_id'])->value('name') === 'ADMIN',
+            Role::query()->whereKey($validated['role_id'])->value('name') === User::ROLE_ADMIN,
             403,
-            'Hanya admin yang dapat memberikan role ADMIN.',
+            'Hanya admin dengan akses seluruh badan usaha yang dapat memberikan role ADMIN.',
         );
     }
 }

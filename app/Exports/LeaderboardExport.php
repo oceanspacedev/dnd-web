@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Support\Scoring\ScoringRuleData;
 use Maatwebsite\Excel\Concerns\Export;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
@@ -23,6 +24,12 @@ class LeaderboardExport implements Export, WithMultipleSheets
 
     protected bool $includeDetails;
 
+    /** @var list<ScoringRuleData> versi aturan yang dipakai periode ini (tahunan: satu per bulan). */
+    protected array $scoringRules;
+
+    /**
+     * @param  list<ScoringRuleData>  $scoringRules
+     */
     public function __construct(
         array $leaderboardData,
         string $periodType,
@@ -31,7 +38,8 @@ class LeaderboardExport implements Export, WithMultipleSheets
         $attendanceDetails,
         $reviewDetails,
         array $monthlySummaryRows = [],
-        bool $includeDetails = true
+        bool $includeDetails = true,
+        array $scoringRules = [],
     ) {
         $this->leaderboardData = $leaderboardData;
         $this->periodType = $periodType;
@@ -41,16 +49,17 @@ class LeaderboardExport implements Export, WithMultipleSheets
         $this->reviewDetails = $reviewDetails;
         $this->monthlySummaryRows = $monthlySummaryRows;
         $this->includeDetails = $includeDetails;
+        $this->scoringRules = $scoringRules;
     }
 
     public function sheets(): array
     {
         $sheets = [
-            new LeaderboardSummarySheet($this->leaderboardData),
+            new LeaderboardSummarySheet($this->leaderboardData, $this->scoringRules),
         ];
 
         if ($this->periodType === 'year') {
-            $sheets[] = new LeaderboardMonthlySummarySheet($this->monthlySummaryRows, $this->selectedPeriod);
+            $sheets[] = new LeaderboardMonthlySummarySheet($this->monthlySummaryRows, $this->selectedPeriod, $this->scoringRules);
         }
 
         if ($this->includeDetails) {

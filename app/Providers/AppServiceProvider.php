@@ -3,11 +3,17 @@
 namespace App\Providers;
 
 use App\Filament\Auth\Pages\PhoneLogin;
+use App\Models\AttendanceComponent;
 use App\Models\KpiCategory;
 use App\Models\KpiDescription;
+use App\Models\ScoringRule;
 use App\Observers\KpiCategoryObserver;
 use App\Observers\KpiDescriptionObserver;
+use App\Observers\ScoringRuleCacheObserver;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
+use App\Services\ScoringRuleService;
+use App\Support\ObservabilityAccess;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -25,6 +31,8 @@ class AppServiceProvider extends ServiceProvider
     {
         // Octane resets scoped bindings between requests and queue jobs.
         $this->app->scoped(ApprovalScopeService::class);
+        $this->app->scoped(DataAccessService::class);
+        $this->app->scoped(ScoringRuleService::class);
     }
 
     /**
@@ -33,10 +41,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Livewire::component('phone-login', PhoneLogin::class);
+        ObservabilityAccess::register();
 
         // Register observers for cache management
         KpiDescription::observe(KpiDescriptionObserver::class);
         KpiCategory::observe(KpiCategoryObserver::class);
+        ScoringRule::observe(ScoringRuleCacheObserver::class);
+        AttendanceComponent::observe(ScoringRuleCacheObserver::class);
 
         // Configure the application's Filament layout defaults.
         Table::configureUsing(fn (Table $table) => $table

@@ -410,7 +410,8 @@ export function panelJourney(data) {
   const pages = [
     ['dashboard', `${baseUrl}/admin`],
     ['kpis', `${baseUrl}/admin/kpis`],
-    ['users', `${baseUrl}/admin/users`],
+    // Menu Karyawan (/admin/users) untuk admin; atasan non-admin memakai Tim Saya (/admin/tim-saya).
+    ['users', `${baseUrl}${__ENV.PANEL_USERS_PATH || '/admin/users'}`],
     ['journals', `${baseUrl}/admin/work-journals`],
     ['leaderboard', `${baseUrl}/admin?tab=leaderboard`],
   ];

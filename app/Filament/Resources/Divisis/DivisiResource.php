@@ -23,6 +23,8 @@ class DivisiResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Settings';
 
+    protected static ?int $navigationSort = 2;
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -33,8 +35,16 @@ class DivisiResource extends Resource
                     ->relationship('area', 'name')
                     ->required(),
                 TextInput::make('name')
+                    ->label('Nama Divisi')
                     ->required()
                     ->maxLength(255),
+                Select::make('manager_id')
+                    ->label('Kepala Divisi / Manager')
+                    ->helperText('Atasan default bagi anggota divisi ini jika tidak ada aturan khusus.')
+                    ->relationship('manager', 'nama_lengkap')
+                    ->searchable()
+                    ->preload()
+                    ->nullable(),
             ])
             ->columns(1);
     }
@@ -44,8 +54,14 @@ class DivisiResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('name')
+                    ->label('Nama Divisi')
+                    ->searchable(),
+                TextColumn::make('manager.nama_lengkap')
+                    ->label('Kepala Divisi')
+                    ->placeholder('Belum diatur')
                     ->searchable(),
                 TextColumn::make('area.name')
+                    ->label('Area')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([

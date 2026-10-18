@@ -11,8 +11,10 @@ use App\Models\Daily;
 use App\Models\Kpi;
 use App\Models\Request as TodoRequest;
 use App\Models\User;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
 use App\Services\LeaderboardScoreService;
+use App\Services\ScoringRuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -34,8 +36,9 @@ class AnalyticsController extends Controller
         $areaId = $request->query('area_id') ? (int) $request->query('area_id') : null;
         $divisiId = $request->query('divisi_id') ? (int) $request->query('divisi_id') : null;
         $search = $request->query('search');
+        $scope = $this->leaderboardScope($request, $areaId);
 
-        $scores = $this->leaderboardScores->rankedScores($periode, $areaId, $divisiId, $search);
+        $scores = $this->leaderboardScores->rankedScores($periode, $areaId, $divisiId, $search, $scope['area_ids'] ?? null, $scope['user_ids'] ?? null);
 
         $perPage = max(1, min(100, (int) $request->query('per_page', 15)));
         $page = max(1, (int) $request->query('page', 1));
@@ -55,6 +58,8 @@ class AnalyticsController extends Controller
             'success' => true,
             'message' => 'Peringkat leaderboard berhasil dihitung.',
             'periode' => $periode,
+            // Versi aturan penilaian periode ini: bobot sebenarnya di balik kunci *_70pct / *_15pct.
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
             'data' => LeaderboardResource::collection($paginator->items()),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
@@ -85,7 +90,9 @@ class AnalyticsController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $periode = $this->validatedPeriod($request);
-        $scores = $this->leaderboardScores->rankedScores($periode);
+        $actor = $request->user();
+        $scope = $this->leaderboardScope($request);
+        $scores = $this->leaderboardScores->rankedScores($periode, allowedAreaIds: $scope['area_ids'] ?? null, allowedUserIds: $scope['user_ids'] ?? null);
 
         $totalEmployees = count($scores);
         $avgKpi = $totalEmployees > 0 ? array_sum(array_column($scores, 'kpi_score_70pct')) / $totalEmployees : 0;
@@ -111,9 +118,19 @@ class AnalyticsController extends Controller
         $todayStart = Date::now()->startOfDay();
         $todayEnd = $todayStart->copy()->addDay();
         $today = $todayStart->toDateString();
-        $dailyStats = Daily::query()
+        $dailyQuery = Daily::query()
             ->where('date', '>=', $todayStart)
-            ->where('date', '<', $todayEnd)
+            ->where('date', '<', $todayEnd);
+        $pendingRequestQuery = TodoRequest::query()->where('status', 'PENDING');
+
+        if ($scope !== null) {
+            // Admin per badan usaha: hanya karyawan di badan usahanya, timnya, dan dirinya sendiri
+            // (cakupan yang sama dengan populasi skor di atas).
+            DataAccessService::scopeOwnedRecords($dailyQuery, $actor, 'dailies.user_id');
+            DataAccessService::scopeOwnedRecords($pendingRequestQuery, $actor, 'requests.user_id');
+        }
+
+        $dailyStats = $dailyQuery
             ->selectRaw('COUNT(*) as total, COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END), 0) as completed')
             ->first();
         $dailyTotal = (int) ($dailyStats->total ?? 0);
@@ -122,7 +139,7 @@ class AnalyticsController extends Controller
         $dailyRate = $dailyTotal > 0 ? ($dailyCompleted / $dailyTotal) * 100 : 0;
 
         // Pending approval requests
-        $pendingRequests = TodoRequest::where('status', 'PENDING')->count();
+        $pendingRequests = $pendingRequestQuery->count();
 
         $stats = [
             'periode' => $periode,
@@ -139,6 +156,7 @@ class AnalyticsController extends Controller
             'pending_requests_count' => $pendingRequests,
             'top_performers' => $formatRankList($top5),
             'bottom_performers' => $formatRankList($bottom5),
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
         ];
 
         return response()->json([
@@ -154,7 +172,8 @@ class AnalyticsController extends Controller
     public function departmentStats(Request $request): JsonResponse
     {
         $periode = $this->validatedPeriod($request);
-        $scores = $this->leaderboardScores->rankedScores($periode);
+        $scope = $this->leaderboardScope($request);
+        $scores = $this->leaderboardScores->rankedScores($periode, allowedAreaIds: $scope['area_ids'] ?? null, allowedUserIds: $scope['user_ids'] ?? null);
         $divisiStats = $this->leaderboardScores->groupAverages($scores, 'divisi');
         $areaStats = $this->leaderboardScores->groupAverages($scores, 'area');
 
@@ -162,6 +181,7 @@ class AnalyticsController extends Controller
             'success' => true,
             'message' => 'Statistik komparasi departemen & area berhasil diambil.',
             'periode' => $periode,
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
             'data' => [
                 'by_division' => $divisiStats,
                 'by_area' => $areaStats,
@@ -252,7 +272,9 @@ class AnalyticsController extends Controller
         }
 
         $completionRate = $totalIndicators > 0 ? ($completedIndicators / $totalIndicators) * 100 : 0;
-        $finalScore70 = KpiScoringService::calculateFinalKpiScore($totalKpiScore);
+        // Bobot KPI dari versi aturan periode yang diminta (kunci final_kpi_score_70pct dipertahankan).
+        $scoringRule = ScoringRuleService::forPeriode($periode);
+        $finalScore70 = KpiScoringService::calculateFinalKpiScore($totalKpiScore, $scoringRule);
 
         $checklistData = [
             'user' => $user,
@@ -270,8 +292,29 @@ class AnalyticsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Matriks checklist KPI karyawan berhasil diambil.',
+            'scoring_rule' => LeaderboardScoreService::ruleSummary($scoringRule),
             'data' => new KpiChecklistResource($checklistData),
         ]);
+    }
+
+    /**
+     * Cakupan leaderboard viewer (null = tanpa batas): badan usaha yang diizinkan,
+     * ditambah tim approval line dan dirinya sendiri untuk admin per badan usaha.
+     * area_id dari klien di luar badan usaha yang diizinkan maupun badan usaha tim/dirinya ditolak.
+     *
+     * @return array{area_ids: list<int>, user_ids: list<int>}|null
+     */
+    private function leaderboardScope(Request $request, ?int $areaId = null): ?array
+    {
+        $scope = LeaderboardScoreService::viewerScope($request->user());
+
+        abort_if(
+            $scope !== null && $areaId !== null && ! in_array($areaId, LeaderboardScoreService::selectableAreaIds($scope), true),
+            403,
+            'Anda tidak memiliki akses ke badan usaha ini.',
+        );
+
+        return $scope;
     }
 
     private function validatedPeriod(Request $request): string

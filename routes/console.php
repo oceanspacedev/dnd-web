@@ -14,3 +14,5 @@ Schedule::command('kpi:send-reminders')
     ->dailyAt('08:00')
     ->withoutOverlapping(720)
     ->onOneServer();
+
+Schedule::command('horizon:snapshot')->everyFiveMinutes();

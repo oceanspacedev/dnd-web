@@ -10,6 +10,7 @@ use App\Models\Kpi;
 use App\Models\Position;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
@@ -20,6 +21,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -50,7 +52,7 @@ class ListKpis extends ListRecords
                         Select::make('export_by')
                             ->label('Tipe Export')
                             ->options(function (): array {
-                                if (auth()->user()->role_id == 1) {
+                                if (DataAccessService::isAdmin(auth()->user())) {
                                     return [
                                         'division' => 'Per Divisi',
                                         'user' => 'Per User',
@@ -61,38 +63,21 @@ class ListKpis extends ListRecords
                                     'user' => 'Per User',
                                 ];
                             })
-                            ->default(fn () => auth()->user()->role_id == 1 ? 'division' : 'user')
+                            ->default(fn () => DataAccessService::isAdmin(auth()->user()) ? 'division' : 'user')
                             ->required()
                             ->live(),
                         Select::make('divisi')
                             ->label('Divisi')
                             ->searchable()
                             ->preload()
-                            ->options(Divisi::pluck('name', 'id'))
-                            ->visible(fn ($get) => $get('export_by') === 'division' && auth()->user()->role_id == 1),
+                            ->options(fn (): array => static::exportDivisionOptions())
+                            ->visible(fn ($get) => $get('export_by') === 'division' && DataAccessService::isAdmin(auth()->user())),
                         Select::make('user_id')
                             ->label('User')
                             ->searchable()
                             ->preload()
-                            ->options(function (): array {
-                                if (auth()->user()->role_id == 1) {
-                                    return User::where('id', '<>', 1)
-                                        ->orderBy('nama_lengkap')
-                                        ->pluck('nama_lengkap', 'id')
-                                        ->toArray();
-                                }
-
-                                $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-                                if ($managedUserIds === []) {
-                                    return [];
-                                }
-
-                                return User::whereIn('id', $managedUserIds)
-                                    ->orderBy('nama_lengkap')
-                                    ->pluck('nama_lengkap', 'id')
-                                    ->toArray();
-                            })
-                            ->visible(fn ($get) => $get('export_by') === 'user' && auth()->user()->role_id != 2),
+                            ->options(fn (): array => static::exportUserOptions())
+                            ->visible(fn ($get) => $get('export_by') === 'user' && static::canChooseOtherUsers()),
                         TextInput::make('tahun')
                             ->label('Tahun')
                             ->maxLength(4)
@@ -120,14 +105,19 @@ class ListKpis extends ListRecords
                     ->modalHeading('Export KPI')
                     ->modalButton('Export')
                     ->action(function (array $data) {
+                        $actor = auth()->user();
                         $isYear = ($data['periode'] ?? 'year') === 'year';
                         $exportByUser = ($data['export_by'] ?? 'division') === 'user';
                         $userId = $exportByUser && ! empty($data['user_id']) ? (int) $data['user_id'] : null;
                         $user = $userId ? User::where('id', $userId)->first() : null;
-                        $isAdmin = auth()->user()->role_id == 1;
+                        $isAdmin = DataAccessService::isAdmin($actor);
+                        $hasGlobalAccess = DataAccessService::hasGlobalAccess($actor);
                         $managedUserIds = $isAdmin
                             ? []
                             : ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
+
+                        // Batas karyawan yang boleh masuk file export. null = tanpa batas (super admin).
+                        $allowedUserIds = static::exportAllowedUserIds();
 
                         if (! $isAdmin && ! $exportByUser) {
                             Notification::make()
@@ -153,9 +143,32 @@ class ListKpis extends ListRecords
                             }
                         }
 
-                        $divisiId = $data['divisi'] ?? ($user?->divisi_id ?? auth()->user()->divisi_id);
+                        // Admin badan usaha tertentu: user harus terlihat (badan usaha yang diizinkan + tim + diri sendiri).
+                        if ($exportByUser && $isAdmin && ! $hasGlobalAccess && $userId && ! in_array($userId, $allowedUserIds ?? [], true)) {
+                            Notification::make()
+                                ->title('User tidak valid untuk export')
+                                ->body('Anda hanya dapat export KPI karyawan di badan usaha yang Anda kelola atau tim Anda.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $requestedDivisiId = $exportByUser ? null : ($data['divisi'] ?? null);
+
+                        if (filled($requestedDivisiId) && ! $hasGlobalAccess && ! array_key_exists((int) $requestedDivisiId, static::exportDivisionOptions())) {
+                            Notification::make()
+                                ->title('Divisi tidak valid untuk export')
+                                ->body('Anda hanya dapat export divisi yang berisi karyawan di badan usaha yang Anda kelola.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $divisiId = filled($requestedDivisiId) ? $requestedDivisiId : ($user?->divisi_id ?? $actor->divisi_id);
                         $divisi = Divisi::where('id', $divisiId)->first();
-                        $divisionName = $user && $user->divisi ? $user->divisi->name : ($divisi->name ?? auth()->user()->divisi->name);
+                        $divisionName = $user && $user->divisi ? $user->divisi->name : ($divisi->name ?? $actor->divisi?->name ?? 'Semua');
                         $fileSuffix = $user ? '_'.$user->nama_lengkap : '';
 
                         if ($isYear) {
@@ -163,7 +176,7 @@ class ListKpis extends ListRecords
                             $filename = 'KPI_'.$divisionName.'_'.$year.$fileSuffix.'.xlsx';
 
                             return Excel::download(
-                                new KpiMonthlyExport($year, (string) $divisiId, $userId),
+                                new KpiMonthlyExport($year, (string) $divisiId, $userId, $allowedUserIds),
                                 $filename
                             );
                         }
@@ -172,7 +185,7 @@ class ListKpis extends ListRecords
                         $filename = 'KPI_'.$divisionName.'_'.$month.$fileSuffix.'.xlsx';
 
                         return Excel::download(
-                            new KpiPerDivisionExport($month, (string) $divisiId, $userId),
+                            new KpiPerDivisionExport($month, (string) $divisiId, $userId, $allowedUserIds),
                             $filename
                         );
                     }),
@@ -199,9 +212,22 @@ class ListKpis extends ListRecords
                                     ->preload()
                                     ->options(function (): array {
                                         $options = [];
+                                        $actor = auth()->user();
 
-                                        if (auth()->user()->role?->name === 'ADMIN') {
+                                        if (DataAccessService::hasGlobalAccess($actor)) {
                                             $positions = Position::with('user')->get();
+                                        } elseif (DataAccessService::isAreaScopedAdmin($actor)) {
+                                            // Copy per posisi menulis KPI pemiliknya sendiri: hanya karyawan yang boleh
+                                            // diubah datanya oleh admin badan usaha tertentu (tanpa akun ADMIN lain).
+                                            $positions = Position::with([
+                                                'user' => function ($q) use ($actor) {
+                                                    DataAccessService::scopeWritableUsers($q->getQuery(), $actor);
+                                                },
+                                            ])
+                                                ->whereHas('user', function ($q) use ($actor) {
+                                                    DataAccessService::scopeWritableUsers($q, $actor);
+                                                })
+                                                ->get();
                                         } else {
                                             $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
                                             if ($managedUserIds === []) {
@@ -236,27 +262,7 @@ class ListKpis extends ListRecords
                                     ->label('Copy dari User')
                                     ->searchable()
                                     ->preload()
-                                    ->options(function (): array {
-                                        $options = [];
-
-                                        if (auth()->user()->role?->name === 'ADMIN') {
-                                            $users = User::all();
-                                        } else {
-                                            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-                                            if ($managedUserIds === []) {
-                                                return [];
-                                            }
-
-                                            $users = User::whereIn('id', $managedUserIds)->get();
-                                        }
-
-                                        foreach ($users as $user) {
-                                            $positionName = $user->position ? $user->position->name : 'No Position';
-                                            $options[$user->id] = $user->nama_lengkap.' ('.$positionName.')';
-                                        }
-
-                                        return $options;
-                                    })
+                                    ->options(fn (): array => static::copyUserOptions())
                                     ->visible(fn ($get) => $get('copy_mode') === 'individual')
                                     ->required(fn ($get) => $get('copy_mode') === 'individual'),
 
@@ -265,27 +271,7 @@ class ListKpis extends ListRecords
                                     ->searchable()
                                     ->multiple()
                                     ->preload()
-                                    ->options(function (): array {
-                                        $options = [];
-
-                                        if (auth()->user()->role?->name === 'ADMIN') {
-                                            $users = User::all();
-                                        } else {
-                                            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-                                            if ($managedUserIds === []) {
-                                                return [];
-                                            }
-
-                                            $users = User::whereIn('id', $managedUserIds)->get();
-                                        }
-
-                                        foreach ($users as $user) {
-                                            $positionName = $user->position ? $user->position->name : 'No Position';
-                                            $options[$user->id] = $user->nama_lengkap.' ('.$positionName.')';
-                                        }
-
-                                        return $options;
-                                    })
+                                    ->options(fn (): array => static::copyUserOptions(forWriting: true))
                                     ->visible(fn ($get) => $get('copy_mode') === 'individual')
                                     ->required(fn ($get) => $get('copy_mode') === 'individual'),
 
@@ -304,7 +290,7 @@ class ListKpis extends ListRecords
                                         TextInput::make('tanggal2')
                                             ->label('Ke Bulan')
                                             ->maxLength(7)
-                                            ->default(fn () => now()->addMonth()->format('Y-m'))
+                                            ->default(fn () => now()->addMonthNoOverflow()->format('Y-m'))
                                             ->regex('/^\d{4}-\d{2}$/')
                                             ->validationMessages([
                                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
@@ -319,14 +305,24 @@ class ListKpis extends ListRecords
                     ->modalHeading('Copy KPI')
                     ->action(function (array $data) {
                         try {
-                            $fromDate = Date::createFromFormat('Y-m', $data['tanggal1'])->startOfMonth();
-                            $toDate = Date::createFromFormat('Y-m', $data['tanggal2'])->startOfMonth();
+                            // '!' resets the day to 1; plain 'Y-m' keeps today's day and rolls over on the 29th-31st.
+                            $fromDate = Date::createFromFormat('!Y-m', $data['tanggal1']);
+                            $toDate = Date::createFromFormat('!Y-m', $data['tanggal2']);
                             $copyMode = $data['copy_mode'];
-                            $isAdmin = auth()->user()->role?->name === 'ADMIN';
+                            $actor = auth()->user();
+                            // Hanya super admin yang tidak dibatasi; id dari form selalu divalidasi ulang di sini.
+                            // Sumber cukup terlihat; target (dan pemilik pada copy per posisi) harus boleh diubah:
+                            // admin badan usaha tertentu tidak menulis KPI akun ADMIN lain (KpiPolicy).
+                            $hasGlobalAccess = DataAccessService::hasGlobalAccess($actor);
                             $allowedUserIds = [];
+                            $writableUserIds = [];
 
-                            if (! $isAdmin) {
+                            if (DataAccessService::isAreaScopedAdmin($actor)) {
+                                $allowedUserIds = DataAccessService::visibleUserIds($actor) ?? [];
+                                $writableUserIds = DataAccessService::writableUserIds($actor) ?? [];
+                            } elseif (! $hasGlobalAccess) {
                                 $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
+                                $writableUserIds = $allowedUserIds;
                             }
 
                             $copiedCount = 0;
@@ -335,8 +331,8 @@ class ListKpis extends ListRecords
                             if ($copyMode === 'position') {
                                 // Copy berdasarkan posisi (logika lama)
                                 $usersQuery = User::where('position_id', $data['position']);
-                                if (! $isAdmin) {
-                                    $usersQuery->whereIn('id', $allowedUserIds);
+                                if (! $hasGlobalAccess) {
+                                    $usersQuery->whereIn('id', $writableUserIds);
                                 }
                                 $users = $usersQuery->pluck('id');
 
@@ -383,10 +379,11 @@ class ListKpis extends ListRecords
                                 $targetUsers = collect($data['target_users'] ?? [])
                                     ->map(static fn ($id) => (int) $id);
 
-                                if (! $isAdmin) {
+                                if (! $hasGlobalAccess) {
                                     $allowedSet = array_fill_keys($allowedUserIds, true);
+                                    $writableSet = array_fill_keys($writableUserIds, true);
                                     $sourceUsers = $sourceUsers->filter(static fn ($id) => isset($allowedSet[$id]));
-                                    $targetUsers = $targetUsers->filter(static fn ($id) => isset($allowedSet[$id]));
+                                    $targetUsers = $targetUsers->filter(static fn ($id) => isset($writableSet[$id]));
                                 }
 
                                 $sourceUsers = $sourceUsers->unique()->values()->all();
@@ -395,7 +392,7 @@ class ListKpis extends ListRecords
                                 if ($sourceUsers === [] || $targetUsers === []) {
                                     Notification::make()
                                         ->title('User tidak valid untuk copy KPI')
-                                        ->body('Pastikan source dan target user berada dalam scope approval_id (bawahan langsung + satu level).')
+                                        ->body('Pastikan source dan target user berada dalam cakupan Anda (badan usaha yang dikelola atau bawahan langsung + satu level).')
                                         ->warning()
                                         ->send();
 
@@ -469,5 +466,135 @@ class ListKpis extends ListRecords
                 ->color('gray')
                 ->button(),
         ];
+    }
+
+    /**
+     * Opsi user untuk export: super admin semua (kecuali id 1); admin badan usaha tertentu
+     * hanya karyawan yang terlihat; non-admin bawahan langsung + satu level.
+     *
+     * @return array<int, string>
+     */
+    protected static function exportUserOptions(): array
+    {
+        $actor = auth()->user();
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            return User::where('id', '<>', 1)
+                ->orderBy('nama_lengkap')
+                ->pluck('nama_lengkap', 'id')
+                ->toArray();
+        }
+
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            return static::visibleUsersQuery()
+                ->orderBy('nama_lengkap')
+                ->pluck('nama_lengkap', 'id')
+                ->toArray();
+        }
+
+        $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
+        if ($managedUserIds === []) {
+            return [];
+        }
+
+        return User::whereIn('id', $managedUserIds)
+            ->orderBy('nama_lengkap')
+            ->pluck('nama_lengkap', 'id')
+            ->toArray();
+    }
+
+    /**
+     * Opsi divisi untuk export per divisi. Admin badan usaha tertentu hanya melihat divisi yang berisi
+     * karyawan yang terlihat olehnya (berdasarkan users.divisi_id, bukan divisis.area_id).
+     *
+     * @return array<int, string>
+     */
+    protected static function exportDivisionOptions(): array
+    {
+        $actor = auth()->user();
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            return Divisi::pluck('name', 'id')->toArray();
+        }
+
+        if (! DataAccessService::isAreaScopedAdmin($actor)) {
+            return [];
+        }
+
+        return Divisi::query()
+            ->whereIn('id', static::visibleUsersQuery()->whereNotNull('divisi_id')->select('divisi_id'))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->toArray();
+    }
+
+    /**
+     * Batas user di dalam file export. null = tanpa batas (super admin); admin badan usaha tertentu =
+     * badan usaha yang diizinkan + tim + diri sendiri; non-admin = diri sendiri + bawahan.
+     *
+     * @return array<int>|null
+     */
+    protected static function exportAllowedUserIds(): ?array
+    {
+        return DataAccessService::visibleUserIds(auth()->user());
+    }
+
+    /**
+     * Pilihan user tampil untuk admin, atasan (termasuk siapa pun yang punya bawahan), dan role selain STAFF
+     * seperti sebelumnya; opsi dan validasi tetap dibatasi cakupan.
+     */
+    protected static function canChooseOtherUsers(): bool
+    {
+        $actor = auth()->user();
+
+        return DataAccessService::isAdmin($actor)
+            || DataAccessService::isTeamSupervisor($actor)
+            || $actor?->role?->name !== 'STAFF';
+    }
+
+    /**
+     * Opsi user untuk Copy KPI. Sumber: user yang terlihat; target ($forWriting): user yang KPI-nya boleh
+     * dibuat actor, jadi admin badan usaha tertentu tidak mendapat akun ADMIN lain.
+     *
+     * @return array<int, string>
+     */
+    protected static function copyUserOptions(bool $forWriting = false): array
+    {
+        $options = [];
+        $actor = auth()->user();
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
+            $users = User::all();
+        } elseif (DataAccessService::isAreaScopedAdmin($actor)) {
+            $users = $forWriting
+                ? DataAccessService::scopeWritableUsers(User::query(), $actor)->get()
+                : static::visibleUsersQuery()->get();
+        } else {
+            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
+            if ($managedUserIds === []) {
+                return [];
+            }
+
+            $users = User::whereIn('id', $managedUserIds)->get();
+        }
+
+        $users->loadMissing('position');
+
+        foreach ($users as $user) {
+            $positionName = $user->position ? $user->position->name : 'No Position';
+            $options[$user->id] = $user->nama_lengkap.' ('.$positionName.')';
+        }
+
+        return $options;
+    }
+
+    /**
+     * User yang terlihat oleh aktor: badan usaha yang diizinkan + tim + diri sendiri (super admin tanpa batas).
+     *
+     * @return Builder<User>
+     */
+    protected static function visibleUsersQuery(): Builder
+    {
+        return DataAccessService::scopeOwnedRecords(User::query(), auth()->user(), 'users.id');
     }
 }

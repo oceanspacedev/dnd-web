@@ -5,7 +5,9 @@ namespace App\Filament\Resources\Cutpoints;
 use App\Filament\Resources\Cutpoints\Pages\ManageCutpoints;
 use App\Models\Cutpoint;
 use App\Models\User;
+use App\Policies\CutpointPolicy;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -27,11 +29,14 @@ class CutpointResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-scissors';
 
+    /**
+     * Super admin: ADMIN dengan akses seluruh badan usaha.
+     */
     public static function canAccessAllCutpoints(?User $user = null): bool
     {
         $user ??= auth()->user();
 
-        return (bool) $user && $user->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess($user);
     }
 
     /**
@@ -49,6 +54,62 @@ class CutpointResource extends Resource
         }
 
         return ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->id);
+    }
+
+    /**
+     * Batasi query users ke karyawan yang boleh dikelola cutpoint-nya oleh user (opsi form, $writable = true)
+     * atau yang cutpoint-nya terlihat di daftar (filter, $writable = false).
+     *
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    public static function scopeSelectableUsers(Builder $query, ?User $user, bool $writable = true): Builder
+    {
+        if (static::canAccessAllCutpoints($user)) {
+            return $query;
+        }
+
+        if (! $user) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        // Admin per badan usaha: karyawan di badan usaha yang diizinkan, tim approval, dan dirinya sendiri;
+        // untuk menulis tanpa akun ADMIN (termasuk dirinya), lihat CutpointPolicy.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            DataAccessService::scopeOwnedRecords($query, $user, $query->qualifyColumn('id'));
+
+            return $writable
+                ? $query->whereDoesntHave('role', fn (Builder $role) => $role->where('name', User::ROLE_ADMIN))
+                : $query;
+        }
+
+        $managedUserIds = static::getManagedCutpointUserIds($user);
+
+        return $managedUserIds === []
+            ? $query->whereRaw('1 = 0')
+            : $query->whereIn($query->qualifyColumn('id'), $managedUserIds);
+    }
+
+    /**
+     * Validasi server untuk pilihan karyawan (opsi, label, rule): jangan percaya state Livewire.
+     */
+    public static function canSelectUser(?User $user, mixed $userId): bool
+    {
+        $userId = filter_var($userId, FILTER_VALIDATE_INT);
+
+        if (! $user || $userId === false) {
+            return false;
+        }
+
+        if (static::canAccessAllCutpoints($user)) {
+            return true;
+        }
+
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            return CutpointPolicy::canAreaScopedAdminWriteFor($user, $userId);
+        }
+
+        return in_array($userId, static::getManagedCutpointUserIds($user), true);
     }
 
     public static function form(Schema $schema): Schema
@@ -74,53 +135,39 @@ class CutpointResource extends Resource
                                     });
                                 }
 
-                                if (! static::canAccessAllCutpoints(auth()->user())) {
-                                    $managedUserIds = static::getManagedCutpointUserIds(auth()->user());
-                                    if ($managedUserIds === []) {
-                                        return [];
-                                    }
-
-                                    $query->whereIn('id', $managedUserIds);
-                                }
-
-                                return $query->pluck('nama_lengkap', 'id')->all();
+                                return static::scopeSelectableUsers($query, auth()->user())
+                                    ->pluck('nama_lengkap', 'id')
+                                    ->all();
                             })
-                            ->getOptionLabelUsing(fn ($value): ?string => User::query()
-                                ->whereKey($value)
-                                ->value('nama_lengkap'))
+                            // Label hanya untuk karyawan dalam cakupan (nilai lain ditolak validasi Select).
+                            ->getOptionLabelUsing(fn ($value): ?string => static::canSelectUser(auth()->user(), $value)
+                                ? User::query()->whereKey($value)->value('nama_lengkap')
+                                : null)
                             ->required()
                             ->rule(function () {
                                 return function (string $attribute, $value, \Closure $fail): void {
-                                    $user = auth()->user();
-
-                                    if (! $value || ! $user) {
+                                    if (! static::canSelectUser(auth()->user(), $value)) {
                                         $fail('User tidak valid untuk cutpoint.');
 
                                         return;
                                     }
 
-                                    $query = User::query()
+                                    $exists = User::query()
                                         ->whereKey($value)
-                                        ->whereNull('deleted_at');
+                                        ->whereNull('deleted_at')
+                                        ->exists();
 
-                                    if (! static::canAccessAllCutpoints($user)) {
-                                        $managedUserIds = static::getManagedCutpointUserIds($user);
-
-                                        if ($managedUserIds === [] || ! in_array((int) $value, $managedUserIds, true)) {
-                                            $fail('User tidak valid untuk cutpoint.');
-                                        }
-
-                                        return;
-                                    }
-
-                                    if (! $query->exists()) {
+                                    if (! $exists) {
                                         $fail('User tidak valid untuk cutpoint.');
                                     }
                                 };
                             })
                             ->live()
                             ->afterStateUpdated(function ($state, callable $set) {
-                                $user = User::with(['position', 'divisi'])->find($state);
+                                // Posisi/divisi hanya dibaca untuk karyawan dalam cakupan.
+                                $user = static::canSelectUser(auth()->user(), $state)
+                                    ? User::with(['position', 'divisi'])->find($state)
+                                    : null;
                                 $set('user_position', $user?->position?->name ?? '-');
                                 $set('user_divisi', $user?->divisi?->name ?? '-');
                             })
@@ -183,19 +230,12 @@ class CutpointResource extends Resource
                     ->relationship(
                         name: 'user',
                         titleAttribute: 'nama_lengkap',
-                        modifyQueryUsing: function (Builder $query): Builder {
-                            $query->whereNull('deleted_at')->orderBy('nama_lengkap');
-
-                            if (! static::canAccessAllCutpoints(auth()->user())) {
-                                $managedUserIds = static::getManagedCutpointUserIds(auth()->user());
-
-                                return $managedUserIds === []
-                                    ? $query->whereRaw('1 = 0')
-                                    : $query->whereIn('id', $managedUserIds);
-                            }
-
-                            return $query;
-                        },
+                        // Filter mengikuti cakupan daftar (termasuk akun ADMIN yang hanya bisa dilihat).
+                        modifyQueryUsing: fn (Builder $query): Builder => static::scopeSelectableUsers(
+                            $query->whereNull('deleted_at')->orderBy('nama_lengkap'),
+                            auth()->user(),
+                            writable: false,
+                        ),
                     )
                     ->searchable()
                     ->visible(fn () => auth()->user()?->can('create', Cutpoint::class)),
@@ -245,6 +285,13 @@ class CutpointResource extends Resource
 
         if (static::canAccessAllCutpoints($user)) {
             return $query;
+        }
+
+        // Admin per badan usaha: badan usaha yang diizinkan, tim approval, dan dirinya sendiri. Hak edit/hapus
+        // dicek per baris dari badan usaha & role pemilik: muat sekaligus agar tidak ada query per baris.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            return DataAccessService::scopeOwnedRecords($query, $user, $query->qualifyColumn('user_id'))
+                ->with('user.role');
         }
 
         if ($user?->can('create', Cutpoint::class)) {

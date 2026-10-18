@@ -23,7 +23,9 @@ class StoreKpiRequest extends FormRequest
             'percentage' => ['required', 'numeric', 'min:1', 'max:100'],
             'details' => ['nullable', 'array'],
             'details.*.kpi_description_id' => ['required_with:details', 'exists:kpi_descriptions,id'],
-            'details.*.parent_id' => ['nullable', 'exists:kpi_details,id'],
+            // KPI baru belum punya detail, jadi parent_id selalu menunjuk detail KPI lain (bisa milik karyawan di
+            // luar cakupan). Sub-detail ditambahkan sesudahnya lewat POST /kpis/{id}/details.
+            'details.*.parent_id' => ['prohibited'],
             'details.*.count_type' => ['nullable', 'string', 'max:50'],
             'details.*.value_plan' => ['nullable', 'numeric', 'min:0'],
             'details.*.value_actual' => ['nullable', 'numeric', 'min:0'],
@@ -47,6 +49,7 @@ class StoreKpiRequest extends FormRequest
             'percentage.required' => 'Bobot persentase KPI wajib diisi.',
             'percentage.min' => 'Bobot persentase minimal 1%.',
             'percentage.max' => 'Bobot persentase maksimal 100%.',
+            'details.*.parent_id.prohibited' => 'parent_id harus merujuk ke detail pada KPI yang sama: KPI baru belum punya detail, tambahkan sub-detail lewat POST /kpis/{id}/details setelah KPI dibuat.',
         ];
     }
 

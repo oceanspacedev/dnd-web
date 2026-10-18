@@ -7,7 +7,12 @@ use App\Models\Attendance;
 use App\Models\EmployeeReview;
 use App\Models\Kpi;
 use App\Models\User;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
+use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,6 +21,13 @@ class LeaderboardExportController extends Controller
 {
     public function export(Request $request)
     {
+        $actor = $request->user();
+        $actor = $actor instanceof User ? $actor : null;
+        // null = tanpa batas badan usaha (super admin & non-admin, seperti sebelumnya);
+        // selain itu admin per badan usaha: karyawan dengan users.area_id di area_ids,
+        // ditambah tim approval line + dirinya sendiri (user_ids).
+        $scope = LeaderboardScoreService::viewerScope($actor);
+
         $periodType = $request->input('period_type', 'month');
         $selectedPeriod = $periodType === 'year'
             ? ($request->year ? $request->year : Date::now()->format('Y'))
@@ -23,9 +35,24 @@ class LeaderboardExportController extends Controller
         $divisionId = $request->division;
         $areaId = $request->area;
 
+        // Parameter area dari klien tidak boleh memperluas cakupan admin per badan usaha;
+        // badan usaha tim/dirinya tetap boleh dipilih (hanya menyisakan tim/dirinya di sana).
+        abort_if(
+            $scope !== null && filled($areaId) && ! in_array((int) $areaId, LeaderboardScoreService::selectableAreaIds($scope), true),
+            403,
+            'Anda tidak memiliki akses ke badan usaha ini.',
+        );
+
         $leaderboardData = [];
 
         $userQuery = User::with(['role', 'divisi', 'area', 'position']);
+
+        if ($scope !== null) {
+            $userQuery->where(function ($scoped) use ($scope): void {
+                $scoped->whereIn('area_id', $scope['area_ids'])
+                    ->orWhereIn('id', $scope['user_ids']);
+            });
+        }
 
         // Apply filters if any
         if ($divisionId) {
@@ -37,12 +64,23 @@ class LeaderboardExportController extends Controller
         }
 
         $userIds = (clone $userQuery)->pluck('id')->all();
-        $detailScopeUserIds = $this->resolveDetailScopeUserIds($userIds);
+        $detailScopeUserIds = $this->resolveDetailScopeUserIds($userIds, $actor);
         $includeDetails = count($detailScopeUserIds) > 0;
+
+        /** @var list<ScoringRuleData> $scoringRules versi aturan yang dipakai (untuk judul kolom bobot). */
+        $scoringRules = [];
 
         if ($periodType === 'year') {
             $users = $userQuery->get();
             $monthlySummaryRows = [];
+
+            // Aturan per bulan: tahun yang melewati perubahan aturan memakai aturan masing-masing bulan.
+            $rulesByMonth = [];
+            for ($month = 1; $month <= 12; $month++) {
+                $ym = sprintf('%s-%02d', $selectedPeriod, $month);
+                $rulesByMonth[$ym] = ScoringRuleService::forPeriode($ym);
+            }
+            $scoringRules = array_values($rulesByMonth);
 
             $kpiSummaryDetails = Kpi::with([
                 'kpi_detail',
@@ -79,7 +117,7 @@ class LeaderboardExportController extends Controller
             });
 
             foreach ($users as $user) {
-                if ($user->role && $user->role->name === 'ADMIN') {
+                if (DataAccessService::isAdmin($user)) {
                     continue;
                 }
 
@@ -87,8 +125,7 @@ class LeaderboardExportController extends Controller
                 $attendanceSum = 0;
                 $activitySum = 0;
 
-                for ($month = 1; $month <= 12; $month++) {
-                    $ym = sprintf('%s-%02d', $selectedPeriod, $month);
+                foreach ($rulesByMonth as $ym => $rule) {
                     $key = $user->id.'|'.$ym;
 
                     $kpiScoreRaw = 0;
@@ -97,32 +134,20 @@ class LeaderboardExportController extends Controller
                         $result = KpiScoringService::calculateKpiScore($kpi);
                         $kpiScoreRaw += $result['score'] * 100;
                     }
-                    $kpiSum += KpiScoringService::calculateFinalKpiScore($kpiScoreRaw);
+                    $kpiScoreMonth = KpiScoringService::calculateFinalKpiScore($kpiScoreRaw, $rule);
+                    $kpiSum += $kpiScoreMonth;
 
                     $attendanceGroup = $attendanceByUserMonth->get($key);
                     $attendance = $attendanceGroup ? $attendanceGroup->first() : null;
-                    $lateLess30 = $attendance?->late_less_30 ?? 0;
-                    $lateMore30 = $attendance?->late_more_30 ?? 0;
-                    $sickDays = $attendance?->sick_days ?? 0;
-                    $workDays = $attendance?->work_days ?? 0;
-                    $initialAttendanceAchv = ($workDays > 0)
-                        ? ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100
-                        : 0;
-                    $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
-                    $finalAttendanceAchv = max(0, $initialAttendanceAchv - $penalty);
-                    $attendanceSum += ($finalAttendanceAchv / 100) * 15;
+                    $attendanceScoreMonth = PerformanceScoreCalculator::attendanceFor($attendance, $rule)->score;
+                    $attendanceSum += $attendanceScoreMonth;
 
                     $reviewGroup = $reviewByUserMonth->get($key);
                     $review = $reviewGroup ? $reviewGroup->first() : null;
-                    $responsiveness = $review?->responsiveness ?? 0;
-                    $problemSolver = $review?->problem_solver ?? 0;
-                    $helpfulness = $review?->helpfulness ?? 0;
-                    $initiative = $review?->initiative ?? 0;
-                    $activityScore = ($responsiveness + $problemSolver + $helpfulness + $initiative) / 20 * 100 * 0.15;
+                    $activityScore = PerformanceScoreCalculator::reviewFor($review, $rule);
                     $activitySum += $activityScore;
 
-                    $kpiScoreMonth = KpiScoringService::calculateFinalKpiScore($kpiScoreRaw);
-                    $attendanceScoreMonth = ($finalAttendanceAchv / 100) * 15;
+                    // Kolom 0-8 tetap; kolom aturan ditambahkan di belakang.
                     $monthlySummaryRows[] = [
                         $ym,
                         $user->employee_id,
@@ -133,6 +158,10 @@ class LeaderboardExportController extends Controller
                         $attendanceScoreMonth,
                         $activityScore,
                         $kpiScoreMonth + $attendanceScoreMonth + $activityScore,
+                        $rule->name,
+                        $rule->kpiWeight,
+                        $rule->attendanceWeight,
+                        $rule->reviewWeight,
                     ];
                 }
 
@@ -160,16 +189,14 @@ class LeaderboardExportController extends Controller
                 ? $reviewSummaryDetails->whereIn('user_id', $detailScopeUserIds)->values()
                 : collect();
         } else {
+            // Aturan bulan yang diekspor (bukan bulan berjalan).
+            $rule = ScoringRuleService::forPeriode($selectedPeriod);
+            $scoringRules = [$rule];
+
             $userQuery->with([
                 'attendance' => function ($query) use ($selectedPeriod) {
-                    $query->select(
-                        'user_id',
-                        'late_less_30',
-                        'late_more_30',
-                        'sick_days',
-                        'work_days',
-                        'periode'
-                    )
+                    // Kolom skor lengkap (termasuk component_counts) agar komponen baru ikut terhitung.
+                    $query->select(['user_id', 'periode', ...Attendance::SCORING_COLUMNS])
                         ->where('periode', $selectedPeriod);
                 },
                 'employeeReview' => function ($query) use ($selectedPeriod) {
@@ -187,58 +214,29 @@ class LeaderboardExportController extends Controller
                 },
             ]);
 
-            $userQuery->chunk(100, function ($users) use (&$leaderboardData) {
+            $userQuery->chunk(100, function ($users) use (&$leaderboardData, $rule) {
                 foreach ($users as $user) {
-                    if ($user->role && $user->role->name === 'ADMIN') {
+                    if (DataAccessService::isAdmin($user)) {
                         continue;
                     }
 
                     $kpiScore = 0;
-                    $attendanceScore = 0;
-                    $activityScore = 0;
-                    $totalScore = 0;
 
                     foreach ($user->kpi as $kpi) {
                         $result = KpiScoringService::calculateKpiScore($kpi);
                         $kpiScore += $result['score'] * 100;
                     }
 
-                    $kpiScore = KpiScoringService::calculateFinalKpiScore($kpiScore);
-                    $totalScore += $kpiScore;
-
-                    if ($user->attendance !== null) {
-                        $attendance = $user->attendance;
-                        $lateLess30 = $attendance->late_less_30 ?? 0;
-                        $lateMore30 = $attendance->late_more_30 ?? 0;
-                        $sickDays = $attendance->sick_days ?? 0;
-                        $workDays = $attendance->work_days ?? 0;
-
-                        $initialAttendanceAchv = ($workDays > 0)
-                            ? ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100
-                            : 0;
-
-                        $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
-                        $finalAttendanceAchv = max(0, $initialAttendanceAchv - $penalty);
-                        $attendanceScore = ($finalAttendanceAchv / 100) * 15;
-                        $totalScore += $attendanceScore;
-                    }
-
-                    if ($user->employeeReview !== null) {
-                        $review = $user->employeeReview;
-                        $responsiveness = $review->responsiveness ?? 0;
-                        $problemSolver = $review->problem_solver ?? 0;
-                        $helpfulness = $review->helpfulness ?? 0;
-                        $initiative = $review->initiative ?? 0;
-                        $activityScore = ($responsiveness + $problemSolver + $helpfulness + $initiative) / 20 * 100 * 0.15;
-                        $totalScore += $activityScore;
-                    }
+                    $kpiScore = KpiScoringService::calculateFinalKpiScore($kpiScore, $rule);
+                    $attendanceScore = PerformanceScoreCalculator::attendanceFor($user->attendance, $rule)->score;
+                    $activityScore = PerformanceScoreCalculator::reviewFor($user->employeeReview, $rule);
 
                     $leaderboardData[] = [
                         'user' => $user,
                         'kpiScore' => $kpiScore,
                         'attendanceScore' => $attendanceScore,
                         'activityScore' => $activityScore,
-                        'totalScore' => $totalScore,
+                        'totalScore' => $kpiScore + $attendanceScore + $activityScore,
                     ];
                 }
             });
@@ -289,19 +287,22 @@ class LeaderboardExportController extends Controller
                 $attendanceDetails,
                 $reviewDetails,
                 $monthlySummaryRows ?? [],
-                $includeDetails
+                $includeDetails,
+                $scoringRules,
             ),
             'leaderboard.xlsx'
         );
     }
 
-    protected function resolveDetailScopeUserIds(array $filteredUserIds): array
+    protected function resolveDetailScopeUserIds(array $filteredUserIds, ?User $actor): array
     {
-        if (auth()->user()->role_id == 1) {
+        // Admin: seluruh hasil filter. Untuk admin per badan usaha, hasil filter sudah
+        // dibatasi ke badan usahanya + tim + dirinya pada query populasi di export().
+        if (DataAccessService::isAdmin($actor)) {
             return array_values($filteredUserIds);
         }
 
-        $teamUserIds = $this->getRecursiveSubordinateUserIds((int) auth()->id());
+        $teamUserIds = $this->getRecursiveSubordinateUserIds((int) $actor?->getKey());
 
         return array_values(array_intersect($filteredUserIds, $teamUserIds));
     }

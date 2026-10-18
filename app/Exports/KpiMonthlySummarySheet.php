@@ -19,13 +19,20 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
 
     protected ?int $userId;
 
+    /** @var array<int>|null null = tanpa batas (super admin). */
+    protected ?array $allowedUserIds;
+
     protected array $usersMonthYear = [];
 
-    public function __construct(string $year, string $divisi_id, ?int $userId = null)
+    /**
+     * @param  array<int>|null  $allowedUserIds  Batas karyawan yang boleh diekspor; null = tanpa batas.
+     */
+    public function __construct(string $year, string $divisi_id, ?int $userId = null, ?array $allowedUserIds = null)
     {
         $this->year = $year;
         $this->divisi_id = $divisi_id;
         $this->userId = $userId;
+        $this->allowedUserIds = $allowedUserIds;
     }
 
     public function title(): string
@@ -40,19 +47,26 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
 
         for ($month = 1; $month <= 12; $month++) {
             $yearMonth = $this->year.'-'.sprintf('%02d', $month);
-            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
+            $carbonDate = Date::createFromFormat('!Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 
+        $usersQuery = User::orderBy('nama_lengkap');
+
         if ($this->userId) {
-            $users = User::orderBy('nama_lengkap')
-                ->where('id', $this->userId)
-                ->get();
+            $usersQuery->where('id', $this->userId);
         } elseif ($this->divisi_id) {
-            $users = User::orderBy('nama_lengkap')->where('divisi_id', $this->divisi_id)->get();
+            $usersQuery->where('divisi_id', $this->divisi_id);
         } else {
-            $users = User::orderBy('nama_lengkap')->where('divisi_id', auth()->user()->divisi_id)->get();
+            $usersQuery->where('divisi_id', auth()->user()?->divisi_id);
         }
+
+        // Hanya karyawan dalam cakupan aktor (badan usaha / tim); null = tanpa batas.
+        if ($this->allowedUserIds !== null) {
+            $usersQuery->whereIn('id', $this->allowedUserIds);
+        }
+
+        $users = $usersQuery->get();
 
         foreach ($users as $user) {
             $usersYearlyKpis = Kpi::with('kpi_detail', 'kpi_detail.kpi_description', 'kpi_type', 'kpi_category', 'user')
@@ -116,7 +130,7 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
 
         for ($month = 1; $month <= 12; $month++) {
             $yearMonth = $this->year.'-'.sprintf('%02d', $month);
-            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
+            $carbonDate = Date::createFromFormat('!Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 

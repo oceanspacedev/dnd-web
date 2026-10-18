@@ -109,6 +109,7 @@ class UserJsonImportService
         $successCount = 0;
         $createdCount = 0;
         $errors = [];
+        $notices = [];
         $usedPasswordFingerprints = [];
 
         foreach ($rows as $index => $row) {
@@ -121,12 +122,18 @@ class UserJsonImportService
             }
 
             try {
+                $rowNotices = [];
                 $passwordFingerprint = DB::transaction(
-                    fn () => static::importRow($row, $usedPasswordFingerprints),
+                    function () use ($row, $usedPasswordFingerprints, &$rowNotices): ?string {
+                        return static::importRow($row, $usedPasswordFingerprints, $rowNotices);
+                    },
                 );
                 if ($passwordFingerprint !== null) {
                     $usedPasswordFingerprints[$passwordFingerprint] = true;
                     $createdCount++;
+                }
+                foreach ($rowNotices as $notice) {
+                    $notices[] = "Baris #{$rowNumber}: {$notice}";
                 }
                 $successCount++;
             } catch (Throwable $exception) {
@@ -145,15 +152,17 @@ class UserJsonImportService
             'error_count' => count($errors),
             'errors' => $errors,
             'created_count' => $createdCount,
+            'notices' => $notices,
         ];
     }
 
     /**
      * @param  array<string, mixed>  $row
      * @param  array<string, true>  $usedPasswordFingerprints
+     * @param  list<string>  $notices  Catatan baris ini untuk ringkasan import.
      * @return string|null SHA-256 fingerprint for a newly created user's password.
      */
-    private static function importRow(array $row, array $usedPasswordFingerprints): ?string
+    private static function importRow(array $row, array $usedPasswordFingerprints, array &$notices = []): ?string
     {
         $employeeId = static::firstScalarValue($row, [
             'employee_id',
@@ -251,9 +260,58 @@ class UserJsonImportService
             $userData[$field] = $template->getAttribute($field);
         }
 
-        User::create($userData);
+        $userData['approval_id'] = static::resolveImportedApprovalId($userData);
+
+        // Pola tidak pernah ADMIN (lihat resolveTemplateUser). Penjaga fail closed bila aturan itu berubah:
+        // ADMIN dari import selalu Badan Usaha Tertentu (badan usaha sendiri), tidak pernah super admin.
+        $assignsAdmin = User::isAdminRoleId($userData['role_id'] ?? null);
+
+        if ($assignsAdmin) {
+            $userData['data_access'] = User::DATA_ACCESS_SELECTED;
+        }
+
+        $user = User::create($userData);
+
+        if ($assignsAdmin) {
+            $user->grantOwnAreaAccess();
+            $notices[] = "{$user->nama_lengkap} ({$user->restrictedAccessSummary()})";
+        }
 
         return $passwordFingerprint;
+    }
+
+    /**
+     * Keep an active peer approver. Otherwise use the matrix or division manager.
+     * A peer that points at an archived approver, with no replacement, is rejected.
+     *
+     * @param  array<string, mixed>  $userData
+     */
+    private static function resolveImportedApprovalId(array $userData): ?int
+    {
+        $peerApprovalId = isset($userData['approval_id']) ? (int) $userData['approval_id'] : 0;
+        $peerApproverIsActive = $peerApprovalId !== 0
+            && User::query()->whereKey($peerApprovalId)->exists();
+
+        if ($peerApproverIsActive) {
+            return $peerApprovalId;
+        }
+
+        $resolvedApprover = ApprovalResolverService::resolve(
+            divisiId: isset($userData['divisi_id']) ? (int) $userData['divisi_id'] : null,
+            areaId: isset($userData['area_id']) ? (int) $userData['area_id'] : null,
+            roleId: isset($userData['role_id']) ? (int) $userData['role_id'] : null,
+            positionId: isset($userData['position_id']) ? (int) $userData['position_id'] : null,
+        );
+
+        if ($resolvedApprover !== null) {
+            return (int) $resolvedApprover->id;
+        }
+
+        if ($peerApprovalId !== 0) {
+            throw new RuntimeException('Pola DND memiliki approval yang tidak aktif; perlu review manual.');
+        }
+
+        return null;
     }
 
     /**
@@ -404,8 +462,9 @@ class UserJsonImportService
         ]);
 
         $positionIds = static::matchingMasterIds(Position::query(), $positionName);
+        // Akun ADMIN tidak pernah dijadikan pola user baru (role ADMIN hanya diberikan manual oleh super admin).
         $adminRoleIds = Role::query()
-            ->whereRaw('LOWER(TRIM(name)) = ?', ['admin'])
+            ->whereRaw('LOWER(TRIM(name)) = ?', [strtolower(User::ROLE_ADMIN)])
             ->pluck('id');
 
         $query = User::query()
@@ -433,10 +492,6 @@ class UserJsonImportService
         }
 
         $template = $candidates->first();
-        if ($template->approval_id !== null
-            && ! User::query()->whereKey($template->approval_id)->exists()) {
-            throw new RuntimeException('Pola DND memiliki approval yang tidak aktif; perlu review manual.');
-        }
 
         return $template;
     }
@@ -782,6 +837,7 @@ class UserJsonImportService
             'error_count' => count($errors),
             'errors' => $errors,
             'created_count' => 0,
+            'notices' => [],
         ];
     }
 }

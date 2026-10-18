@@ -8,6 +8,8 @@ use App\Http\Requests\Api\V1\LoginRequest;
 use App\Http\Requests\Api\V1\UpdateProfileRequest;
 use App\Http\Resources\Api\V1\UserResource;
 use App\Models\User;
+use App\Policies\UserPolicy;
+use App\Services\DataAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -51,6 +53,9 @@ class AuthController extends Controller
                 'token_type' => 'Bearer',
                 'user' => new UserResource($user),
             ],
+            // Path yang sama dengan /auth/me (tingkat atas, di samping 'data'). data.user.data_access tetap
+            // nilai mentah users.data_access ('all' / 'selected' / null).
+            'data_access' => $this->dataAccessSummary($user),
         ]);
     }
 
@@ -78,6 +83,7 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Data profil berhasil diambil.',
             'data' => new UserResource($user),
+            'data_access' => $this->dataAccessSummary($user),
         ]);
     }
 
@@ -142,5 +148,35 @@ class AuthController extends Controller
                 'total' => $subordinates->count(),
             ],
         ]);
+    }
+
+    /**
+     * Ringkasan akses data actor untuk aplikasi mobile (menu Karyawan / Tim Saya). Login dan /auth/me
+     * mengirimnya di kunci tingkat atas 'data_access'.
+     *
+     * scope: 'all' = seluruh badan usaha, 'selected' = badan usaha di area_ids, 'none' = tanpa akses badan usaha.
+     *
+     * @return array{scope: string, area_ids: array<int>|null, can_access_employees: bool, can_access_team: bool}
+     */
+    private function dataAccessSummary(User $user): array
+    {
+        $scope = match (true) {
+            DataAccessService::hasGlobalAccess($user) => User::DATA_ACCESS_ALL,
+            DataAccessService::isAreaScopedAdmin($user) => User::DATA_ACCESS_SELECTED,
+            default => 'none',
+        };
+
+        $areaIds = DataAccessService::allowedAreaIds($user);
+
+        if ($areaIds !== null) {
+            sort($areaIds);
+        }
+
+        return [
+            'scope' => $scope,
+            'area_ids' => $areaIds,
+            'can_access_employees' => DataAccessService::canAccessEmployees($user),
+            'can_access_team' => app(UserPolicy::class)->canManageTeam($user),
+        ];
     }
 }

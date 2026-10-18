@@ -5,17 +5,24 @@ namespace App\Policies;
 use App\Models\Kpi;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 
 class KpiPolicy
 {
+    /**
+     * Super admin: ADMIN dengan akses seluruh badan usaha.
+     */
     private function canManageAll(User $user): bool
     {
-        return $user->role?->name === 'ADMIN';
+        return DataAccessService::hasGlobalAccess($user);
     }
 
+    /**
+     * Atasan approval line (semua role atasan) mengelola data anggota timnya.
+     */
     private function canManageScoped(User $user): bool
     {
-        return in_array($user->role?->name, ['MANAGER', 'COORDINATOR'], true);
+        return DataAccessService::isTeamSupervisor($user);
     }
 
     /**
@@ -26,7 +33,7 @@ class KpiPolicy
         return ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $user->id);
     }
 
-    private function canAccessRecord(User $user, Kpi $kpi): bool
+    private function canAccessRecord(User $user, Kpi $kpi, bool $write = false): bool
     {
         if ($this->canManageAll($user)) {
             return true;
@@ -34,6 +41,15 @@ class KpiPolicy
 
         if ((int) $kpi->user_id === (int) $user->id) {
             return true;
+        }
+
+        // Admin badan usaha tertentu: pemilik KPI harus berada di badan usaha yang diizinkan,
+        // tim (approval line), atau dirinya sendiri. Berlaku juga untuk new Kpi(['user_id' => X]).
+        // Mengubah data akun ADMIN lain hanya untuk super admin.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            return $write
+                ? DataAccessService::canWriteForUser($user, $kpi->ownerForAccessCheck())
+                : DataAccessService::canSeeUser($user, $kpi->ownerForAccessCheck());
         }
 
         if (! $this->canManageScoped($user)) {
@@ -68,6 +84,11 @@ class KpiPolicy
             return true;
         }
 
+        // Target KPI tetap divalidasi per karyawan (view pada new Kpi(['user_id' => X])).
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            return DataAccessService::canAccessEmployees($user) || $this->getManagedUserIds($user) !== [];
+        }
+
         if (! $this->canManageScoped($user)) {
             return false;
         }
@@ -80,7 +101,7 @@ class KpiPolicy
      */
     public function update(User $user, Kpi $kpi): bool
     {
-        return $this->canAccessRecord($user, $kpi);
+        return $this->canAccessRecord($user, $kpi, write: true);
     }
 
     /**
@@ -88,7 +109,7 @@ class KpiPolicy
      */
     public function delete(User $user, Kpi $kpi): bool
     {
-        return $this->canAccessRecord($user, $kpi);
+        return $this->canAccessRecord($user, $kpi, write: true);
     }
 
     /**
@@ -96,7 +117,7 @@ class KpiPolicy
      */
     public function restore(User $user, Kpi $kpi): bool
     {
-        return $this->canAccessRecord($user, $kpi);
+        return $this->canAccessRecord($user, $kpi, write: true);
     }
 
     /**
@@ -104,6 +125,6 @@ class KpiPolicy
      */
     public function forceDelete(User $user, Kpi $kpi): bool
     {
-        return $this->canAccessRecord($user, $kpi);
+        return $this->canAccessRecord($user, $kpi, write: true);
     }
 }

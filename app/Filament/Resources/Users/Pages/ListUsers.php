@@ -57,7 +57,7 @@ class ListUsers extends ListRecords
                     ->label('Import User')
                     ->icon('heroicon-s-arrow-up-tray')
                     ->color('gray')
-                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (): bool => static::getResource()::canImportUsers())
                     ->schema([
                         FileUpload::make('file')
                             ->label('Upload File Excel:')
@@ -97,7 +97,7 @@ class ListUsers extends ListRecords
                     ->action(function (array $data) {
                         return $this->processJsonImport($data);
                     })
-                    ->visible(fn (): bool => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (): bool => static::getResource()::canImportUsers())
                     ->modalWidth('md')
                     ->modalHeading('Import User dari File JSON')
                     ->modalSubmitActionLabel('Import JSON'),
@@ -111,7 +111,8 @@ class ListUsers extends ListRecords
 
     public function processImport(array $data)
     {
-        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+        // Import mencocokkan karyawan lintas badan usaha, jadi khusus super admin di menu Karyawan.
+        abort_unless(static::getResource()::canImportUsers(), 403);
 
         try {
             set_time_limit(300);
@@ -158,6 +159,8 @@ class ListUsers extends ListRecords
                     ->send();
             }
 
+            static::notifyImportNotices($import->getNotices());
+
             session()->flash('importErrors', $errors);
         } catch (Throwable $e) {
             Log::error('Import Error: '.$e->getMessage());
@@ -170,9 +173,42 @@ class ListUsers extends ListRecords
         }
     }
 
+    /**
+     * Ringkasan ADMIN baru/promosi dari import yang diberi akses Badan Usaha Tertentu: satu baris per admin,
+     * petunjuk lanjutannya sekali di akhir. Body notifikasi dirender sebagai HTML tersanitasi, jadi baris
+     * dipisah <br> dan isi catatan di-escape.
+     *
+     * @param  list<string>  $notices
+     */
+    protected static function notifyImportNotices(array $notices): void
+    {
+        if ($notices === []) {
+            return;
+        }
+
+        $count = count($notices);
+        $limit = 10;
+        $lines = array_map(static fn (string $notice): string => e($notice), array_slice($notices, 0, $limit));
+
+        if ($count > $limit) {
+            $lines[] = e('... dan '.($count - $limit).' admin lainnya.');
+        }
+
+        $lines[] = '';
+        $lines[] = e('Admin di atas hanya dapat mengelola badan usaha yang tercantum, bukan semua badan usaha. '
+            .'Bila perlu akses semua badan usaha, ubah Cakupan Badan Usaha di form karyawan.');
+
+        Notification::make()
+            ->title("{$count} Admin Dibatasi ke Badan Usaha Tertentu")
+            ->body(implode('<br>', $lines))
+            ->warning()
+            ->persistent()
+            ->send();
+    }
+
     public function processJsonImport(array $data)
     {
-        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+        abort_unless(static::getResource()::canImportUsers(), 403);
 
         try {
             set_time_limit(300);
@@ -253,6 +289,8 @@ class ListUsers extends ListRecords
                     ->success()
                     ->send();
             }
+
+            static::notifyImportNotices($res['notices'] ?? []);
         } catch (Throwable $e) {
             Log::error('JSON Import Error: '.$e->getMessage());
             Log::error($e->getTraceAsString());
@@ -276,6 +314,11 @@ class ListUsers extends ListRecords
 
     public function getTabs(): array
     {
+        // Tim Saya hanya berisi anggota tim aktif, jadi tidak punya tab Arsip.
+        if (! static::getResource()::canViewArchived()) {
+            return [];
+        }
+
         return [
             'all' => Tab::make('Semua')
                 ->modifyQueryUsing(fn (Builder $query) => $query->withoutTrashed()),

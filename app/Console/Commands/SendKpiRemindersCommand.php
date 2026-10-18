@@ -2,13 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\KpiReminderMail;
+use App\Jobs\SendKpiReminderEmailJob;
+use App\Jobs\SendKpiReminderWhatsAppJob;
 use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
-use App\Services\WhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Cache\Lock;
@@ -16,7 +16,6 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 class SendKpiRemindersCommand extends Command
@@ -67,15 +66,16 @@ class SendKpiRemindersCommand extends Command
 
         $now = Date::now();
         $today = $now->copy()->startOfDay();
-        $periodStart = $now->copy()->startOfMonth();
-        $periodEnd = $periodStart->copy()->addMonth();
-        $periodeLabel = $now->isoFormat('MMMM YYYY');
 
         foreach ($settings as $setting) {
             $this->info("Memproses Aturan: [{$setting->title}] (Tipe: {$setting->type})");
 
-            $deadlineDate = $today->copy()->day(min($setting->deadline_day, $today->daysInMonth));
-            $daysDiff = $today->diffInDays($deadlineDate, false); // Positive if before deadline, 0 if deadline, negative if past deadline
+            $resolved = $this->resolveDeadlineAndPeriod($setting, $today);
+            $deadlineDate = $resolved['deadlineDate'];
+            $periodStart = $resolved['periodStart'];
+            $periodEnd = $resolved['periodEnd'];
+            $periodeLabel = $resolved['periodeLabel'];
+            $daysDiff = $resolved['daysDiff'];
 
             $shouldTrigger = false;
             $reminderOffsets = is_array($setting->reminder_days_before) ? $setting->reminder_days_before : [];
@@ -95,6 +95,8 @@ class SendKpiRemindersCommand extends Command
 
                 continue;
             }
+
+            $this->info("Periode target: {$periodeLabel} | Tenggat: {$deadlineDate->format('d M Y')} (Selisih: {$daysDiff} hari)");
 
             // Identify target users
             $targetUsers = $this->identifyTargetUsers($setting, $periodStart, $periodEnd);
@@ -143,6 +145,53 @@ class SendKpiRemindersCommand extends Command
         $this->info('Selesai memproses seluruh pengingat KPI.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve deadline date and target KPI period for a given setting.
+     *
+     * @return array{deadlineDate: Carbon, periodStart: Carbon, periodEnd: Carbon, periodeLabel: string, daysDiff: int}
+     */
+    public function resolveDeadlineAndPeriod(KpiReminderSetting $setting, Carbon $today): array
+    {
+        $deadlineDay = (int) $setting->deadline_day;
+        $currentMonthDeadline = $today->copy()->day(min($deadlineDay, $today->daysInMonth));
+        $nextMonth = $today->copy()->addMonth();
+        $nextMonthDeadline = $nextMonth->copy()->day(min($deadlineDay, $nextMonth->daysInMonth));
+
+        $reminderOffsets = is_array($setting->reminder_days_before)
+            ? array_map('intval', $setting->reminder_days_before)
+            : [];
+
+        // Check if today matches an upcoming deadline in the next month (e.g. today is late in month, reminder is H-7 before day 5 of next month)
+        $daysDiffNext = (int) $today->diffInDays($nextMonthDeadline, false);
+        if ($today->day > $deadlineDay && in_array($daysDiffNext, $reminderOffsets, true)) {
+            $deadlineDate = $nextMonthDeadline;
+            $daysDiff = $daysDiffNext;
+        } else {
+            $deadlineDate = $currentMonthDeadline;
+            $daysDiff = (int) $today->diffInDays($currentMonthDeadline, false);
+        }
+
+        // Determine target KPI period:
+        // For 'pengisian_kpi' with early-month deadline (<= 15), staff are completing the previous month's KPI
+        if ($setting->type === 'pengisian_kpi' && $deadlineDay <= 15) {
+            $periodDate = $deadlineDate->copy()->subMonth();
+        } else {
+            $periodDate = $deadlineDate->copy();
+        }
+
+        $periodStart = $periodDate->copy()->startOfMonth();
+        $periodEnd = $periodStart->copy()->addMonth();
+        $periodeLabel = $periodStart->isoFormat('MMMM YYYY');
+
+        return [
+            'deadlineDate' => $deadlineDate,
+            'periodStart' => $periodStart,
+            'periodEnd' => $periodEnd,
+            'periodeLabel' => $periodeLabel,
+            'daysDiff' => $daysDiff,
+        ];
     }
 
     /**
@@ -254,34 +303,15 @@ class SendKpiRemindersCommand extends Command
             }
 
             try {
-                Mail::to($user->email)->send(new KpiReminderMail($subject, $body));
+                SendKpiReminderEmailJob::dispatch($setting->id, $user->id, $user->email, $subject, $body);
 
-                KpiReminderLog::create([
-                    'kpi_reminder_setting_id' => $setting->id,
-                    'user_id' => $user->id,
-                    'channel' => 'email',
-                    'recipient' => $user->email,
-                    'status' => 'sent',
-                    'sent_at' => Date::now(),
-                ]);
-
-                $this->info(" [EMAIL SENT] Terkirim ke {$user->email}");
+                $this->info(" [EMAIL QUEUED] Diantrikan ke {$user->email}");
 
                 return true;
             } catch (Throwable $e) {
-                Log::error("Gagal mengirim email pengingat KPI ke {$user->email}: ".$e->getMessage());
+                Log::error("Gagal mengantrekan email pengingat KPI ke {$user->email}: ".$e->getMessage());
 
-                KpiReminderLog::create([
-                    'kpi_reminder_setting_id' => $setting->id,
-                    'user_id' => $user->id,
-                    'channel' => 'email',
-                    'recipient' => $user->email,
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                    'sent_at' => Date::now(),
-                ]);
-
-                $this->error(" [EMAIL FAILED] Gagal ke {$user->email}: {$e->getMessage()}");
+                $this->error(" [EMAIL FAILED] Gagal mengantri ke {$user->email}: {$e->getMessage()}");
 
                 return false;
             }
@@ -327,33 +357,24 @@ class SendKpiRemindersCommand extends Command
                 return true;
             }
 
-            $normalizedPhone = WhatsAppService::normalizePhoneNumber((string) $user->no_hp)
-                ?? trim((string) $user->no_hp);
-            $idempotencyKey = 'kpi-rem-'.substr(hash(
-                'sha256',
-                "{$setting->id}:{$user->id}:whatsapp:".Date::today()->toDateString().":{$normalizedPhone}:{$message}",
-            ), 0, 32);
-            $result = WhatsAppService::send($user->no_hp, $message, $idempotencyKey);
+            try {
+                SendKpiReminderWhatsAppJob::dispatch(
+                    $setting->id,
+                    $user->id,
+                    (string) $user->no_hp,
+                    $message,
+                );
 
-            KpiReminderLog::create([
-                'kpi_reminder_setting_id' => $setting->id,
-                'user_id' => $user->id,
-                'channel' => 'whatsapp',
-                'recipient' => $user->no_hp,
-                'status' => $result['success'] ? 'sent' : 'failed',
-                'error_message' => $result['success'] ? null : $result['message'],
-                'sent_at' => Date::now(),
-            ]);
-
-            if ($result['success']) {
-                $this->info(" [WA SENT] Terkirim ke {$user->no_hp}");
+                $this->info(" [WA QUEUED] Diantrikan ke {$user->no_hp}");
 
                 return true;
+            } catch (Throwable $e) {
+                Log::error("Gagal mengantrekan WhatsApp pengingat KPI ke {$user->no_hp}: ".$e->getMessage());
+
+                $this->error(" [WA FAILED] Gagal mengantri ke {$user->no_hp}: {$e->getMessage()}");
+
+                return false;
             }
-
-            $this->error(" [WA FAILED] Gagal ke {$user->no_hp}: {$result['message']}");
-
-            return false;
         } finally {
             $lock->release();
         }

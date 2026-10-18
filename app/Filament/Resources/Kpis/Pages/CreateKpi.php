@@ -7,6 +7,7 @@ use App\Models\Kpi;
 use App\Models\KpiDetail;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Exception;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
@@ -56,7 +57,14 @@ class CreateKpi extends CreateRecord
                 ->whereNull('deleted_at')
                 ->where('position_id', $data['position_id']);
 
-            if (Auth::user()?->role?->name !== 'ADMIN') {
+            $actor = Auth::user();
+
+            if (DataAccessService::isAreaScopedAdmin($actor)) {
+                // Posisi dipakai lintas badan usaha: admin badan usaha tertentu hanya membuat KPI
+                // untuk karyawan di badan usaha yang diizinkan, tim, dan dirinya sendiri, tanpa akun
+                // ADMIN lain (KpiPolicy: data akun ADMIN hanya diubah super admin).
+                DataAccessService::scopeWritableUsers($usersQuery, $actor);
+            } elseif (! DataAccessService::hasGlobalAccess($actor)) {
                 $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) Auth::id());
                 if ($managedUserIds === []) {
                     Notification::make()
@@ -88,7 +96,8 @@ class CreateKpi extends CreateRecord
                 return;
             }
 
-            $date = Date::createFromFormat('m/Y', $data['date'])->format('Y-m-d');
+            // '!' resets the day to 1; plain 'm/Y' keeps today's day, so on the 29th-31st a shorter month rolls over.
+            $date = Date::createFromFormat('!m/Y', $data['date'])->format('Y-m-d');
 
             // Create KPIs and KPI details for each user
             foreach ($users as $user) {

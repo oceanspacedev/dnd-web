@@ -19,11 +19,18 @@ class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping
 
     protected ?int $userId;
 
-    public function __construct(string $month, string $divisi_id, ?int $userId = null)
+    /** @var array<int>|null null = tanpa batas (super admin). */
+    protected ?array $allowedUserIds;
+
+    /**
+     * @param  array<int>|null  $allowedUserIds  Batas karyawan yang boleh diekspor; null = tanpa batas.
+     */
+    public function __construct(string $month, string $divisi_id, ?int $userId = null, ?array $allowedUserIds = null)
     {
         $this->month = $month;
         $this->divisi_id = $divisi_id;
         $this->userId = $userId;
+        $this->allowedUserIds = $allowedUserIds;
     }
 
     public function title(): string
@@ -35,15 +42,26 @@ class KpiPerDivisionSummarySheet implements FromArray, WithHeadings, WithMapping
     {
         $result = [];
 
+        $usersQuery = User::orderBy('nama_lengkap');
+
         if ($this->userId) {
-            $users = User::orderBy('nama_lengkap')->where('id', $this->userId)->get();
+            $usersQuery->where('id', $this->userId);
         } elseif ($this->divisi_id) {
-            $users = User::orderBy('nama_lengkap')->where('divisi_id', $this->divisi_id)->get();
+            $usersQuery->where('divisi_id', $this->divisi_id);
         } else {
-            $users = User::orderBy('nama_lengkap')->where('divisi_id', auth()->user()->divisi_id)->get();
+            $usersQuery->where('divisi_id', auth()->user()?->divisi_id);
         }
 
-        $date = Date::createFromFormat('Y-m', $this->month);
+        // Hanya karyawan dalam cakupan aktor (badan usaha / tim); null = tanpa batas.
+        if ($this->allowedUserIds !== null) {
+            $usersQuery->whereIn('id', $this->allowedUserIds);
+        }
+
+        $users = $usersQuery->get();
+
+        // '!' = tanggal 1. Tanpa '!' hari ini dipakai, sehingga bulan yang lebih pendek bergeser ke bulan berikutnya
+        // pada tanggal 29-31 (export September pada 31 Oktober berisi KPI Oktober).
+        $date = Date::createFromFormat('!Y-m', $this->month);
 
         foreach ($users as $user) {
             $user_closed_kpis = 0;

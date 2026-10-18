@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\UpdateOveropenRequest;
 use App\Http\Resources\Api\V1\OveropenResource;
 use App\Models\Overopen;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,7 +25,11 @@ class OveropenController extends Controller
         $query = Overopen::with(['user', 'leader']);
         $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
+        // Super admin melihat seluruh badan usaha; admin per badan usaha melihat badan usaha
+        // yang diizinkan, tim approval, dan dirinya sendiri.
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            DataAccessService::scopeOwnedRecords($query, $actor);
+        } elseif (! DataAccessService::hasGlobalAccess($actor)) {
             $visibleUserIds = array_merge(
                 [(int) ($actor?->id ?? 0)],
                 ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
@@ -97,8 +102,10 @@ class OveropenController extends Controller
         $validated = $request->validated();
         $currentUser = auth()->user();
 
-        $this->authorize('view', new Overopen(['user_id' => (int) $validated['user_id']]));
-        $validated['atasan'] = $currentUser?->role?->name === 'ADMIN'
+        $this->authorize('update', new Overopen(['user_id' => (int) $validated['user_id']]));
+        // Admin boleh memilih atasan; untuk admin per badan usaha atasan sudah divalidasi
+        // berada dalam cakupan datanya (StoreOveropenRequest).
+        $validated['atasan'] = DataAccessService::isAdmin($currentUser)
             ? ($validated['atasan'] ?? $currentUser?->id)
             : $currentUser?->id;
         $validated['point'] = $validated['point'] ?? 0;
@@ -134,7 +141,7 @@ class OveropenController extends Controller
 
         $validated = $request->validated();
         unset($validated['user_id']);
-        if (auth()->user()?->role?->name !== 'ADMIN') {
+        if (! DataAccessService::isAdmin(auth()->user())) {
             $validated['atasan'] = auth()->id();
         }
         $overopen->update($validated);
