@@ -77,7 +77,7 @@ class ChecklistKPI extends Widget
 
         if ($this->month) {
             try {
-                $date = Date::createFromFormat('m/Y', $this->month);
+                $date = Date::createFromFormat('!m/Y', $this->month);
             } catch (Exception $e) {
                 try {
                     $date = Date::parse($this->month);

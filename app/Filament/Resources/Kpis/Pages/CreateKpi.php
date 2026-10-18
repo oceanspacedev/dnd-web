@@ -95,7 +95,8 @@ class CreateKpi extends CreateRecord
                 return;
             }
 
-            $date = Date::createFromFormat('m/Y', $data['date'])->format('Y-m-d');
+            // '!' resets the day to 1; plain 'm/Y' keeps today's day, so on the 29th-31st a shorter month rolls over.
+            $date = Date::createFromFormat('!m/Y', $data['date'])->format('Y-m-d');
 
             // Create KPIs and KPI details for each user
             foreach ($users as $user) {

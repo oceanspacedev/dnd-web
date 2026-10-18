@@ -74,8 +74,8 @@ class KpiSupervisorGuideTest extends TestCase
             // CreateKpi skips a category whose tab has no rows but still reports "KPI created".
             ->assertSee('berisi minimal satu baris KPI')
             ->assertSee('satu baris per kategori yang berisi indikator')
-            // The KPI date takes today's day number (m/Y parsing), so the 29th-31st can roll into the next month.
-            ->assertSeeHtml('<strong>Hindari membuat KPI pada tanggal 29-31</strong>')
+            // The KPI month is stored as the 1st of the chosen month, so the old 29th-31st workaround is gone.
+            ->assertDontSee('29-31')
             ->assertDontSee('tersimpan sebagai bulan/tahun')
             // GIF 1 adds no subtasks, so the example table marks them as optional.
             ->assertSee('Subtasks (opsional)')

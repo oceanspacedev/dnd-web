@@ -289,7 +289,7 @@ class ListKpis extends ListRecords
                                         TextInput::make('tanggal2')
                                             ->label('Ke Bulan')
                                             ->maxLength(7)
-                                            ->default(fn () => now()->addMonth()->format('Y-m'))
+                                            ->default(fn () => now()->addMonthNoOverflow()->format('Y-m'))
                                             ->regex('/^\d{4}-\d{2}$/')
                                             ->validationMessages([
                                                 'regex' => 'Format yang valid adalah tahun-bulan (YYYY-MM).',
@@ -304,8 +304,9 @@ class ListKpis extends ListRecords
                     ->modalHeading('Copy KPI')
                     ->action(function (array $data) {
                         try {
-                            $fromDate = Date::createFromFormat('Y-m', $data['tanggal1'])->startOfMonth();
-                            $toDate = Date::createFromFormat('Y-m', $data['tanggal2'])->startOfMonth();
+                            // '!' resets the day to 1; plain 'Y-m' keeps today's day and rolls over on the 29th-31st.
+                            $fromDate = Date::createFromFormat('!Y-m', $data['tanggal1']);
+                            $toDate = Date::createFromFormat('!Y-m', $data['tanggal2']);
                             $copyMode = $data['copy_mode'];
                             $actor = auth()->user();
                             // Hanya super admin yang tidak dibatasi; id dari form selalu divalidasi ulang di sini.

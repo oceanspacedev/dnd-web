@@ -30,7 +30,7 @@
                 <li>Masuk ke sistem dengan akun atasan yang memiliki anggota tim (atau akun Admin), lewat <strong>Username</strong> dan <strong>Kata sandi</strong> atau tombol <strong>WhatsApp</strong> dengan kode OTP. Langkah masuk lewat WhatsApp ada di awal GIF 2.</li>
                 <li>Buka menu <strong>KPI</strong>, lalu klik tombol <strong>Buat kpi</strong> di kanan atas.</li>
                 <li>Pilih <strong>Job Position</strong> (ketik nama posisi untuk mencari). Setiap opsi berisi nama posisi dan anggota tim yang memegangnya; KPI dibuat sekaligus untuk semua nama tersebut (termasuk Anda bila posisi Anda sama).</li>
-                <li>Klik <strong>Month</strong>, lalu klik tanggal mana saja di bulan periode KPI. Kolom menampilkan bulan/tahun, misalnya <strong>10/2026</strong>. Hindari membuat KPI pada tanggal 29-31 (lihat Detail A).</li>
+                <li>Klik <strong>Month</strong>, lalu klik tanggal mana saja di bulan periode KPI. Kolom menampilkan bulan/tahun, misalnya <strong>10/2026</strong>.</li>
                 <li>Pada tab <strong>MAIN JOB</strong>, isi <strong>Percentage %</strong>, klik <strong>Tambahkan ke kPI Descriptions</strong>, lalu isi baris pertama dengan indikator positif bertipe <strong>RESULT</strong> (contoh: Tiket selesai per bulan).</li>
                 <li>Isi <strong>Value Plan</strong> untuk KPI RESULT (minimal 1); kolom ini baru aktif setelah <strong>Count Type</strong> diisi RESULT. Klik <strong>Add Subtask</strong> bila aktivitas perlu dipecah (opsional).</li>
                 <li>Klik <strong>Tambahkan ke kPI Descriptions</strong> lagi untuk KPI kedua. Jika indikatornya belum ada di daftar, klik ikon <strong>+</strong> di samping kolom <strong>Deskripsi</strong> (KPI Description).</li>
@@ -74,7 +74,6 @@
                     <ul class="mt-2 list-disc space-y-1 pl-5">
                         <li><strong>Job Position</strong>: posisi target. Opsi menampilkan anggota tim pemegang posisi itu, dan KPI dibuat untuk mereka semua.</li>
                         <li><strong>Month</strong>: bulan periode KPI (biasanya bulan berjalan atau bulan berikutnya). Klik tanggal mana saja di bulan itu; kolom menampilkan bulan/tahun.</li>
-                        <li><strong>Hindari membuat KPI pada tanggal 29-31</strong>: tanggal KPI yang tersimpan memakai tanggal hari ini, bukan tanggal yang diklik. Jika bulan tujuan lebih pendek, KPI tercatat di bulan berikutnya (contoh: KPI November yang dibuat 31 Oktober tercatat sebagai Desember).</li>
                         <li><strong>Tipe KPI</strong>: tidak tampil di form; sistem mengisinya otomatis.</li>
                     </ul>
                 </div>
@@ -341,7 +340,6 @@
                         <li>Value plan terisi untuk count type RESULT.</li>
                         <li>Jika Start/End diisi, pastikan tanggal tidak terbalik dan tidak salah input.</li>
                         <li>Periode bulan sudah benar dan KPI posisi itu untuk bulan tersebut belum pernah dibuat (sistem tidak menolak KPI ganda).</li>
-                        <li>KPI tidak dibuat pada tanggal 29-31 (lihat Detail A).</li>
                     </ul>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
