@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
 use App\Services\LeaderboardScoreService;
+use App\Services\ScoringRuleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -57,6 +58,8 @@ class AnalyticsController extends Controller
             'success' => true,
             'message' => 'Peringkat leaderboard berhasil dihitung.',
             'periode' => $periode,
+            // Versi aturan penilaian periode ini: bobot sebenarnya di balik kunci *_70pct / *_15pct.
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
             'data' => LeaderboardResource::collection($paginator->items()),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
@@ -153,6 +156,7 @@ class AnalyticsController extends Controller
             'pending_requests_count' => $pendingRequests,
             'top_performers' => $formatRankList($top5),
             'bottom_performers' => $formatRankList($bottom5),
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
         ];
 
         return response()->json([
@@ -177,6 +181,7 @@ class AnalyticsController extends Controller
             'success' => true,
             'message' => 'Statistik komparasi departemen & area berhasil diambil.',
             'periode' => $periode,
+            'scoring_rule' => LeaderboardScoreService::ruleSummary(ScoringRuleService::forPeriode($periode)),
             'data' => [
                 'by_division' => $divisiStats,
                 'by_area' => $areaStats,
@@ -267,7 +272,9 @@ class AnalyticsController extends Controller
         }
 
         $completionRate = $totalIndicators > 0 ? ($completedIndicators / $totalIndicators) * 100 : 0;
-        $finalScore70 = KpiScoringService::calculateFinalKpiScore($totalKpiScore);
+        // Bobot KPI dari versi aturan periode yang diminta (kunci final_kpi_score_70pct dipertahankan).
+        $scoringRule = ScoringRuleService::forPeriode($periode);
+        $finalScore70 = KpiScoringService::calculateFinalKpiScore($totalKpiScore, $scoringRule);
 
         $checklistData = [
             'user' => $user,
@@ -285,6 +292,7 @@ class AnalyticsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Matriks checklist KPI karyawan berhasil diambil.',
+            'scoring_rule' => LeaderboardScoreService::ruleSummary($scoringRule),
             'data' => new KpiChecklistResource($checklistData),
         ]);
     }

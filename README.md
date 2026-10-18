@@ -176,31 +176,86 @@ Jenis indikator KPI:
 - `RESULT` negatif atau *lower is better*: pencapaian dihitung dari `plan / max(actual, 1)`.
 - `Extra Task`: pekerjaan pengganti/child KPI detail yang dapat memperbarui hasil indikator induk. Field ini berbeda dari field teks `subtasks` pada KPI detail.
 
-Baseline perhitungan leaderboard web saat ini:
+#### Rumus nilai kinerja dan aturan penilaian berversi
 
 ```text
-Skor total = KPI (maks. 70)
-           + Kehadiran (maks. 15)
-           + Review karyawan (maks. 15)
-           - Cutpoint
+Skor total       = Skor KPI + Skor Kehadiran + Skor Penilaian      (bobot KPI + Kehadiran + Penilaian = 100)
+                   - Cutpoint                                        (dikurangi di leaderboard web)
+
+Skor KPI         = min(bobot KPI, nilai KPI mentah (%) × bobot KPI / 100)
+Skor Penilaian   = total poin penilaian / poin maksimal penilaian × bobot Penilaian
+Rumus dasar (%)  = (hari kerja − Σ jumlah komponen yang "mengurangi rumus dasar") / hari kerja × 100
+Penalti (poin)   = Σ (jumlah komponen × penalti per hari/kejadian)
+Pencapaian akhir = max(0, rumus dasar − penalti)
+Skor Kehadiran   = pencapaian akhir / 100 × bobot Kehadiran           (hari kerja 0 → skor 0)
 ```
 
-Review karyawan terdiri dari `responsiveness`, `problem_solver`, `helpfulness`, dan `initiative`, masing-masing bernilai 0–5. Rumus KPI bersama berada di [`app/Services/KpiScoringService.php`](app/Services/KpiScoringService.php); implementasi leaderboard web berada di [`app/Filament/Widgets/LeaderboardKPI.php`](app/Filament/Widgets/LeaderboardKPI.php).
+Bobot, poin maksimal penilaian, dan aturan setiap komponen kehadiran tidak ditulis di kode, tetapi disimpan sebagai **versi aturan** di tabel `scoring_rules`. Setiap versi berlaku mulai bulan `effective_from` (`Y-m`). Satu periode memakai versi terakhir dengan `effective_from <= periode`, dan versi itu dicari lewat `ScoringRuleService::forPeriode()`. Setiap baris memakai aturan periodenya sendiri, bukan aturan hari ini; export tahunan juga dihitung per bulan. Satu set aturan berlaku untuk semua badan usaha. Cara agregasi KPI, pemotongan cutpoint, dan grade tetap mengikuti masing-masing permukaan (leaderboard web, API, export) seperti sebelumnya.
+
+Komponen kehadiran adalah master data di tabel `attendance_components`. Hitungan komponen bawaan disimpan di kolom lama `attendances.late_less_30`, `late_more_30`, dan `sick_days`. Hitungan komponen lain disimpan di `attendances.component_counts[kode]`, sehingga komponen baru tidak memerlukan perubahan kode.
+
+Versi bawaan dari migration `2026_10_18_090100_create_scoring_rules_table.php`:
+
+| Parameter | v1 "Aturan Lama" (mulai 2000-01) | v2 "Aturan Kehadiran November 2026" (mulai 2026-11) |
+| --- | --- | --- |
+| Bobot KPI / Kehadiran / Penilaian | 70 / 15 / 15 | 70 / 15 / 15 |
+| Poin maksimal penilaian | 20 | 20 |
+| Terlambat ≤ 30 menit | 1 poin per kejadian, mengurangi rumus dasar | 1 poin per kejadian (yang dihitung hanya terlambat > 5 menit), mengurangi rumus dasar |
+| Terlambat > 30 menit | 3 poin per kejadian, mengurangi rumus dasar | 3 poin per kejadian, mengurangi rumus dasar |
+| Sakit | 5 poin per hari, mengurangi rumus dasar (kolom lama berisi sakit + izin) | 0 poin, mengurangi rumus dasar |
+| Izin | tidak dihitung | 5 poin per hari, tidak mengurangi rumus dasar |
+| Mangkir | tidak dihitung | 5 poin per hari, tidak mengurangi rumus dasar |
+| Cuti tahunan, cuti lainnya | tidak dihitung | 0 poin, tidak mengurangi rumus dasar |
+
+Contoh v2 untuk hari kerja 22, terlambat ≤ 30 menit 2 kali, terlambat > 30 menit 1 kali, sakit 1 hari, dan izin 1 hari:
+
+- Rumus dasar = (22 − 4) / 22 × 100 = 81,82%.
+- Penalti = 2×1 + 1×3 + 1×0 + 1×5 = 10 poin.
+- Pencapaian akhir = 81,82% − 10 = 71,82%.
+- Skor Kehadiran = 71,82% × 15 = 10,77.
+
+Cara mengubah aturan (khusus super admin, menu **Settings**):
+
+1. Jika perlu komponen baru, buka **Komponen Kehadiran** lalu tambah komponen dengan kode huruf kecil, nama, dan satuan hari atau kejadian. Komponen yang sudah dipakai versi aturan atau data kehadiran tidak bisa dihapus dan satuannya tidak bisa diubah. Nonaktifkan saja, karena versi lama yang memakainya tetap berlaku. Komponen yang masih dinilai (penalti > 0 atau mengurangi rumus dasar) oleh versi yang dipakai bulan lalu, bulan berjalan, atau versi terjadwal belum bisa dinonaktifkan; buat dulu versi baru yang tidak menilainya. Nama komponen juga tampil sebagai judul kolom template/export Excel; unduh ulang template setelah mengganti nama agar judulnya ikut berubah.
+2. Buka **Aturan Penilaian**, lalu pilih **Duplikat jadi versi baru** pada versi terakhir atau **Buat Versi Baru**. Komponen yang sudah nonaktif tidak ikut disalin ke versi baru (form menampilkan peringatan).
+3. Pilih bulan berlaku. Paling awal adalah bulan berjalan, dan defaultnya bulan kosong berikutnya.
+4. Atur bobot (totalnya harus 100), poin maksimal penilaian (paling kecil 20 = 4 aspek × nilai 5, agar skor Penilaian tidak melebihi bobotnya), serta untuk setiap komponen: apakah mengurangi rumus dasar dan berapa penalti per hari atau kejadian.
+5. Periksa bagian **Simulasi**. Bagian ini membandingkan isian form yang belum disimpan dengan versi yang berlaku bulan ini, dan menandai skor yang melebihi bobotnya. Setelah itu simpan.
+
+Setelah versi baru disimpan:
+
+- Bulan sebelum `effective_from` tetap memakai versi lamanya, sehingga nilai lama tidak berubah.
+- Versi yang terjadwal atau berlaku mulai bulan berjalan masih bisa diubah atau dihapus.
+- Setelah bulan pertamanya berakhir, versi menjadi **terkunci**. Hanya nama dan catatannya yang bisa diubah, dan versi tidak bisa dihapus. Untuk mengubah aturan, buat versi baru.
+- Penjaga ini juga ada di model, jadi berlaku untuk panel, tinker, dan seeder: `ScoringRule` mengunci versi; `AttendanceComponent` menolak perubahan kode, kolom lama, dan satuan komponen yang sudah dipakai, penghapusan komponen yang sudah dipakai, serta penonaktifan komponen yang masih dinilai versi bulan lalu, bulan berjalan, atau terjadwal. Penulisan langsung lewat query builder atau SQL tidak dijaga dan harus diikuti `ScoringRuleService::clearCache()`.
+
+Aplikasi mobile membaca aturan lewat endpoint baca saja `GET /api/v1/master/scoring-rules`, `GET /api/v1/master/scoring-rules/resolve?periode=Y-m`, dan `GET /api/v1/master/attendance-components`. Catatan versi (`notes`) bersifat internal dan hanya dikirim ke super admin.
+
+Aturan dan komponen di-cache dengan kunci berversi. Observer menaikkan versinya setiap kali ada perubahan lewat Eloquent. Penulisan langsung lewat query builder atau SQL harus diikuti `ScoringRuleService::clearCache()`.
+
+Review karyawan terdiri dari `responsiveness`, `problem_solver`, `helpfulness`, dan `initiative`, masing-masing bernilai 0–5. Lokasi kode terkait:
+
+- Rumus: [`app/Services/PerformanceScoreCalculator.php`](app/Services/PerformanceScoreCalculator.php).
+- Resolusi versi: [`app/Services/ScoringRuleService.php`](app/Services/ScoringRuleService.php).
+- Rumus KPI bersama: [`app/Services/KpiScoringService.php`](app/Services/KpiScoringService.php).
+- Leaderboard web: [`app/Filament/Widgets/LeaderboardKPI.php`](app/Filament/Widgets/LeaderboardKPI.php).
 
 Panduan visual tersedia di panel:
 
 - `/admin/panduan-kpi-bawahan` untuk operasional karyawan.
 - `/admin/panduan-kpi-atasan` untuk alur manajerial.
 - `/admin/panduan-ubah-posisi` untuk alur pencarian dan mutasi posisi karyawan.
+- `/admin/panduan-akses-data` untuk akses data per badan usaha, menu Karyawan, dan menu Tim Saya (admin dan atasan).
+- `/admin/panduan-aturan-penilaian` untuk cara nilai kinerja dihitung, pengisian/import Kehadiran, dan pengelolaan versi aturan penilaian (semua pengguna; bagian pengaturan khusus super admin).
 
 ### 3. Kehadiran, review, cutpoint, dan overopen
 
-- Kehadiran menyimpan hari kerja, keterlambatan kurang/lebih dari 30 menit, sakit, dan data periode.
-- Review menyimpan empat dimensi perilaku yang menjadi komponen 15% penilaian.
+- Kehadiran menyimpan periode, hari kerja, dan hitungan per komponen kehadiran (master **Komponen Kehadiran**). Terlambat ≤ 30 menit, terlambat > 30 menit, dan sakit memakai kolom lama; izin, mangkir, cuti, dan komponen baru disimpan di `attendances.component_counts`. Sebelum November 2026 kolom sakit berisi sakit + izin.
+- Review menyimpan empat dimensi perilaku dengan skala 0–5. Bobotnya mengikuti versi aturan penilaian periode tersebut (bawaan 15%).
 - Cutpoint adalah potongan poin manual per periode dan dikurangi dari leaderboard web.
 - Overopen adalah counter mingguan yang diisi manual untuk keterlambatan daily, weekly, atau monthly; record-nya tidak berelasi langsung ke record activity. Overopen tidak otomatis menghasilkan cutpoint.
 - CRUD dan import kehadiran/review pada panel memakai pembatasan scope.
-- Scope export belum seragam: export kehadiran saat ini mengambil seluruh tabel, sedangkan export review untuk non-admin hanya mengambil bawahan langsung. Perlakukan file export sebagai data sensitif sampai guard-nya diseragamkan.
+- Export, template, dan import kehadiran/review mengikuti cakupan yang sama dengan daftarnya di menu (super admin semua, admin badan usaha sesuai badan usahanya, atasan timnya). File export tetap data sensitif.
 
 ### 4. Jurnal harian
 
@@ -586,7 +641,7 @@ Gunakan scope kecil dan satu tujuan per branch. Hindari menggabungkan refactor l
 
 - Jangan mengubah schema melalui migration yang sudah pernah berjalan di shared environment; tambahkan migration baru yang reversible dan uji pada database fresh maupun database existing.
 - Gunakan `ApprovalScopeService` untuk hierarchy; jangan membuat ulang query bawahan di banyak tempat.
-- Ikuti pipeline canonical `LeaderboardKPI` untuk scoring sampai agregasinya benar-benar disentralisasi. `calculateKpiScore()` menghasilkan rasio berbobot, sehingga normalisasikan ke unit persen sebelum meneruskannya ke `calculateFinalKpiScore()`; jangan membuat formula baru di controller atau export.
+- Bobot, skor Kehadiran, dan skor Penilaian selalu dihitung lewat `ScoringRuleService::forPeriode()` + `PerformanceScoreCalculator` dengan periode record itu sendiri, jangan dengan rumus atau bobot yang ditulis langsung. Agregasi KPI masih per permukaan; ikuti pipeline `LeaderboardKPI` sampai agregasinya disentralisasi. `calculateKpiScore()` menghasilkan rasio berbobot, sehingga normalisasikan ke unit persen sebelum meneruskannya ke `calculateFinalKpiScore()`; jangan membuat formula baru di controller atau export.
 - Endpoint API baru wajib memanggil policy/Gate atau melakukan ownership check yang setara.
 - Validasi input API ditempatkan pada FormRequest dan response publik dibentuk melalui API Resource.
 - Perubahan pada scoring harus diuji pada checklist, leaderboard web, API, dan export.

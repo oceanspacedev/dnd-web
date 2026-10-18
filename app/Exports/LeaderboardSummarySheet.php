@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Support\Enumerable;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -13,9 +14,16 @@ class LeaderboardSummarySheet implements FromCollection, ShouldAutoSize, WithHea
 {
     protected array $leaderboardData;
 
-    public function __construct(array $leaderboardData)
+    /** @var list<ScoringRuleData> */
+    protected array $scoringRules;
+
+    /**
+     * @param  list<ScoringRuleData>  $scoringRules  versi aturan periode export (bobot pada judul kolom).
+     */
+    public function __construct(array $leaderboardData, array $scoringRules = [])
     {
         $this->leaderboardData = $leaderboardData;
+        $this->scoringRules = $scoringRules;
     }
 
     public function title(): string
@@ -35,9 +43,7 @@ class LeaderboardSummarySheet implements FromCollection, ShouldAutoSize, WithHea
             'Nama Lengkap',
             'Division',
             'Area',
-            'KPI Score (70%)',
-            'Attendance Score (15%)',
-            'Activity Score (15%)',
+            ...LeaderboardWeightHeadings::scoreHeadings($this->scoringRules),
             'Total Score',
         ];
     }

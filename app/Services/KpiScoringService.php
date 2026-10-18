@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Kpi;
+use App\Support\Scoring\ScoringRuleData;
 
 class KpiScoringService
 {
@@ -39,11 +40,18 @@ class KpiScoringService
     /**
      * Calculate the final capped KPI score for a user/period.
      *
+     * Dengan $rule: min(bobot KPI, raw * bobot / 100) menurut versi aturan periode itu.
+     * Tanpa $rule: rumus lama min(70, raw * 0.7) (pemanggil yang belum memakai aturan berversi).
+     *
      * @param  float  $rawKpiScore  Sum of weighted scores from all KPIs (e.g., 100 max)
-     * @return float Capped score (max 70)
+     * @return float Capped score (max = KPI weight, 70 by default)
      */
-    public static function calculateFinalKpiScore(float $rawKpiScore): float
+    public static function calculateFinalKpiScore(float $rawKpiScore, ?ScoringRuleData $rule = null): float
     {
+        if ($rule !== null) {
+            return PerformanceScoreCalculator::kpiFinal($rawKpiScore, $rule);
+        }
+
         // Logic from Leaderboard: min(70, rawScore * 0.7)
         return min(70, $rawKpiScore * 0.7);
     }

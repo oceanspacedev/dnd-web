@@ -6,12 +6,41 @@ use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Models\Attendance;
 use App\Policies\AttendancePolicy;
 use App\Services\DataAccessService;
+use App\Support\Scoring\AttendanceCountInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Support\Arr;
 
 class CreateAttendance extends CreateRecord
 {
     protected static string $resource = AttendanceResource::class;
+
+    /**
+     * component_counts hanya menyimpan hitungan > 0 (null bila semua komponen non-kolom bernilai 0).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        if (array_key_exists('component_counts', $data)) {
+            $data['component_counts'] = AttendanceCountInput::normalizeComponentCounts($data['component_counts']);
+        }
+
+        return $data;
+    }
+
+    /**
+     * "Buat & buat lainnya": data kehadiran diisi per periode untuk banyak karyawan, jadi Periode dan Hari Kerja
+     * dipertahankan untuk isian berikutnya (karyawan & hitungan komponen dikosongkan).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function preserveFormDataWhenCreatingAnother(array $data): array
+    {
+        return Arr::only($data, ['periode', 'work_days']);
+    }
 
     protected function beforeCreate(): void
     {

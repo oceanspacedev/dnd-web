@@ -13,6 +13,10 @@ use App\Models\Kpi;
 use App\Models\User;
 use App\Policies\EmployeeReviewPolicy;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
+use App\Support\Periode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -205,7 +209,10 @@ class EmployeeReviewController extends Controller
     }
 
     /**
-     * Get comprehensive 100% evaluation score for a user in a specific period (KPI 70% + Attendance 15% + Review 15%).
+     * Get comprehensive 100% evaluation score for a user in a specific period (KPI + Attendance + Review).
+     *
+     * Bobot (default 70/15/15), poin maksimal penilaian, dan aturan kehadiran mengikuti versi aturan penilaian
+     * periode yang diminta; kunci respons *_70pct / *_15pct dipertahankan untuk klien lama.
      */
     public function integratedScore(Request $request, int $userId): JsonResponse
     {
@@ -225,58 +232,76 @@ class EmployeeReviewController extends Controller
         $year = (int) ($parts[0] ?? date('Y'));
         $month = isset($parts[1]) ? (int) $parts[1] : null;
 
-        // 1. KPI Calculation (Max 70%)
+        // 1. Data periode (pencocokan LIKE prefix dipertahankan seperti sebelumnya).
         $kpiQuery = Kpi::where('user_id', $userId)->whereYear('date', $year)->with('kpi_detail.kpi_description');
         if ($month !== null) {
             $kpiQuery->whereMonth('date', $month);
         }
         $kpis = $kpiQuery->get();
 
+        $attendance = Attendance::where('user_id', $userId)
+            ->where('periode', 'like', "{$periode}%")
+            ->first();
+
+        $review = EmployeeReview::where('user_id', $userId)
+            ->where('periode', 'like', "{$periode}%")
+            ->first();
+
+        // 2. Versi aturan periode yang diminta (dinormalisasi). Periode yang bukan 'Y-m' (mis. hanya tahun) memakai
+        //    periode data terakhir, bukan tanggal hari ini: KPI dulu (agar bobot KPI tidak bergantung pada ada/tidaknya
+        //    baris kehadiran), lalu kehadiran/penilaian; tanpa data => bulan berjalan. Tahun 'YYYY' menjepit hasilnya
+        //    ke tahun itu. Kehadiran dan penilaian tetap memakai aturan periodenya sendiri (langkah 4 dan 5).
+        $rulePeriode = Periode::normalize($periode)
+            ?? LeaderboardScoreService::dataRulePeriode(
+                [$kpis->pluck('date'), [$attendance?->periode, $review?->periode]],
+                is_string($periode) ? $periode : null,
+            );
+        $rule = ScoringRuleService::forPeriode($rulePeriode);
+
+        // 3. KPI (maks = bobot KPI aturan)
         $rawKpiScore = 0;
         foreach ($kpis as $kpi) {
             $kpiScoreData = KpiScoringService::calculateKpiScore($kpi);
             $rawKpiScore += $kpiScoreData['score'];
         }
-        $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore);
+        $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore, $rule);
 
-        // 2. Attendance Calculation (Max 15%)
-        $attendance = Attendance::where('user_id', $userId)
-            ->where('periode', 'like', "{$periode}%")
-            ->first();
-
+        // 4. Kehadiran (maks = bobot kehadiran aturan); baris kehadiran memakai aturan periodenya sendiri.
         $attendanceScore15 = 0;
         $attendanceAchvPct = 0;
         $workDays = 0;
-        if ($attendance && $attendance->work_days > 0) {
-            $workDays = (int) $attendance->work_days;
-            $lateLess30 = (int) ($attendance->late_less_30 ?? 0);
-            $lateMore30 = (int) ($attendance->late_more_30 ?? 0);
-            $sickDays = (int) ($attendance->sick_days ?? 0);
+        $attendancePenalty = 0;
+        if ($attendance !== null) {
+            $attendanceResult = PerformanceScoreCalculator::attendanceFor(
+                $attendance,
+                ScoringRuleService::forPeriode(Periode::normalize($attendance->periode) ?? $rulePeriode),
+            );
 
-            $initialAchv = max(0, ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100);
-            $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
-            $attendanceAchvPct = max(0, $initialAchv - $penalty);
-            $attendanceScore15 = ($attendanceAchvPct / 100) * 15;
+            if ($attendanceResult->hasWorkDays) {
+                $workDays = $attendance->scoringWorkDays();
+                $attendanceAchvPct = $attendanceResult->finalPct;
+                $attendanceScore15 = $attendanceResult->score;
+                $attendancePenalty = $attendanceResult->penaltyPointsNumber();
+            }
         }
 
-        // 3. Employee Review Calculation (Max 15%)
-        $review = EmployeeReview::where('user_id', $userId)
-            ->where('periode', 'like', "{$periode}%")
-            ->first();
-
+        // 5. Penilaian (maks = bobot penilaian aturan, poin maksimal dari aturan)
         $reviewScore15 = 0;
         $reviewTotalPoints = 0;
         $reviewRatingPct = 0;
+        $reviewMaxPoints = $rule->reviewMaxPoints;
         if ($review) {
+            $reviewRule = ScoringRuleService::forPeriode(Periode::normalize($review->periode) ?? $rulePeriode);
             $reviewTotalPoints = (int) $review->responsiveness + (int) $review->problem_solver + (int) $review->helpfulness + (int) $review->initiative;
-            $reviewRatingPct = ($reviewTotalPoints / 20) * 100;
-            $reviewScore15 = ($reviewTotalPoints / 20) * 15;
+            $reviewRatingPct = PerformanceScoreCalculator::reviewPercentage($reviewTotalPoints, $reviewRule);
+            $reviewScore15 = PerformanceScoreCalculator::review($reviewTotalPoints, $reviewRule);
+            $reviewMaxPoints = $reviewRule->reviewMaxPoints;
         }
 
-        // 4. Combined Total Score (Max 100%)
+        // 6. Combined Total Score (Max 100%)
         $totalScore = $kpiScore70 + $attendanceScore15 + $reviewScore15;
 
-        // 5. Letter Grade Determination
+        // 7. Letter Grade Determination
         if ($totalScore >= 90) {
             $grade = 'A (Sangat Memuaskan / Outstanding)';
         } elseif ($totalScore >= 80) {
@@ -302,15 +327,18 @@ class EmployeeReviewController extends Controller
                 'work_days' => $workDays,
                 'achievement_pct' => $attendanceAchvPct,
                 'score_15pct' => $attendanceScore15,
+                'penalty_points' => $attendancePenalty,
             ],
             'review' => [
                 'has_data' => $review !== null,
                 'total_points' => $reviewTotalPoints,
+                'max_points' => $reviewMaxPoints,
                 'rating_percentage' => $reviewRatingPct,
                 'score_15pct' => $reviewScore15,
             ],
             'total_score' => $totalScore,
             'grade' => $grade,
+            'scoring_rule' => $rule,
         ];
 
         return response()->json([

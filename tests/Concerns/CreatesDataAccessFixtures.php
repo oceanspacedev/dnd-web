@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
 use App\Services\DataAccessService;
+use App\Services\ScoringRuleService;
 
 /**
  * Fixture bersama untuk tes akses data per badan usaha (areas).
@@ -26,6 +27,7 @@ trait CreatesDataAccessFixtures
     {
         ApprovalScopeService::clearMemo();
         DataAccessService::clearMemo();
+        ScoringRuleService::clearMemo();
     }
 
     protected function fixtureRole(string $name): Role

@@ -95,7 +95,8 @@ class AttendanceController extends Controller
     {
         $this->authorize('create', Attendance::class);
 
-        $validated = $request->validated();
+        // Periode sudah dinormalisasi 'Y-m'; hitungan komponen dipetakan ke kolom lama / component_counts.
+        $validated = $request->attendanceAttributes();
 
         // Satu id yang sama untuk cek akses, cek duplikat, dan simpan. Target dicek dengan hak tulis
         // (admin per badan usaha tidak boleh mencatat untuk akun ADMIN, termasuk dirinya sendiri).
@@ -141,8 +142,25 @@ class AttendanceController extends Controller
 
         $this->authorize('update', $attendance);
 
-        $validated = $request->validated();
-        $attendance->update($validated);
+        // component_counts digabung dengan nilai yang sudah ada (komponen yang tidak dikirim tetap).
+        $attributes = $request->attendanceAttributes($attendance);
+        $periode = $attributes['periode'] ?? $attendance->periode;
+
+        // Satu data per karyawan + periode (sama dengan store): periode tidak boleh dipindah ke data yang sudah ada.
+        $existing = Attendance::where('user_id', $attendance->user_id)
+            ->where('periode', $periode)
+            ->whereKeyNot($attendance->getKey())
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'success' => false,
+                'message' => "Data presensi untuk karyawan ini pada periode {$periode} sudah ada.",
+                'data' => new AttendanceResource($existing->load('user')),
+            ], 422);
+        }
+
+        $attendance->update($attributes);
         $attendance->load('user');
 
         return response()->json([

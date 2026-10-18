@@ -159,6 +159,8 @@ class ListUsers extends ListRecords
                     ->send();
             }
 
+            static::notifyImportNotices($import->getNotices());
+
             session()->flash('importErrors', $errors);
         } catch (Throwable $e) {
             Log::error('Import Error: '.$e->getMessage());
@@ -169,6 +171,39 @@ class ListUsers extends ListRecords
                 ->danger()
                 ->send();
         }
+    }
+
+    /**
+     * Ringkasan ADMIN baru/promosi dari import yang diberi akses Badan Usaha Tertentu: satu baris per admin,
+     * petunjuk lanjutannya sekali di akhir. Body notifikasi dirender sebagai HTML tersanitasi, jadi baris
+     * dipisah <br> dan isi catatan di-escape.
+     *
+     * @param  list<string>  $notices
+     */
+    protected static function notifyImportNotices(array $notices): void
+    {
+        if ($notices === []) {
+            return;
+        }
+
+        $count = count($notices);
+        $limit = 10;
+        $lines = array_map(static fn (string $notice): string => e($notice), array_slice($notices, 0, $limit));
+
+        if ($count > $limit) {
+            $lines[] = e('... dan '.($count - $limit).' admin lainnya.');
+        }
+
+        $lines[] = '';
+        $lines[] = e('Admin di atas hanya dapat mengelola badan usaha yang tercantum, bukan semua badan usaha. '
+            .'Bila perlu akses semua badan usaha, ubah Cakupan Badan Usaha di form karyawan.');
+
+        Notification::make()
+            ->title("{$count} Admin Dibatasi ke Badan Usaha Tertentu")
+            ->body(implode('<br>', $lines))
+            ->warning()
+            ->persistent()
+            ->send();
     }
 
     public function processJsonImport(array $data)
@@ -254,6 +289,8 @@ class ListUsers extends ListRecords
                     ->success()
                     ->send();
             }
+
+            static::notifyImportNotices($res['notices'] ?? []);
         } catch (Throwable $e) {
             Log::error('JSON Import Error: '.$e->getMessage());
             Log::error($e->getTraceAsString());

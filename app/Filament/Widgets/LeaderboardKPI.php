@@ -3,10 +3,15 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Area;
+use App\Models\Attendance;
 use App\Models\Divisi;
 use App\Models\User;
 use App\Services\KpiScoringService;
 use App\Services\LeaderboardScoreService;
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
+use App\Support\Periode;
+use App\Support\Scoring\ScoringRuleData;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
@@ -54,6 +59,23 @@ class LeaderboardKPI extends Widget
         return Area::query()->whereIn('id', $this->selectableAreaIds($scope))->get();
     }
 
+    /**
+     * Area diganti: divisi terpilih yang tidak ada di daftar divisi Area baru dikosongkan, supaya tidak ada
+     * filter divisi tersembunyi (dropdown tidak lagi menampilkannya, tetapi query dan export masih memakainya).
+     */
+    public function updatedArea(): void
+    {
+        $division = is_scalar($this->division) ? (string) $this->division : '';
+
+        if ($division === '') {
+            return;
+        }
+
+        if (! ctype_digit($division) || ! $this->getDivisions()->contains(fn (Divisi $divisi): bool => (int) $divisi->getKey() === (int) $division)) {
+            $this->division = '';
+        }
+    }
+
     protected function getDivisions()
     {
         $scope = $this->viewerScope();
@@ -64,8 +86,16 @@ class LeaderboardKPI extends Widget
             return $this->scopedDivisionsQuery($scope)->get();
         }
 
-        if ($this->area) {
-            return Divisi::where('area_id', $this->area)->get();
+        $area = is_scalar($this->area) ? (string) $this->area : '';
+
+        if ($area !== '' && ctype_digit($area)) {
+            // Divisi yang dipakai karyawan di badan usaha terpilih (users.area_id, bukan divisis.area_id).
+            return Divisi::query()
+                ->whereIn('id', User::query()
+                    ->select('divisi_id')
+                    ->whereNotNull('divisi_id')
+                    ->where('area_id', (int) $area))
+                ->get();
         }
 
         return Divisi::all();
@@ -128,6 +158,15 @@ class LeaderboardKPI extends Widget
      */
     protected function enforceFilterScope(): void
     {
+        // Nilai bukan skalar (mis. array dari payload yang diubah) dikosongkan untuk semua viewer.
+        if ($this->area !== null && ! is_scalar($this->area)) {
+            $this->area = '';
+        }
+
+        if ($this->division !== null && ! is_scalar($this->division)) {
+            $this->division = '';
+        }
+
         $scope = $this->viewerScope();
 
         if ($scope === null) {
@@ -147,21 +186,42 @@ class LeaderboardKPI extends Widget
         }
     }
 
+    /**
+     * Bulan yang ditampilkan ('Y-m'); nilai tidak valid dari klien => bulan berjalan.
+     */
+    protected function selectedPeriod(): string
+    {
+        return is_string($this->month) && Periode::isValid($this->month)
+            ? $this->month
+            : Periode::current();
+    }
+
+    /**
+     * Versi aturan penilaian bulan yang ditampilkan (bobot untuk judul kolom di blade).
+     */
+    protected function scoringRule(): ScoringRuleData
+    {
+        return ScoringRuleService::forPeriode($this->selectedPeriod());
+    }
+
+    protected function weightLabel(float $weight): string
+    {
+        return LeaderboardScoreService::weightLabel($weight);
+    }
+
     protected function getLeaderboardData()
     {
         $this->enforceFilterScope();
 
-        $period = is_string($this->month)
-            && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $this->month)
-                ? $this->month
-                : Date::now()->format('Y-m');
+        $period = $this->selectedPeriod();
         $area = (string) ($this->area ?? '');
         $division = (string) ($this->division ?? '');
         $ttl = max(1, (int) config('kpi.cache_ttl_seconds.leaderboard', 60));
 
         // Kunci cache tanpa cakupan viewer (dipakai bersama); batasi cakupan setelah dibaca.
+        // Versi cache aturan ikut di kunci agar perubahan aturan/komponen langsung terlihat.
         $rows = Cache::remember(
-            "leaderboard:panel:{$period}:{$area}:{$division}",
+            "leaderboard:panel:{$period}:{$area}:{$division}:r".ScoringRuleService::cacheVersion(),
             $ttl,
             fn (): array => $this->computeLeaderboardData($period),
         );
@@ -209,7 +269,8 @@ class LeaderboardKPI extends Widget
                         }]);
                 },
                 'attendance' => function ($query) use ($period) {
-                    $query->select('user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days', 'periode')
+                    // Kolom skor lengkap (termasuk component_counts) agar komponen baru ikut terhitung.
+                    $query->select(['user_id', 'periode', ...Attendance::SCORING_COLUMNS])
                         ->where('periode', $period);
                 },
                 'employeeReview' => function ($query) use ($period) {
@@ -230,12 +291,14 @@ class LeaderboardKPI extends Widget
         }
 
         $users = $query->get();
+        // Aturan bulan yang dihitung (bukan bulan berjalan); memo per request, tanpa query per baris.
+        $rule = ScoringRuleService::forPeriode($period);
         $leaderboardData = [];
 
         foreach ($users as $user) {
-            $kpiScore = $this->calculateKPIScore($user);
-            $attendanceScore = $this->calculateAttendanceScore($user);
-            $activityScore = $this->calculateActivityScore($user);
+            $kpiScore = $this->calculateKPIScore($user, $rule);
+            $attendanceScore = $this->calculateAttendanceScore($user, $rule);
+            $activityScore = $this->calculateActivityScore($user, $rule);
 
             $totalScore = ($kpiScore + $attendanceScore + $activityScore);
 
@@ -255,7 +318,7 @@ class LeaderboardKPI extends Widget
         return collect($leaderboardData)->sortByDesc('totalScore')->values()->all();
     }
 
-    protected function calculateKPIScore($user)
+    protected function calculateKPIScore($user, ScoringRuleData $rule)
     {
         $kpiScore = 0;
 
@@ -264,44 +327,16 @@ class LeaderboardKPI extends Widget
             $kpiScore += $result['score'] * 100;
         }
 
-        return KpiScoringService::calculateFinalKpiScore($kpiScore);
+        return KpiScoringService::calculateFinalKpiScore($kpiScore, $rule);
     }
 
-    protected function calculateAttendanceScore($user)
+    protected function calculateAttendanceScore($user, ScoringRuleData $rule)
     {
-        if (! $user->attendance) {
-            return 0;
-        }
-
-        $attendance = $user->attendance;
-        $lateLess30 = $attendance->late_less_30 ?? 0;
-        $lateMore30 = $attendance->late_more_30 ?? 0;
-        $sickDays = $attendance->sick_days ?? 0;
-        $workDays = $attendance->work_days ?? 0;
-
-        if ($workDays <= 0) {
-            return 0;
-        }
-
-        $initialAttendanceAchv = ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100;
-        $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
-        $finalAttendanceAchv = max(0, $initialAttendanceAchv - $penalty);
-
-        return ($finalAttendanceAchv / 100) * 15;
+        return PerformanceScoreCalculator::attendanceFor($user->attendance, $rule)->score;
     }
 
-    protected function calculateActivityScore($user)
+    protected function calculateActivityScore($user, ScoringRuleData $rule)
     {
-        if (! $user->employeeReview) {
-            return 0;
-        }
-
-        $review = $user->employeeReview;
-        $responsiveness = $review->responsiveness ?? 0;
-        $problemSolver = $review->problem_solver ?? 0;
-        $helpfulness = $review->helpfulness ?? 0;
-        $initiative = $review->initiative ?? 0;
-
-        return ($responsiveness + $problemSolver + $helpfulness + $initiative) / 20 * 100 * 0.15;
+        return PerformanceScoreCalculator::reviewFor($user->employeeReview, $rule);
     }
 }

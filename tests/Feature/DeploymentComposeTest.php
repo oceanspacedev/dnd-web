@@ -38,6 +38,7 @@ class DeploymentComposeTest extends TestCase
             'KPI_CACHE_TTL_DESCRIPTIONS_SECONDS',
             'KPI_CACHE_TTL_POSITIONS_SECONDS',
             'KPI_CACHE_TTL_LEADERBOARD_SECONDS',
+            'KPI_CACHE_TTL_SCORING_RULES_SECONDS',
             'KPI_REMINDER_CACHE_STORE',
             'WAG_URL',
             'WAG_TOKEN',

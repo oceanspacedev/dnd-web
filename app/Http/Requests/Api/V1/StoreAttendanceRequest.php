@@ -2,12 +2,15 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Http\Requests\Api\V1\Concerns\ValidatesAttendanceCounts;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
 class StoreAttendanceRequest extends FormRequest
 {
+    use ValidatesAttendanceCounts;
+
     public function authorize(): bool
     {
         return true;
@@ -17,11 +20,11 @@ class StoreAttendanceRequest extends FormRequest
     {
         return [
             'user_id' => ['required', 'integer', 'exists:users,id'],
-            'periode' => ['required', 'string', 'max:50'],
-            'work_days' => ['required', 'integer', 'min:0'],
-            'late_less_30' => ['nullable', 'integer', 'min:0'],
-            'late_more_30' => ['nullable', 'integer', 'min:0'],
-            'sick_days' => ['nullable', 'integer', 'min:0'],
+            // Dinormalisasi ke 'Y-m' sebelum validasi (prepareForValidation).
+            'periode' => ['required', ...$this->periodeRules()],
+            'work_days' => ['required', ...$this->workDayRules()],
+            // late_less_30 / late_more_30 / sick_days dan components {kode: jumlah}.
+            ...$this->countRules(),
         ];
     }
 
@@ -32,6 +35,7 @@ class StoreAttendanceRequest extends FormRequest
             'user_id.integer' => 'Karyawan tidak valid.',
             'periode.required' => 'Periode presensi (e.g. 2026-09) wajib diisi.',
             'work_days.required' => 'Jumlah hari kerja wajib diisi.',
+            ...$this->countMessages(),
         ];
     }
 

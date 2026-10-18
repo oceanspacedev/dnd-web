@@ -399,7 +399,8 @@ class UsersFilamentScopeTest extends TestCase
         $this->assertSame(User::DATA_ACCESS_ALL, $this->superAdmin->refresh()->data_access);
         $this->assertSame(0, $this->superAdmin->dataAccessAreas()->count());
 
-        // Admin baru tanpa memilih apa pun memakai default 'Semua Badan Usaha'.
+        // Admin baru tanpa memilih apa pun memakai default fail closed 'Badan Usaha Tertentu' (badan usaha sendiri).
+        // Super admin hanya dengan konfirmasi (lihat tests/Feature/UxFixes/UserFixesTest.php).
         Livewire::test(CreateUser::class)
             ->fillForm([
                 'nama_lengkap' => 'Admin Default',
@@ -411,10 +412,9 @@ class UsersFilamentScopeTest extends TestCase
             ])
             ->call('create')
             ->assertHasNoFormErrors();
-        $this->assertSame(
-            User::DATA_ACCESS_ALL,
-            User::query()->where('username', 'admin_default')->value('data_access'),
-        );
+        $adminDefault = User::query()->where('username', 'admin_default')->firstOrFail();
+        $this->assertSame(User::DATA_ACCESS_SELECTED, $adminDefault->data_access);
+        $this->assertSame([$this->coo->id], $adminDefault->dataAccessAreas()->pluck('areas.id')->all());
 
         // Membuat admin baru dengan akses badan usaha tertentu.
         Livewire::test(CreateUser::class)

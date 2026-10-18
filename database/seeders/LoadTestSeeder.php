@@ -14,6 +14,7 @@ use App\Models\KpiType;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\WorkJournal;
+use App\Support\Scoring\AttendanceCountInput;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Hash;
@@ -171,7 +172,13 @@ class LoadTestSeeder extends Seeder
                     'late_less_30' => $user->id % 4,
                     'late_more_30' => $user->id % 3,
                     'sick_days' => $user->id % 2,
-                ],
+                ] + AttendanceCountInput::attributes([
+                    // Komponen tanpa kolom lama (component_counts) agar uji beban ikut membaca JSON hitungan.
+                    'izin' => $user->id % 5 === 0 ? 1 : 0,
+                    'mangkir' => $user->id % 7 === 0 ? 1 : 0,
+                    'cuti_tahunan' => $user->id % 3 === 0 ? 2 : 0,
+                    'cuti_lainnya' => $user->id % 11 === 0 ? 1 : 0,
+                ]),
             );
 
             EmployeeReview::query()->firstOrCreate(

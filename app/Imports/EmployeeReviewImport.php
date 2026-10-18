@@ -106,6 +106,22 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
 
         // Jika userId dan periode valid, lakukan pengecekan dan simpan data
         if ($userId && $periode) {
+            // Skala penilaian 0-5 per aspek (sama dengan form panel); nilai di luar skala membuat skor
+            // Penilaian melebihi bobotnya di aturan penilaian.
+            $scores = $this->reviewScores($row);
+
+            if ($scores === null) {
+                $this->skippedDetails[] = [
+                    'nama_lengkap' => $row['nama_lengkap'] ?? '',
+                    'id_karyawan' => $row['id_karyawan'] ?? '',
+                    'periode' => $periode,
+                    'reason' => 'Nilai penilaian harus bilangan bulat 0 sampai 5 untuk setiap aspek.',
+                ];
+                $this->skippedCount++;
+
+                return null;
+            }
+
             $existingReview = EmployeeReview::where('user_id', $userId)
                 ->where('periode', $periode)
                 ->exists();
@@ -130,10 +146,7 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
             return new EmployeeReview([
                 'user_id' => $userId,
                 'periode' => $periode,
-                'responsiveness' => $row['responsiveness'] ?? 0,
-                'problem_solver' => $row['problem_solver'] ?? 0,
-                'helpfulness' => $row['helpfulness'] ?? 0,
-                'initiative' => $row['initiative'] ?? 0,
+                ...$scores,
             ]);
         }
 
@@ -149,6 +162,36 @@ class EmployeeReviewImport implements ToModel, WithHeadingRow
         $this->skippedCount++;
 
         return null;
+    }
+
+    /**
+     * Nilai empat aspek penilaian sebagai bilangan bulat 0-5 (kosong = 0, seperti sebelumnya); null bila ada
+     * nilai di luar skala atau bukan bilangan bulat.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{responsiveness: int, problem_solver: int, helpfulness: int, initiative: int}|null
+     */
+    private function reviewScores(array $row): ?array
+    {
+        $scores = [];
+
+        foreach (['responsiveness', 'problem_solver', 'helpfulness', 'initiative'] as $aspect) {
+            $value = $row[$aspect] ?? null;
+
+            if ($value === null || $value === '') {
+                $scores[$aspect] = 0;
+
+                continue;
+            }
+
+            if (! is_numeric($value) || (float) $value != (int) $value || (int) $value < 0 || (int) $value > 5) {
+                return null;
+            }
+
+            $scores[$aspect] = (int) $value;
+        }
+
+        return $scores;
     }
 
     public function getImportSummary()

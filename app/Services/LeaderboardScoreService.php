@@ -7,6 +7,8 @@ use App\Models\Attendance;
 use App\Models\Divisi;
 use App\Models\EmployeeReview;
 use App\Models\User;
+use App\Support\Periode;
+use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
@@ -251,10 +253,14 @@ class LeaderboardScoreService
             ->groupBy('kpis.user_id')
             ->pluck('raw_score', 'kpis.user_id');
 
+        // Versi aturan penilaian periode ini (memo per request, tanpa query per baris).
+        $rule = ScoringRuleService::forPeriode($periode);
+
+        // Kolom skor lengkap (termasuk component_counts) agar komponen baru seperti izin/mangkir ikut terhitung.
         $attendances = Attendance::query()
             ->whereIn('user_id', $userIds)
             ->where('periode', $periode)
-            ->get(['user_id', 'late_less_30', 'late_more_30', 'sick_days', 'work_days'])
+            ->get(['user_id', ...Attendance::SCORING_COLUMNS])
             ->keyBy('user_id');
 
         $reviews = EmployeeReview::query()
@@ -267,33 +273,13 @@ class LeaderboardScoreService
 
         foreach ($users as $user) {
             $rawKpiScore = (float) ($rawKpiScores->get($user->id) ?? 0);
-            $kpiScore70 = KpiScoringService::calculateFinalKpiScore($rawKpiScore);
+            $kpiScore = KpiScoringService::calculateFinalKpiScore($rawKpiScore, $rule);
+            $attendanceScore = PerformanceScoreCalculator::attendanceFor($attendances->get($user->id), $rule)->score;
+            $reviewScore = PerformanceScoreCalculator::reviewFor($reviews->get($user->id), $rule);
 
-            $att = $attendances->get($user->id);
-            $attScore15 = 0.0;
-            if ($att && (int) $att->work_days > 0) {
-                $workDays = (int) $att->work_days;
-                $lateLess = (int) ($att->late_less_30 ?? 0);
-                $lateMore = (int) ($att->late_more_30 ?? 0);
-                $sick = (int) ($att->sick_days ?? 0);
-                $initialAchv = (($workDays - $lateLess - $lateMore - $sick) / $workDays) * 100;
-                $penalty = ($lateLess * 1) + ($lateMore * 3) + ($sick * 5);
-                $finalAchv = max(0, $initialAchv - $penalty);
-                $attScore15 = ($finalAchv / 100) * 15;
-            }
+            $totalScore = $kpiScore + $attendanceScore + $reviewScore;
 
-            $rev = $reviews->get($user->id);
-            $revScore15 = 0.0;
-            if ($rev) {
-                $totPoints = (int) ($rev->responsiveness ?? 0)
-                    + (int) ($rev->problem_solver ?? 0)
-                    + (int) ($rev->helpfulness ?? 0)
-                    + (int) ($rev->initiative ?? 0);
-                $revScore15 = ($totPoints / 20) * 15;
-            }
-
-            $totalScore = $kpiScore70 + $attScore15 + $revScore15;
-
+            // Nama kunci *_70pct / *_15pct dipertahankan untuk klien lama; nilainya mengikuti bobot aturan periode.
             $leaderboard[] = [
                 'user_id' => (int) $user->id,
                 'nama_lengkap' => (string) $user->nama_lengkap,
@@ -302,11 +288,12 @@ class LeaderboardScoreService
                 'divisi_id' => $user->divisi_id ? (int) $user->divisi_id : null,
                 'position_id' => $user->position_id ? (int) $user->position_id : null,
                 'kpi_raw' => $rawKpiScore,
-                'kpi_score_70pct' => $kpiScore70,
-                'attendance_score_15pct' => $attScore15,
-                'review_score_15pct' => $revScore15,
+                'kpi_score_70pct' => $kpiScore,
+                'attendance_score_15pct' => $attendanceScore,
+                'review_score_15pct' => $reviewScore,
                 'total_score' => $totalScore,
                 'grade' => $this->grade($totalScore),
+                'scoring_rule_id' => $rule->id,
             ];
         }
 
@@ -331,9 +318,91 @@ class LeaderboardScoreService
         };
     }
 
+    /**
+     * Label bobot untuk judul kolom, mis. 70.0 => '70', 62.5 => '62.5'. Beberapa versi aturan dengan bobot
+     * berbeda (export tahunan yang melewati perubahan aturan) => '60/70'.
+     *
+     * @param  float|list<float>  $weights
+     */
+    public static function weightLabel(float|array $weights): string
+    {
+        $labels = [];
+
+        foreach ((array) $weights as $weight) {
+            $label = rtrim(rtrim(number_format((float) $weight, 2, '.', ''), '0'), '.');
+            $labels[$label] = (float) $weight;
+        }
+
+        asort($labels);
+
+        return implode('/', array_keys($labels));
+    }
+
+    /**
+     * Ringkasan versi aturan untuk respons API (metadata tambahan, bukan pengganti kunci lama).
+     *
+     * @return array{id: int|null, name: string, effective_from: string, kpi_weight: float, attendance_weight: float, review_weight: float, review_max_points: int}
+     */
+    public static function ruleSummary(ScoringRuleData $rule): array
+    {
+        return [
+            'id' => $rule->id,
+            'name' => $rule->name,
+            'effective_from' => $rule->effectiveFrom,
+            'kpi_weight' => $rule->kpiWeight,
+            'attendance_weight' => $rule->attendanceWeight,
+            'review_weight' => $rule->reviewWeight,
+            'review_max_points' => $rule->reviewMaxPoints,
+        ];
+    }
+
+    /**
+     * Periode aturan untuk nilai yang menggabungkan beberapa bulan sekaligus (ringkasan KPI seluruh waktu atau
+     * satu tahun, evaluasi terpadu dengan periode yang bukan 'Y-m'). Dipilih dari data, bukan dari tanggal hari
+     * ini, agar nilai data lama tidak berubah seiring waktu:
+     * - kelompok kandidat dicoba berurutan; periode valid terakhir dari kelompok pertama yang berisi data dipakai;
+     * - tanpa data sama sekali (nilai 0 di aturan mana pun) => bulan berjalan;
+     * - bila tahun 'YYYY' diminta, hasilnya dijepit ke Januari–Desember tahun itu.
+     *
+     * @param  list<iterable<mixed>>  $candidateGroups  nilai yang diterima Periode::normalize() (periode, tanggal KPI)
+     */
+    public static function dataRulePeriode(array $candidateGroups, ?string $year = null): string
+    {
+        $periode = null;
+
+        foreach ($candidateGroups as $candidates) {
+            foreach ($candidates as $value) {
+                $normalized = Periode::normalize($value);
+
+                if ($normalized !== null && ($periode === null || strcmp($normalized, $periode) > 0)) {
+                    $periode = $normalized;
+                }
+            }
+
+            if ($periode !== null) {
+                break;
+            }
+        }
+
+        $periode ??= Periode::current();
+
+        if ($year === null || preg_match('/^\d{4}$/D', $year) !== 1) {
+            return $periode;
+        }
+
+        if (strcmp($periode, $year.'-01') < 0) {
+            return $year.'-01';
+        }
+
+        return strcmp($periode, $year.'-12') > 0 ? $year.'-12' : $periode;
+    }
+
+    /**
+     * Versi cache aturan ikut di kunci: aturan/komponen yang berubah langsung terlihat tanpa menunggu TTL.
+     */
     private function cacheKey(string $periode, ?int $areaId, ?int $divisiId): string
     {
-        return 'leaderboard:api:'.$periode.':'.($areaId ?? 'all').':'.($divisiId ?? 'all');
+        return 'leaderboard:api:'.$periode.':'.($areaId ?? 'all').':'.($divisiId ?? 'all').':r'.ScoringRuleService::cacheVersion();
     }
 
     private function ttl(): int

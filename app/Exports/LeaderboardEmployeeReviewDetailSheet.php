@@ -2,6 +2,8 @@
 
 namespace App\Exports;
 
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
@@ -39,7 +41,8 @@ class LeaderboardEmployeeReviewDetailSheet implements FromArray, ShouldAutoSize,
             $helpfulness = $review?->helpfulness ?? 0;
             $initiative = $review?->initiative ?? 0;
 
-            $activityScore = ($responsiveness + $problemSolver + $helpfulness + $initiative) / 20 * 100 * 0.15;
+            // Poin maksimal & bobot penilaian dari versi aturan periode review ini (memo per request).
+            $activityScore = PerformanceScoreCalculator::reviewFor($review, ScoringRuleService::forPeriode($review->periode));
             $period = $this->periodType === 'year'
                 ? $review->periode
                 : $this->selectedPeriod;

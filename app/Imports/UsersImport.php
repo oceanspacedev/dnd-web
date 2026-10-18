@@ -17,6 +17,9 @@ class UsersImport implements ToModel, WithHeadingRow
 {
     protected array $errors = [];
 
+    /** @var list<string> Catatan untuk ringkasan import (mis. ADMIN yang dibatasi ke badan usahanya). */
+    protected array $notices = [];
+
     protected int $rowCounter = 1; // Row 1 is heading row
 
     protected int $successCounter = 0;
@@ -156,9 +159,12 @@ class UsersImport implements ToModel, WithHeadingRow
             }
 
             $positionId = $this->resolvePositionId($row);
+            $assignsAdmin = $role->name === User::ROLE_ADMIN;
 
             if ($user) {
-                // Update existing user
+                $promotedToAdmin = $assignsAdmin && ! User::isAdminRoleId($user->role_id);
+
+                // Update existing user. Promosi menjadi ADMIN dibatasi ke badan usaha sendiri oleh model User.
                 $updateData = [
                     'role_id' => $role->id,
                     'area_id' => $area->id,
@@ -181,6 +187,10 @@ class UsersImport implements ToModel, WithHeadingRow
                 }
 
                 $user->update($updateData);
+
+                if ($promotedToAdmin) {
+                    $this->noteRestrictedAdmin($currentRowNum, $user);
+                }
             } else {
                 if ($namaLengkap === '') {
                     throw new Exception('Nama lengkap tidak boleh kosong');
@@ -188,8 +198,8 @@ class UsersImport implements ToModel, WithHeadingRow
 
                 $passwordInput = $this->getValue($row, ['password']);
 
-                // Create new user directly
-                User::create([
+                // Create new user directly. ADMIN baru tidak pernah otomatis menjadi super admin.
+                $created = User::create([
                     'nama_lengkap' => strtoupper($namaLengkap),
                     'username' => $username,
                     'employee_id' => $employeeId,
@@ -206,7 +216,13 @@ class UsersImport implements ToModel, WithHeadingRow
                     'approval_id' => $approval ? $approval->id : null,
                     'position_id' => $positionId,
                     'password' => ! empty($passwordInput) ? bcrypt($passwordInput) : static::$defaultPasswordHash,
+                    ...($assignsAdmin ? ['data_access' => User::DATA_ACCESS_SELECTED] : []),
                 ]);
+
+                if ($assignsAdmin) {
+                    $created->grantOwnAreaAccess();
+                    $this->noteRestrictedAdmin($currentRowNum, $created);
+                }
             }
 
             $this->successCounter++;
@@ -373,6 +389,26 @@ class UsersImport implements ToModel, WithHeadingRow
     public function getErrors(): array
     {
         return $this->errors;
+    }
+
+    /**
+     * Catatan yang perlu ditinjau setelah import (baris tetap berhasil).
+     *
+     * @return list<string>
+     */
+    public function getNotices(): array
+    {
+        return $this->notices;
+    }
+
+    /**
+     * ADMIN dari import tidak pernah otomatis menjadi super admin: aksesnya Badan Usaha Tertentu.
+     * Catatan singkat per baris memakai daftar badan usaha yang benar-benar tersimpan (bisa daftar lama
+     * bila karyawan pernah menjadi admin badan usaha tertentu); petunjuk lanjutannya ditulis sekali di notifikasi.
+     */
+    protected function noteRestrictedAdmin(int|string $rowNumber, User $user): void
+    {
+        $this->notices[] = "Baris {$rowNumber}: {$user->nama_lengkap} ({$user->restrictedAccessSummary()})";
     }
 
     public function getSuccessCount(): int

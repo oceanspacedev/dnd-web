@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DataAccessService;
 use App\Support\WhatsAppNumber;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
@@ -39,8 +40,35 @@ class User extends Authenticatable implements FilamentUser, HasName
     /** Admin hanya melihat badan usaha di relasi dataAccessAreas. */
     public const DATA_ACCESS_SELECTED = 'selected';
 
+    /** data_access diisi eksplisit sejak penyimpanan terakhir (fill, update, forceFill, atau assignment). */
+    private bool $dataAccessAssigned = false;
+
+    /** Setelah simpan, beri akses badan usaha milik karyawan ini (promosi ADMIN tanpa pilihan akses). */
+    private bool $grantOwnAreaAfterSave = false;
+
     protected static function booted(): void
     {
+        // Fail closed: karyawan lama yang dipromosikan menjadi ADMIN tanpa memilih akses data tidak
+        // boleh diam-diam menjadi super admin (default kolom 'all'). Batasi ke badan usahanya sendiri.
+        // User yang langsung dibuat sebagai ADMIN (factory, seeder) tidak tersentuh.
+        static::saving(function (User $user): void {
+            if (! $user->exists || $user->dataAccessAssigned || ! $user->isBeingPromotedToAdmin()) {
+                return;
+            }
+
+            $user->data_access = self::DATA_ACCESS_SELECTED;
+            $user->grantOwnAreaAfterSave = true;
+        });
+
+        static::saved(function (User $user): void {
+            $user->dataAccessAssigned = false;
+
+            if ($user->grantOwnAreaAfterSave) {
+                $user->grantOwnAreaAfterSave = false;
+                $user->grantOwnAreaAccess();
+            }
+        });
+
         static::updated(function (User $user): void {
             if (! $user->wasChanged('no_hp') || ! Schema::hasTable('whatsapp_otps')) {
                 return;
@@ -75,6 +103,74 @@ class User extends Authenticatable implements FilamentUser, HasName
                 return $number;
             },
         );
+    }
+
+    /**
+     * Hanya menandai bahwa data_access diisi eksplisit pada penyimpanan ini; nilainya tidak diubah.
+     *
+     * @return Attribute<never, mixed>
+     */
+    protected function dataAccess(): Attribute
+    {
+        return Attribute::make(
+            set: function (mixed $value): mixed {
+                $this->dataAccessAssigned = true;
+
+                return $value;
+            },
+        );
+    }
+
+    public static function isAdminRoleId(mixed $roleId): bool
+    {
+        if (blank($roleId) || ! is_scalar($roleId)) {
+            return false;
+        }
+
+        return Role::query()->whereKey($roleId)->value('name') === self::ROLE_ADMIN;
+    }
+
+    /**
+     * Role berubah dari non-ADMIN menjadi ADMIN pada penyimpanan ini.
+     */
+    protected function isBeingPromotedToAdmin(): bool
+    {
+        return $this->isDirty('role_id')
+            && self::isAdminRoleId($this->getAttribute('role_id'))
+            && ! self::isAdminRoleId($this->getOriginal('role_id'));
+    }
+
+    /**
+     * Akses data badan usaha milik karyawan ini (users.area_id) bila belum ada badan usaha yang dipilih.
+     */
+    public function grantOwnAreaAccess(): void
+    {
+        if (filled($this->area_id) && ! $this->dataAccessAreas()->exists()) {
+            $this->dataAccessAreas()->attach((int) $this->area_id);
+        }
+
+        $this->unsetRelation('dataAccessAreas');
+        DataAccessService::clearMemo();
+    }
+
+    /**
+     * Ringkasan daftar badan usaha tersimpan untuk catatan import ADMIN Badan Usaha Tertentu,
+     * mis. "ULS" atau "GMD; daftar badan usaha lama dipertahankan" bila bukan badan usaha sendiri.
+     */
+    public function restrictedAccessSummary(): string
+    {
+        $areas = $this->dataAccessAreas()
+            ->orderBy('areas.name')
+            ->get(['areas.id', 'areas.name']);
+
+        if ($areas->isEmpty()) {
+            return 'belum ada badan usaha';
+        }
+
+        $names = $areas->pluck('name')->implode(', ');
+        $isOwnAreaOnly = $areas->count() === 1 && (int) $areas->first()->getKey() === (int) $this->area_id;
+
+        return $isOwnAreaOnly ? $names : "{$names}; daftar badan usaha lama dipertahankan";
     }
 
     public function getFilamentName(): string

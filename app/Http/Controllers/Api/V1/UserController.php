@@ -155,6 +155,9 @@ class UserController extends Controller
 
     /**
      * Create a new employee.
+     *
+     * Role ADMIN tanpa `data_access` dibuat dengan akses `selected` ke badan usaha karyawan itu sendiri
+     * (`area_id`), bukan super admin. Kirim `data_access: all` secara eksplisit untuk membuat super admin.
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
@@ -162,7 +165,7 @@ class UserController extends Controller
 
         $validated = $request->validated();
         $this->ensureCanAssignRole($request, $validated);
-        $dataAccess = $this->pullDataAccess($validated);
+        $dataAccess = $this->defaultNewAdminDataAccess($validated, $this->pullDataAccess($validated));
         $validated['password'] = Hash::make($validated['password']);
 
         // Default flags to 0 if not specified
@@ -190,6 +193,8 @@ class UserController extends Controller
 
     /**
      * Update an employee.
+     *
+     * Mempromosikan karyawan menjadi ADMIN tanpa `data_access` memberi akses `selected` ke badan usahanya sendiri.
      */
     public function update(UpdateUserRequest $request, int $id): JsonResponse
     {
@@ -412,6 +417,33 @@ class UserController extends Controller
         unset($validated['data_access'], $validated['data_access_area_ids']);
 
         return $sent ? $dataAccess : null;
+    }
+
+    /**
+     * Fail closed: ADMIN baru tanpa data_access tidak menjadi super admin (default kolom 'all'),
+     * tetapi 'selected' dengan badan usaha karyawan itu sendiri. data_access eksplisit dari super admin tetap dipakai.
+     * Promosi lewat update ditangani model User.
+     *
+     * @param  array<string, mixed>  $validated
+     * @param  array{data_access: string|null, area_ids: array<int>|null}|null  $requested
+     * @return array{data_access: string|null, area_ids: array<int>|null}|null
+     */
+    private function defaultNewAdminDataAccess(array $validated, ?array $requested): ?array
+    {
+        if (filled($requested['data_access'] ?? null) || ! User::isAdminRoleId($validated['role_id'] ?? null)) {
+            return $requested;
+        }
+
+        $areaIds = $requested['area_ids'] ?? [];
+
+        if ($areaIds === [] && filled($validated['area_id'] ?? null)) {
+            $areaIds = [(int) $validated['area_id']];
+        }
+
+        return [
+            'data_access' => User::DATA_ACCESS_SELECTED,
+            'area_ids' => $areaIds,
+        ];
     }
 
     /**

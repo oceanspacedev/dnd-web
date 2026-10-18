@@ -27,6 +27,7 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
@@ -115,11 +116,120 @@ class UserResource extends Resource
 
     public static function isAdminRoleId(mixed $roleId): bool
     {
-        if (blank($roleId) || ! is_scalar($roleId)) {
-            return false;
+        return User::isAdminRoleId($roleId);
+    }
+
+    /**
+     * Record sudah super admin (ADMIN dengan akses seluruh badan usaha) sebelum perubahan di form ini.
+     * Memakai nilai asli record, bukan state form, jadi aman dipakai di mutateAuthorizedData.
+     */
+    public static function isGlobalAdminRecord(?User $record): bool
+    {
+        return $record instanceof User
+            && $record->exists
+            && $record->getOriginal('data_access') !== User::DATA_ACCESS_SELECTED
+            && static::isAdminRoleId($record->getOriginal('role_id'));
+    }
+
+    /**
+     * Record sudah ADMIN (super admin atau badan usaha tertentu) sebelum perubahan di form ini.
+     * Isian otomatis akses data hanya untuk admin baru/promosi; akses admin yang sudah ada tidak diubah diam-diam.
+     */
+    public static function isExistingAdminRecord(?User $record): bool
+    {
+        return $record instanceof User
+            && $record->exists
+            && static::isAdminRoleId($record->getOriginal('role_id'));
+    }
+
+    /**
+     * Semua divisi dalam satu daftar alfabetis, tanpa filter Area karyawan.
+     * users.area_id adalah acuan badan usaha; divisis.area_id tidak bisa diandalkan (mis. divisi COO dipakai
+     * karyawan ULS), jadi tidak dipakai untuk mengelompokkan. Nama badan usaha divisi hanya ditambahkan
+     * untuk membedakan divisi yang namanya sama.
+     *
+     * @return array<int, string>
+     */
+    public static function divisiOptions(): array
+    {
+        $divisis = Divisi::query()
+            ->with('area:id,name')
+            ->get(['id', 'name', 'area_id']);
+
+        $normalize = static fn (Divisi $divisi): string => mb_strtolower(trim((string) $divisi->name));
+        $nameCounts = $divisis->countBy($normalize);
+        $options = [];
+
+        foreach ($divisis as $divisi) {
+            $label = (string) $divisi->name;
+
+            if (($nameCounts[$normalize($divisi)] ?? 0) > 1) {
+                $areaName = $divisi->area?->name;
+                $label .= ' ('.(filled($areaName) ? $areaName : 'tanpa badan usaha').')';
+            }
+
+            $options[(int) $divisi->getKey()] = $label;
         }
 
-        return Role::query()->whereKey($roleId)->value('name') === User::ROLE_ADMIN;
+        asort($options, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $options;
+    }
+
+    /**
+     * Jabatan diubah ke ADMIN untuk karyawan baru atau yang belum ADMIN: default fail closed ke
+     * 'Badan Usaha Tertentu' dengan badan usaha karyawan itu sendiri. Admin yang sudah ada tidak tersentuh.
+     *
+     * @param  callable(string): mixed  $get
+     * @param  callable(string, mixed): void  $set
+     */
+    public static function applyAdminDataAccessDefaults(callable $get, callable $set, ?User $record): void
+    {
+        if (
+            ! static::canManageDataAccess()
+            || ! static::isAdminRoleId($get('role_id'))
+            || static::isExistingAdminRecord($record)
+        ) {
+            return;
+        }
+
+        $set('data_access', User::DATA_ACCESS_SELECTED);
+        $set('confirm_global_access', false);
+
+        $areaId = $get('area_id');
+
+        if (filled($areaId) && blank($get('dataAccessAreas'))) {
+            $set('dataAccessAreas', [(string) $areaId]);
+        }
+    }
+
+    /**
+     * Area karyawan diubah saat admin baru/promosi sedang disiapkan di form ini: isi ulang daftar badan usaha
+     * bila masih kosong atau masih berisi badan usaha lama hasil isian otomatis. Admin yang sudah ada
+     * (mis. pindah Area) tetap memakai daftar badan usaha tersimpan; ubah lewat bagian Akses Data.
+     *
+     * @param  callable(string): mixed  $get
+     * @param  callable(string, mixed): void  $set
+     */
+    protected static function syncOwnAreaAccess(callable $get, callable $set, ?User $record, mixed $oldAreaId): void
+    {
+        $areaId = $get('area_id');
+
+        if (
+            blank($areaId)
+            || $get('data_access') !== User::DATA_ACCESS_SELECTED
+            || ! static::canManageDataAccess()
+            || ! static::isAdminRoleId($get('role_id'))
+            || static::isExistingAdminRecord($record)
+        ) {
+            return;
+        }
+
+        $selected = array_map('strval', array_values((array) ($get('dataAccessAreas') ?? [])));
+
+        if ($selected === [] || (filled($oldAreaId) && $selected === [(string) $oldAreaId])) {
+            $set('dataAccessAreas', [(string) $areaId]);
+        }
     }
 
     public static function form(Schema $schema): Schema
@@ -186,22 +296,31 @@ class UserResource extends Resource
                             ->live()
                             ->label('Area')
                             ->required()
-                            ->afterStateUpdated(function ($state, callable $set) {
-                                $set('divisi_id', null);
+                            // Divisi tidak dikosongkan: divisi tidak terikat ke badan usaha karyawan.
+                            ->afterStateUpdated(function ($state, $old, callable $get, callable $set, ?User $record) {
+                                static::syncOwnAreaAccess($get, $set, $record, $old);
+
+                                if (! $state) {
+                                    return;
+                                }
+
+                                static::suggestApprovalLine(
+                                    $get,
+                                    $set,
+                                    $record,
+                                    divisiId: $get('divisi_id') ? (int) $get('divisi_id') : null,
+                                    areaId: (int) $state,
+                                    roleId: $get('role_id') ? (int) $get('role_id') : null,
+                                    positionId: $get('position_id') ? (int) $get('position_id') : null,
+                                );
                             }),
                         Select::make('divisi_id')
                             ->preload()
                             ->searchable()
                             ->live()
-                            ->options(function (callable $get) {
-                                $area_id = $get('area_id');
-                                if (! $area_id) {
-                                    return [];
-                                }
-
-                                return Divisi::where('area_id', $area_id)
-                                    ->pluck('name', 'id');
-                            })
+                            // Semua divisi; tidak difilter Area karyawan (divisis.area_id tidak bisa diandalkan).
+                            ->options(fn (): array => static::divisiOptions())
+                            ->helperText('Divisi tidak harus sama dengan Area karyawan.')
                             ->label('Divisi')
                             ->required()
                             ->afterStateUpdated(function ($state, callable $get, callable $set, ?User $record) {
@@ -237,6 +356,8 @@ class UserResource extends Resource
                                 if (! $state) {
                                     return;
                                 }
+
+                                static::applyAdminDataAccessDefaults($get, $set, $record);
 
                                 static::suggestApprovalLine(
                                     $get,
@@ -430,9 +551,18 @@ class UserResource extends Resource
                                 User::DATA_ACCESS_ALL => 'Semua Badan Usaha',
                                 User::DATA_ACCESS_SELECTED => 'Badan Usaha Tertentu',
                             ])
-                            ->default(User::DATA_ACCESS_ALL)
+                            // Fail closed: admin baru dibatasi ke badan usaha tertentu kecuali dipilih lain.
+                            ->default(User::DATA_ACCESS_SELECTED)
                             ->inline()
                             ->live()
+                            ->afterStateUpdated(function ($state, callable $get, callable $set): void {
+                                // Konfirmasi super admin selalu dicentang ulang setelah cakupan diubah.
+                                $set('confirm_global_access', false);
+
+                                if ($state === User::DATA_ACCESS_SELECTED && blank($get('dataAccessAreas')) && filled($get('area_id'))) {
+                                    $set('dataAccessAreas', [(string) $get('area_id')]);
+                                }
+                            })
                             ->required()
                             ->rule(function (?User $record) {
                                 return function (string $attribute, mixed $value, \Closure $fail) use ($record): void {
@@ -441,13 +571,29 @@ class UserResource extends Resource
                                     }
                                 };
                             }),
+                        // Konfirmasi hanya saat karyawan yang belum super admin akan dijadikan super admin.
+                        Checkbox::make('confirm_global_access')
+                            ->label('Saya yakin menjadikan karyawan ini super admin')
+                            ->helperText('Super admin melihat dan mengelola data karyawan di semua badan usaha, membuka menu Settings termasuk Aturan Penilaian, dan dapat memberikan role ADMIN kepada karyawan lain. Pilih Badan Usaha Tertentu bila admin cukup mengelola badan usaha tertentu.')
+                            ->visible(fn (Get $get, ?User $record): bool => $get('data_access') === User::DATA_ACCESS_ALL
+                                && ! static::isGlobalAdminRecord($record))
+                            ->required()
+                            ->accepted()
+                            ->validationMessages([
+                                'accepted' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
+                                'required' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
+                            ]),
                         Select::make('dataAccessAreas')
                             ->label('Badan Usaha')
                             ->relationship('dataAccessAreas', 'name')
                             ->multiple()
                             ->preload()
                             ->searchable()
-                            ->helperText('Admin melihat karyawan di badan usaha ini, ditambah anggota timnya sendiri.')
+                            ->helperText(fn (?User $record): string => static::isExistingAdminRecord($record)
+                                ? 'Admin melihat karyawan di badan usaha ini, ditambah anggota timnya sendiri.'
+                                // Admin baru/promosi: daftar terisi otomatis dari Area (lihat applyAdminDataAccessDefaults).
+                                : 'Admin melihat karyawan di badan usaha ini, ditambah anggota timnya sendiri. '
+                                    .'Terisi otomatis dengan Area karyawan ini; hapus bila admin tidak perlu mengelola badan usaha tersebut.')
                             ->visible(fn (Get $get): bool => $get('data_access') === User::DATA_ACCESS_SELECTED)
                             ->required(fn (Get $get): bool => $get('data_access') === User::DATA_ACCESS_SELECTED),
                     ])
@@ -551,7 +697,9 @@ class UserResource extends Resource
     protected static function mutateDataAccessData(array $data, ?User $actor, ?User $record): array
     {
         // Daftar badan usaha disimpan lewat relasi form (hanya terlihat oleh super admin), bukan kolom users.
-        unset($data['dataAccessAreas']);
+        // Konfirmasi super admin hanya dipakai untuk validasi di bawah, bukan kolom users.
+        $confirmedGlobalAccess = filter_var($data['confirm_global_access'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        unset($data['dataAccessAreas'], $data['confirm_global_access']);
 
         if (! static::canManageDataAccess($actor)) {
             unset($data['data_access']);
@@ -568,8 +716,15 @@ class UserResource extends Resource
             return $data;
         }
 
+        $isGlobalAdminRecord = static::isGlobalAdminRecord($record);
+
         if (blank($data['data_access'] ?? null)) {
-            unset($data['data_access']);
+            // Super admin yang sudah ada tetap; admin baru/promosi tanpa pilihan tidak boleh jatuh ke default 'all'.
+            if ($isGlobalAdminRecord) {
+                unset($data['data_access']);
+            } else {
+                $data['data_access'] = User::DATA_ACCESS_SELECTED;
+            }
 
             return $data;
         }
@@ -583,6 +738,13 @@ class UserResource extends Resource
         if ($data['data_access'] === User::DATA_ACCESS_SELECTED && static::isActorRecord($record, $actor)) {
             throw ValidationException::withMessages([
                 'data.data_access' => 'Anda tidak dapat membatasi akses data akun Anda sendiri.',
+            ]);
+        }
+
+        // Menjadikan karyawan super admin harus dikonfirmasi; state Livewire tanpa konfirmasi ditolak.
+        if ($data['data_access'] === User::DATA_ACCESS_ALL && ! $isGlobalAdminRecord && ! $confirmedGlobalAccess) {
+            throw ValidationException::withMessages([
+                'data.confirm_global_access' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
             ]);
         }
 
@@ -802,7 +964,8 @@ class UserResource extends Resource
 
     /**
      * Admin badan usaha tertentu: saran approval hanya dihitung dari badan usaha dan divisi yang boleh ia pakai
-     * (badan usaha yang diizinkan atau milik record saat ini, divisi di badan usaha itu atau divisi record saat ini).
+     * (badan usaha yang diizinkan atau milik record saat ini; divisi record saat ini, atau divisi yang tercatat
+     * di / dipakai karyawan badan usaha itu atau badan usaha yang diizinkan).
      * State Livewire yang dimanipulasi tidak boleh membuka nama atasan di badan usaha lain.
      */
     protected static function suggestionInputsInScope(?User $actor, ?int $divisiId, ?int $areaId, ?User $record): bool
@@ -829,7 +992,19 @@ class UserResource extends Resource
             return true;
         }
 
-        return Divisi::query()->whereKey($divisiId)->where('area_id', $areaId)->exists();
+        // divisis.area_id tidak bisa diandalkan (divisi COO dipakai karyawan ULS): divisi juga dianggap dalam
+        // cakupan bila dipakai karyawan aktif di badan usaha terpilih atau badan usaha yang diizinkan.
+        $areaIds = array_values(array_unique([$areaId, ...(DataAccessService::allowedAreaIds($actor) ?? [])]));
+
+        return Divisi::query()
+            ->whereKey($divisiId)
+            ->where(fn (Builder $scope): Builder => $scope
+                ->whereIn('area_id', $areaIds)
+                ->orWhereIn('id', User::query()
+                    ->select('divisi_id')
+                    ->whereNotNull('divisi_id')
+                    ->whereIn('area_id', $areaIds)))
+            ->exists();
     }
 
     /**

@@ -2,11 +2,17 @@
     <x-filament::section>
         <div class="space-y-6">
             @php
-                $defaultMonth = $this->month ?? now()->format('Y-m');
-                $defaultYear = $this->month ? substr($this->month, 0, 4) : now()->format('Y');
+                // Bulan tervalidasi: prop 'month' bisa diubah klien menjadi nilai apa pun (fallback bulan berjalan).
+                $defaultMonth = $this->selectedPeriod();
+                $defaultYear = substr($defaultMonth, 0, 4);
                 $areas = $this->getAreas();
                 $divisions = $this->getDivisions();
                 $leaderboardData = $this->getLeaderboardData();
+                // Bobot dari versi aturan penilaian bulan yang ditampilkan.
+                $scoringRule = $this->scoringRule();
+                $kpiWeightLabel = $this->weightLabel($scoringRule->kpiWeight);
+                $attendanceWeightLabel = $this->weightLabel($scoringRule->attendanceWeight);
+                $reviewWeightLabel = $this->weightLabel($scoringRule->reviewWeight);
             @endphp
 
             <!-- Header and Filters Section -->
@@ -14,6 +20,7 @@
                 <div>
                     <h2 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 sm:text-2xl">Leaderboard KPI</h2>
                     <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Bandingkan metrik kinerja antar karyawan</p>
+                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Aturan penilaian: {{ $scoringRule->name }}</p>
                 </div>
 
                 <!-- Responsive Filters -->
@@ -178,15 +185,15 @@
                         <div class="p-4 space-y-3">
                             <div class="grid grid-cols-2 gap-3 text-sm">
                                 <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">KPI Score (70%)</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">KPI Score ({{ $kpiWeightLabel }}%)</p>
                                     <p class="font-medium text-gray-900 dark:text-gray-200">{{ number_format($data['kpiScore'], 2) }}</p>
                                 </div>
                                 <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">Attendance (15%)</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">Attendance ({{ $attendanceWeightLabel }}%)</p>
                                     <p class="font-medium text-gray-900 dark:text-gray-200">{{ number_format($data['attendanceScore'], 2) }}</p>
                                 </div>
                                 <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded">
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">Activity (15%)</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">Activity ({{ $reviewWeightLabel }}%)</p>
                                     <p class="font-medium text-gray-900 dark:text-gray-200">{{ number_format($data['activityScore'], 2) }}</p>
                                 </div>
                                 <div class="bg-primary-50 dark:bg-primary-900/30 p-3 rounded">
@@ -209,9 +216,9 @@
                                 <th class="px-4 py-3 font-medium text-left text-gray-500 dark:text-gray-400">Name</th>
                                 <th class="px-4 py-3 font-medium text-left text-gray-500 dark:text-gray-400">Division</th>
                                 <th class="px-4 py-3 font-medium text-left text-gray-500 dark:text-gray-400">Area</th>
-                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">KPI Score (70%)</th>
-                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Attendance (15%)</th>
-                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Activity (15%)</th>
+                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">KPI Score ({{ $kpiWeightLabel }}%)</th>
+                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Attendance ({{ $attendanceWeightLabel }}%)</th>
+                                <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Activity ({{ $reviewWeightLabel }}%)</th>
                                 <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Cutpoint</th>
                                 <th class="px-4 py-3 font-medium text-center text-gray-500 dark:text-gray-400">Total Score</th>
                             </tr>
