@@ -46,7 +46,8 @@ class ChecklistKPI extends Widget
     public function mount($user_id = null, $month = null): void
     {
         $this->user_id = $user_id ?? null;
-        $this->month = $month ?? now()->format('m/Y');
+        // Y-m is the value format of the <input type="month"> filter, so the current month is shown as selected.
+        $this->month = $month ?? now()->format('Y-m');
     }
 
     protected function getKpis()
