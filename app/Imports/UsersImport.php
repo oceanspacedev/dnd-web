@@ -7,6 +7,7 @@ use App\Models\Divisi;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\DataAccessService;
 use Exception;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
@@ -163,6 +164,10 @@ class UsersImport implements ToModel, WithHeadingRow
 
             if ($user) {
                 $promotedToAdmin = $assignsAdmin && ! User::isAdminRoleId($user->role_id);
+
+                if (! $assignsAdmin) {
+                    $this->ensureAnotherGlobalAdminRemains($user, $role);
+                }
 
                 // Update existing user. Promosi menjadi ADMIN dibatasi ke badan usaha sendiri oleh model User.
                 $updateData = [
@@ -399,6 +404,25 @@ class UsersImport implements ToModel, WithHeadingRow
     public function getNotices(): array
     {
         return $this->notices;
+    }
+
+    /**
+     * Sama dengan form Karyawan dan API: role ADMIN super admin terakhir tidak boleh dilepas (tidak ada lagi yang bisa
+     * memberi role ADMIN / akses seluruh badan usaha atau membuka pengaturan penilaian). Baris lain tetap diproses,
+     * jadi file yang menurunkan semua super admin tetap menyisakan satu.
+     */
+    protected function ensureAnotherGlobalAdminRemains(User $user, Role $role): void
+    {
+        // Nilai yang tersimpan, bukan relasi role yang mungkin sudah dimuat.
+        $isGlobalAdmin = User::isAdminRoleId($user->getOriginal('role_id'))
+            && $user->getOriginal('data_access') !== User::DATA_ACCESS_SELECTED;
+
+        if ($isGlobalAdmin && ! DataAccessService::anotherGlobalAdminExists($user)) {
+            throw new Exception(
+                'Role "'.$role->name.'" tidak dapat diberikan kepada '.$user->nama_lengkap
+                .': minimal harus ada satu admin dengan akses seluruh badan usaha.',
+            );
+        }
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\V1;
 use App\Http\Requests\Api\V1\Concerns\ValidatesAttendanceCounts;
 use App\Models\Attendance;
 use App\Services\ScoringRuleService;
+use App\Support\Periode;
 use App\Support\Scoring\AttendanceCountInput;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
@@ -60,6 +61,10 @@ class UpdateAttendanceRequest extends FormRequest
      * dipindah dari November ke Oktober 2026, saat izin masih dicatat di sick_days). Kirim components.{kode} 0
      * (izin: tambahkan dulu ke sick_days) bersama periode baru. Hitungan yang dikirim diperiksa aturan
      * components.*; data yang periodenya tidak diganti tidak diperiksa (data lama tetap bisa diubah).
+     *
+     * Arah sebaliknya juga ditolak: data dengan sick_days > 0 dari aturan yang mencatat izin bersama sakit
+     * (Sakit/Izin) dipindah ke periode yang mencatat izin sendiri (mis. Oktober -> November 2026), kecuali
+     * sick_days (sakit saja) dan components.izin ikut dikirim bersama periode baru.
      */
     private function periodeChangeRule(): Closure
     {
@@ -86,7 +91,52 @@ class UpdateAttendanceRequest extends FormRequest
                     array_map(static fn (mixed $count): int => (int) $count, array_intersect_key($stored, array_flip($unused))),
                 ));
             }
+
+            // Arah sebaliknya: sick_days tersimpan berisi sakit + izin (aturan lama) dan aturan periode baru mencatat
+            // izin sendiri (sakit tanpa penalti). Tanpa sick_days dan components.izin yang dikirim ulang, hari izinnya
+            // akan dinilai sebagai sakit dan penaltinya hilang diam-diam.
+            $sickDays = (int) $attendance->sick_days;
+
+            if ($sickDays > 0
+                && AttendanceCountInput::movesIzinOutOfSick($attendance->periode, $periode)
+                && (! ($this->has(AttendanceCountInput::SICK_CODE) || $this->has('components.'.AttendanceCountInput::SICK_CODE))
+                    || ! $this->has('components.'.AttendanceCountInput::IZIN_CODE))) {
+                $fail(AttendanceCountInput::sickIzinSplitMessage(
+                    $sickDays,
+                    (string) Periode::normalize($attendance->periode),
+                    $periode,
+                    AttendanceCountInput::CONTEXT_API,
+                ));
+            }
         };
+    }
+
+    /**
+     * Periode tersimpan yang dikirim balik tanpa diubah (mis. form yang selalu mengirim periode) tidak diperiksa
+     * rentang/formatnya, agar data lama dengan periode sampah (1900-01, 1970-01 di produksi) tetap bisa dikoreksi
+     * hari kerja/hitungannya. Hanya mengganti periode ke nilai yang tidak valid yang ditolak.
+     */
+    protected function keepsStoredPeriode(mixed $value): bool
+    {
+        $attendance = $this->storedAttendance();
+
+        if ($attendance === null || ! is_string($value) || ! is_string($attendance->periode)) {
+            return false;
+        }
+
+        $normalized = Periode::normalize($value);
+
+        return $value === $attendance->periode
+            || ($normalized !== null && $normalized === Periode::normalize($attendance->periode));
+    }
+
+    /**
+     * Peringatan komponen yang tidak dikirim hanya bila request menyentuh hitungan atau periode data (perubahan
+     * hari kerja saja tidak mengubah arti hitungan tersimpan).
+     */
+    protected function checksMissingComponents(): bool
+    {
+        return $this->has('periode') || $this->hasAny(self::LEGACY_COUNT_FIELDS);
     }
 
     /**

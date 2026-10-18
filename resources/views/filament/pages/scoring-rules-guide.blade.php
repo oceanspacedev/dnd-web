@@ -72,6 +72,7 @@
                     <li>Belum ada Penilaian bulan itu: Skor Penilaian 0.</li>
                     <li>Di Leaderboard, potongan <strong>Cutpoint</strong> bulan itu (bila ada) dikurangkan dari nilai akhir.</li>
                     <li>Nama kolom di Leaderboard: Skor KPI = <strong>KPI Score</strong>, Skor Kehadiran = <strong>Attendance</strong>, Skor Penilaian = <strong>Activity</strong>, nilai akhir setelah Cutpoint = <strong>Total Score</strong>. Leaderboard menulis desimal dengan titik (84.34 sama dengan 84,34).</li>
+                    <li>File Excel dari tombol <strong>Export KPI</strong> di Leaderboard berbeda: kolom <strong>Total Score</strong> di file itu adalah nilai akhir <strong>sebelum</strong> dikurangi Cutpoint, dan akun ADMIN tidak ikut di file itu.</li>
                 </ul>
             </div>
         </x-filament::section>

@@ -11,8 +11,10 @@ use App\Services\ScoringRuleService;
 use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\CreatesDataAccessFixtures;
 use Tests\TestCase;
 
@@ -36,11 +38,18 @@ class ScoringIntegrationTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_model_rejects_review_max_points_below_reachable_twenty(): void
+    /**
+     * Versi baru hanya boleh mulai bulan berjalan atau sesudahnya, jadi effective_from dihitung dari jam yang
+     * dibekukan (bukan tanggal tetap yang suatu saat menjadi bulan lampau dan ditolak karena alasan lain).
+     */
+    #[DataProvider('clockProvider')]
+    public function test_model_rejects_review_max_points_below_reachable_twenty(string $now): void
     {
+        $this->travelTo(Date::parse($now));
+
         $valid = [
             'name' => 'Versi uji',
-            'effective_from' => '2027-03',
+            'effective_from' => Date::now()->startOfMonth()->addMonths(5)->format('Y-m'),
             'kpi_weight' => 70,
             'attendance_weight' => 15,
             'review_weight' => 15,
@@ -55,6 +64,18 @@ class ScoringIntegrationTest extends TestCase
         }
 
         $this->assertSame(20, ScoringRule::query()->create(['review_max_points' => 20] + $valid)->review_max_points);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function clockProvider(): array
+    {
+        return [
+            'Oktober 2026' => ['2026-10-15 09:00:00'],
+            'April 2027 (sesudah 2027-03)' => ['2027-04-01 00:30:00'],
+            'Juni 2030' => ['2030-06-15 09:00:00'],
+        ];
     }
 
     public function test_both_legacy_review_formulas_match_the_engine_bit_for_bit_on_the_valid_scale(): void

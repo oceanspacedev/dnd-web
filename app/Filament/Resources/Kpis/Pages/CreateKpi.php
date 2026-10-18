@@ -61,8 +61,9 @@ class CreateKpi extends CreateRecord
 
             if (DataAccessService::isAreaScopedAdmin($actor)) {
                 // Posisi dipakai lintas badan usaha: admin badan usaha tertentu hanya membuat KPI
-                // untuk karyawan di badan usaha yang diizinkan, tim, dan dirinya sendiri.
-                DataAccessService::scopeOwnedRecords($usersQuery, $actor, 'users.id');
+                // untuk karyawan di badan usaha yang diizinkan, tim, dan dirinya sendiri, tanpa akun
+                // ADMIN lain (KpiPolicy: data akun ADMIN hanya diubah super admin).
+                DataAccessService::scopeWritableUsers($usersQuery, $actor);
             } elseif (! DataAccessService::hasGlobalAccess($actor)) {
                 $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) Auth::id());
                 if ($managedUserIds === []) {

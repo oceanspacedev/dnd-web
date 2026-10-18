@@ -23,14 +23,15 @@ const GUIDES = {
 };
 
 // Environment that every php process of a recording must run with (WhatsApp -> local stub with a dummy token,
-// mail -> log, cache -> array). Read from env.sh so the shell scripts and the flows share one source; spread it into
+// mail -> log, cache -> array, empty DB_URL so DB_DATABASE is the database). Read from env.sh so the shell scripts and the flows share one source; spread it into
 // the env of any php child process: execFileSync('php', [...], { env: { ...process.env, ...rec.SAFE_ENV, DB_DATABASE } }).
 const SAFE_ENV = (() => {
   // Source env.sh in a clean shell and keep only its exports.
   const out = execFileSync('sh', ['-c', '. "$1" && env', 'sh', path.join(TOOL_DIR, 'env.sh')], { encoding: 'utf8', env: { PATH: process.env.PATH } });
   const all = Object.fromEntries(out.split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
-  const env = Object.fromEntries(['WAG_URL', 'WAG_TOKEN', 'MAIL_MAILER', 'CACHE_STORE'].map((k) => [k, all[k]]));
+  const env = Object.fromEntries(['WAG_URL', 'WAG_TOKEN', 'MAIL_MAILER', 'CACHE_STORE', 'DB_URL'].map((k) => [k, all[k]]));
   if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(env.WAG_URL || '') || !env.WAG_TOKEN) throw new Error('env.sh must point WAG_URL at the local stub');
+  if (env.DB_URL !== '') throw new Error('env.sh must export an empty DB_URL');
   return env;
 })();
 // The local WhatsApp gateway stub (wa-stub.php); serve.sh starts it when it is not running.

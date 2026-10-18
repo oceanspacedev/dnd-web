@@ -112,6 +112,9 @@ class KpiController extends Controller
 
     /**
      * Create a new KPI along with optional initial detail rows.
+     *
+     * details[].parent_id tidak boleh diisi (422): KPI baru belum punya detail. Sub-detail ditambahkan lewat
+     * POST /kpis/{id}/details setelah KPI dibuat.
      */
     public function store(StoreKpiRequest $request): JsonResponse
     {
@@ -121,14 +124,7 @@ class KpiController extends Controller
         $target = new Kpi(['user_id' => (int) $validated['user_id']]);
         $this->authorize('update', $target);
 
-        // KPI baru belum punya detail, jadi parent_id selalu menunjuk detail KPI lain (bisa milik karyawan di luar cakupan).
-        foreach ($validated['details'] ?? [] as $detailData) {
-            abort_if(
-                ! empty($detailData['parent_id']),
-                422,
-                'parent_id harus merujuk ke detail pada KPI yang sama.',
-            );
-        }
+        // details.*.parent_id ditolak StoreKpiRequest (prohibited): KPI baru belum punya detail.
 
         $kpi = Kpi::create([
             'user_id' => $validated['user_id'],
@@ -435,6 +431,9 @@ class KpiController extends Controller
 
     /**
      * Get cumulative KPI performance summary for a specific user.
+     *
+     * Selain super admin, id karyawan yang tidak ada (termasuk yang sudah dihapus) mendapat 403 seperti karyawan di
+     * luar cakupan, bukan 404, agar keberadaan karyawan di luar cakupan tidak terungkap.
      */
     public function userSummary(Request $request, int $userId): JsonResponse
     {

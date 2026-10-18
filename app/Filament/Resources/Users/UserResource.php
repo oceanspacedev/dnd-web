@@ -12,6 +12,7 @@ use App\Models\KpiReminderSetting;
 use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\AttendancePolicy;
 use App\Policies\UserPolicy;
 use App\Services\ApprovalResolverService;
 use App\Services\ApprovalScopeService;
@@ -252,8 +253,9 @@ class UserResource extends Resource
                             ->tel()
                             ->maxLength(20)
                             // Admin (semua atau badan usaha tertentu) boleh mengubah No. HP; record sudah dibatasi cakupannya.
-                            ->disabled(fn (): bool => ! DataAccessService::isAdmin(static::actor()))
-                            ->dehydrated(fn (): bool => DataAccessService::isAdmin(static::actor()))
+                            // No. HP adalah login WhatsApp, jadi ikut aturan data login (canChangeCredentials).
+                            ->disabled(fn (?User $record): bool => ! static::canChangePhone($record))
+                            ->dehydrated(fn (?User $record): bool => static::canChangePhone($record))
                             ->dehydrateStateUsing(fn ($state): ?string => filled($state)
                                 ? (WhatsAppNumber::toLocal((string) $state) ?? (string) $state)
                                 : null)
@@ -604,11 +606,15 @@ class UserResource extends Resource
                 Flex::make([
                     Group::make([
                         Section::make('Login')
+                            ->description(fn (?User $record): ?string => static::canChangeCredentials($record)
+                                ? null
+                                : static::lockedCredentialsMessage())
                             ->schema([
                                 TextInput::make('username')
                                     ->label('Username')
                                     ->required()
                                     ->unique(ignoreRecord: true)
+                                    ->disabled(fn (?User $record): bool => ! static::canChangeCredentials($record))
                                     ->dehydrateStateUsing(fn ($state) => strtolower($state))
                                     ->regex('/^[\S]+$/')
                                     ->validationMessages([
@@ -618,8 +624,9 @@ class UserResource extends Resource
                                 TextInput::make('password')
                                     ->label('Kata Sandi')
                                     ->password()
+                                    ->disabled(fn (?User $record): bool => ! static::canChangeCredentials($record))
                                     ->dehydrateStateUsing(fn ($state) => Hash::make($state))
-                                    ->dehydrated(fn ($state) => filled($state))
+                                    ->dehydrated(fn ($state, ?User $record): bool => filled($state) && static::canChangeCredentials($record))
                                     ->maxLength(255)
                                     ->label('Password')
                                     ->placeholder('Masukkan password')
@@ -658,6 +665,7 @@ class UserResource extends Resource
 
         $data = static::mutateDataAccessData($data, $actor, $record);
 
+        static::ensureCredentialsChangeAllowed($actor, $data, $record);
         static::ensureAreaInScope($actor, $data, $record);
         static::ensureApprovalInScope($actor, $data, $record);
 
@@ -686,6 +694,75 @@ class UserResource extends Resource
         }
 
         return $data;
+    }
+
+    /**
+     * Data login (username, password, No. HP WhatsApp) boleh diubah actor: karyawan baru, atau
+     * UserPolicy::changeCredentials untuk karyawan yang sudah ada.
+     */
+    public static function canChangeCredentials(?User $record, ?User $actor = null): bool
+    {
+        $actor ??= static::actor();
+
+        if (! $actor instanceof User) {
+            return false;
+        }
+
+        return ! ($record instanceof User && $record->exists) || (new UserPolicy)->changeCredentials($actor, $record);
+    }
+
+    /**
+     * No. HP (login WhatsApp) hanya diatur admin, dan ikut aturan data login.
+     */
+    public static function canChangePhone(?User $record, ?User $actor = null): bool
+    {
+        $actor ??= static::actor();
+
+        return DataAccessService::isAdmin($actor) && static::canChangeCredentials($record, $actor);
+    }
+
+    public static function lockedCredentialsMessage(): string
+    {
+        return 'Akses akun ini melampaui cakupan data Anda, jadi data login-nya (username, password, No. HP) '
+            .'hanya dapat diubah admin dengan akses seluruh badan usaha.';
+    }
+
+    /**
+     * Penjaga sisi server: data login akun yang terkunci tidak boleh berubah, dan username user khusus kehadiran
+     * seluruh badan usaha (AttendancePolicy) hanya boleh dipakai super admin.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected static function ensureCredentialsChangeAllowed(?User $actor, array $data, ?User $record): void
+    {
+        $exists = $record instanceof User && $record->exists;
+        $username = $data['username'] ?? null;
+        $changesUsername = array_key_exists('username', $data)
+            && (! $exists || (string) $username !== (string) $record->getOriginal('username'));
+
+        if (
+            $changesUsername
+            && AttendancePolicy::isGlobalAttendanceUsername($username)
+            && ! ($actor instanceof User && (new UserPolicy)->useGlobalAttendanceUsername($actor))
+        ) {
+            throw ValidationException::withMessages([
+                'data.username' => 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh badan usaha.',
+            ]);
+        }
+
+        if (! $exists || static::canChangeCredentials($record, $actor)) {
+            return;
+        }
+
+        $changesPassword = filled($data['password'] ?? null);
+        $changesPhone = array_key_exists('no_hp', $data)
+            && (string) ($data['no_hp'] ?? '') !== (string) ($record->getOriginal('no_hp') ?? '');
+
+        if ($changesUsername || $changesPassword || $changesPhone) {
+            throw ValidationException::withMessages([
+                'data.'.($changesUsername ? 'username' : ($changesPassword ? 'password' : 'no_hp')) => static::lockedCredentialsMessage(),
+            ]);
+        }
     }
 
     /**
@@ -752,23 +829,17 @@ class UserResource extends Resource
     }
 
     /**
-     * Super admin terakhir tidak boleh melepas role ADMIN dari akunnya sendiri (sama seperti API).
+     * Super admin terakhir tidak boleh melepas role ADMIN dari akunnya sendiri (sama seperti API dan import Excel).
+     * Memakai nilai asli record (isGlobalAdminRecord): saat form disimpan, Select role sudah mengaitkan role baru ke
+     * relasi record, sehingga hasGlobalAccess($record) sudah membaca role baru.
      */
     protected static function ensureAnotherGlobalAdminRemains(?User $actor, ?User $record): void
     {
-        if (! static::isActorRecord($record, $actor) || ! DataAccessService::hasGlobalAccess($record)) {
+        if (! static::isActorRecord($record, $actor) || ! static::isGlobalAdminRecord($record)) {
             return;
         }
 
-        $otherGlobalAdminExists = User::query()
-            ->whereKeyNot($record->getKey())
-            ->whereHas('role', fn (Builder $roleQuery) => $roleQuery->where('name', User::ROLE_ADMIN))
-            ->where(fn (Builder $access) => $access
-                ->whereNull('data_access')
-                ->orWhere('data_access', '!=', User::DATA_ACCESS_SELECTED))
-            ->exists();
-
-        if (! $otherGlobalAdminExists) {
+        if (! DataAccessService::anotherGlobalAdminExists($record)) {
             throw ValidationException::withMessages([
                 'data.role_id' => 'Minimal harus ada satu admin dengan akses seluruh badan usaha.',
             ]);

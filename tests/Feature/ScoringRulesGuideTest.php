@@ -444,6 +444,8 @@ class ScoringRulesGuideTest extends TestCase
             ->assertSee('85,77')
             // Nama kolom Leaderboard dan label tabel Penilaian supaya angka/aspek bisa dicocokkan.
             ->assertSee('Leaderboard menulis desimal dengan titik (84.34 sama dengan 84,34).')
+            // Export KPI (LeaderboardExportController) menulis Total Score tanpa Cutpoint dan tanpa akun ADMIN.
+            ->assertSeeHtml('kolom <strong>Total Score</strong> di file itu adalah nilai akhir <strong>sebelum</strong> dikurangi Cutpoint, dan akun ADMIN tidak ikut di file itu.')
             ->assertSeeHtml('Skor Penilaian = <strong>Activity</strong>')
             ->assertSee('(di tabel: Pemecahan Masalah)')
             ->assertSee('(di tabel: Kesediaan Membantu)')

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\ActivitySummaryRequest;
 use App\Http\Requests\Api\V1\StoreDailyLogRequest;
 use App\Http\Requests\Api\V1\StoreDailyRequest;
 use App\Http\Requests\Api\V1\StoreMonthlyRequest;
@@ -642,13 +643,11 @@ class ActivityController extends Controller
     /**
      * Get cumulative activity summary for current user or filtered employee.
      */
-    public function summary(Request $request): JsonResponse
+    public function summary(ActivitySummaryRequest $request): JsonResponse
     {
-        // Normalisasi sekali: id yang diotorisasi harus sama persis dengan id yang dipakai query
-        // (user_id[] dsb. ditolak agar (int) cast tidak memeriksa user yang berbeda).
-        $validated = $request->validate([
-            'user_id' => ['nullable', 'integer', 'min:1'],
-        ]);
+        // Normalisasi sekali (ActivitySummaryRequest): id yang diotorisasi harus sama persis dengan id yang
+        // dipakai query (user_id[] dsb. ditolak agar (int) cast tidak memeriksa user yang berbeda).
+        $validated = $request->validated();
         $userId = (int) ($validated['user_id'] ?? auth()->id());
         $this->authorize('view', new Daily(['user_id' => $userId]));
         $today = Date::today()->format('Y-m-d');

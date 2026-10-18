@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\Attendance;
+use App\Services\LeaderboardScoreService;
 use App\Services\PerformanceScoreCalculator;
 use App\Services\ScoringRuleService;
 use App\Support\Scoring\AttendanceComponentData;
@@ -61,11 +62,8 @@ class AttendanceResource extends JsonResource
                 ])
                 ->all(),
             'attendance_weight' => $rule->attendanceWeight,
-            'scoring_rule' => [
-                'id' => $rule->id,
-                'name' => $rule->name,
-                'effective_from' => $rule->effectiveFrom,
-            ],
+            // Bentuk ringkasan aturan yang sama dengan analytics, evaluasi, ringkasan KPI, dan review.
+            'scoring_rule' => LeaderboardScoreService::ruleSummary($rule),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

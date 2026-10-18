@@ -2,6 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Exports\KpiMonthlySummarySheet;
+use App\Exports\KpiPerDivisionDetailSheet;
+use App\Exports\KpiPerDivisionSummarySheet;
 use App\Filament\Resources\Kpis\Pages\CreateKpi;
 use App\Filament\Resources\Kpis\Pages\ListKpis;
 use App\Filament\Widgets\ChecklistKPI;
@@ -148,6 +151,33 @@ class KpiMonthEndPeriodTest extends TestCase
                 ->assertSee('Tugas November')
                 ->assertDontSee('Tugas Desember');
         }
+    }
+
+    public function test_monthly_exports_on_31_october_read_the_chosen_month(): void
+    {
+        $september = $this->makeKpi($this->staff, '2026-09-01', 'Tugas September');
+        $september->kpi_detail()->update(['value_result' => 1]);
+        $this->makeKpi($this->staff, '2026-10-01', 'Tugas Oktober');
+
+        // Export per bulan September dibuat 31 Oktober: bukan KPI Oktober (31 September = 1 Oktober).
+        $detail = (new KpiPerDivisionDetailSheet('2026-09', '', $this->staff->id))->array();
+        $this->assertSame(['2026-09'], array_values(array_unique(array_column($detail, 0))));
+        $this->assertSame(['Tugas September'], array_column($detail, 5));
+
+        $summary = (new KpiPerDivisionSummarySheet('2026-09', '', $this->staff->id))->array();
+        $this->assertSame('1/1', $summary[0]['total_task']);
+        $this->assertSame('100%', $summary[0]['score']);
+
+        // Export tahunan: judul kolom bulan Jan-Des, tanpa bulan yang terlewat/terulang.
+        $expectedMonths = array_map(
+            static fn (int $month): string => Date::create(2026, $month, 1)->isoFormat('MMM'),
+            range(1, 12),
+        );
+        $this->assertSame(
+            ['Name', ...$expectedMonths, 'Average'],
+            (new KpiMonthlySummarySheet('2026', '', $this->staff->id))->headings(),
+        );
+        $this->assertCount(12, array_unique($expectedMonths));
     }
 
     private function makeKpi(User $owner, string $date, string $description): Kpi

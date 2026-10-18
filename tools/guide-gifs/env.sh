@@ -12,3 +12,6 @@ export WAG_TOKEN="guide-gifs-dummy-token"
 export MAIL_MAILER=log
 # Per-request cache: no shared file cache with the dev server or between guides (see README).
 export CACHE_STORE=array
+# A DB_URL (from .env or the shell) is merged over the connection config when it opens and would replace DB_DATABASE,
+# so seeding, migrate:fresh and the demo servers could hit the real database. Forced empty; demo_db.php refuses any URL.
+export DB_URL=

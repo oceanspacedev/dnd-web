@@ -19,6 +19,7 @@ use Closure;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -83,6 +84,8 @@ class AttendanceResource extends Resource
                             ->live(onBlur: true)
                             ->afterStateUpdated(function (Get $get, Set $set, ?Attendance $record): void {
                                 static::resetUnusedComponentFields($get('periode'), $get, $set, $record);
+                                // Konfirmasi pemisahan Sakit/Izin selalu dicentang ulang setelah periode diganti.
+                                $set('confirm_sick_split', false);
                             })
                             ->helperText(fn (Get $get): ?string => static::ruleDescription($get('periode')))
                             ->columnSpan(2),
@@ -98,6 +101,8 @@ class AttendanceResource extends Resource
 
                         // Satu field per komponen kehadiran (master data): komponen baru tidak butuh perubahan kode.
                         ...static::componentFields(),
+
+                        static::sickIzinSplitConfirmation(),
                     ])->columns(4),
             ]);
     }
@@ -251,6 +256,50 @@ class AttendanceResource extends Resource
                 ->dehydrateStateUsing(fn (mixed $state): int => blank($state) ? 0 : (int) $state))
             ->values()
             ->all();
+    }
+
+    /**
+     * Konfirmasi saat data yang menyimpan Sakit/Izin > 0 (aturan yang mencatat izin bersama sakit) dipindah ke
+     * periode yang mencatat izin sendiri (mis. Oktober -> November 2026): tanpa dipisah, hari izin di Sakit/Izin
+     * dinilai sebagai sakit dan penaltinya hilang diam-diam. HR mengisi Sakit (sakit saja) dan Izin, lalu
+     * mencentang konfirmasi ini; tidak disimpan ke data.
+     */
+    public static function sickIzinSplitConfirmation(): Checkbox
+    {
+        return Checkbox::make('confirm_sick_split')
+            ->label('Sakit/Izin tersimpan sudah saya pisah menjadi Sakit dan Izin')
+            ->helperText(fn (Get $get, ?Attendance $record): ?string => static::sickIzinSplitMessage($record, $get('periode')))
+            ->visible(fn (Get $get, ?Attendance $record): bool => static::sickIzinSplitMessage($record, $get('periode')) !== null)
+            ->required()
+            ->accepted()
+            ->validationMessages([
+                'accepted' => 'Centang konfirmasi ini setelah Sakit/Izin dipisah menjadi Sakit dan Izin.',
+                'required' => 'Centang konfirmasi ini setelah Sakit/Izin dipisah menjadi Sakit dan Izin.',
+            ])
+            ->dehydrated(false)
+            ->columnSpanFull();
+    }
+
+    /**
+     * Langkah memisahkan Sakit/Izin tersimpan bila periode data di form dipindah ke periode yang mencatat izin
+     * sendiri (AttendanceCountInput::movesIzinOutOfSick()); null bila tidak perlu (form tambah, Sakit/Izin 0, atau
+     * periode tidak berpindah aturan).
+     */
+    public static function sickIzinSplitMessage(?Attendance $record, mixed $periode): ?string
+    {
+        $sickDays = static::storedCount($record, AttendanceCountInput::SICK_CODE);
+        $normalized = AttendanceCountInput::periode($periode);
+
+        if ($sickDays === 0 || $normalized === null || ! AttendanceCountInput::movesIzinOutOfSick($record?->periode, $normalized)) {
+            return null;
+        }
+
+        return AttendanceCountInput::sickIzinSplitMessage(
+            $sickDays,
+            (string) Periode::normalize($record?->periode),
+            $normalized,
+            AttendanceCountInput::CONTEXT_FORM,
+        );
     }
 
     public static function componentStatePath(string $code): string

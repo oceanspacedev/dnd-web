@@ -9,6 +9,7 @@ use App\Jobs\SendKpiReminderEmailJob;
 use App\Jobs\SendKpiReminderWhatsAppJob;
 use App\Models\Kpi;
 use App\Models\KpiDescription;
+use App\Models\KpiDetail;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
@@ -510,6 +511,10 @@ class KpiResource extends Resource
                                     ->disabled(fn (callable $get) => $get('count_type') !== 'RESULT'),
                                 Actions::make([
                                     Action::make('manage_subtasks')
+                                        // Subtask langsung disimpan (bukan lewat simpan form) dan modal View memuat aksi
+                                        // ini juga, jadi cek policy update KPI induknya: KPI yang hanya boleh dilihat
+                                        // (mis. milik akun ADMIN lain bagi admin badan usaha tertentu) tidak berubah.
+                                        ->authorize(fn ($record): bool => static::canManageSubtasks($record, $schema->getRecord()))
                                         ->hiddenLabel()
                                         ->icon('heroicon-o-clipboard-document-list')
                                         ->color('primary')
@@ -556,7 +561,9 @@ class KpiResource extends Resource
                                                 'subtasks' => $subtasks,
                                             ];
                                         })
-                                        ->action(function (array $data, $record) {
+                                        ->action(function (array $data, $record) use ($schema) {
+                                            abort_unless(static::canManageSubtasks($record, $schema->getRecord()), 403);
+
                                             $record->subtasks = $data['subtasks'] ?? [];
                                             $record->save();
                                         }),
@@ -741,9 +748,31 @@ class KpiResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Cek policy per KPI: admin badan usaha tertentu melihat KPI akun ADMIN lain di badan usahanya
+                    // tetapi tidak boleh menghapusnya.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords(),
                 ]),
             ]);
+    }
+
+    /**
+     * Subtask detail KPI hanya boleh diubah oleh user yang boleh mengubah KPI induknya.
+     * $kpi: record form (KPI induk) agar tidak ada query per baris repeater; selain itu relasi detail.
+     */
+    protected static function canManageSubtasks(mixed $record, mixed $kpi = null): bool
+    {
+        $actor = Auth::user();
+
+        if (! $actor instanceof User || ! $record instanceof KpiDetail) {
+            return false;
+        }
+
+        if (! $kpi instanceof Kpi || (int) $kpi->getKey() !== (int) $record->kpi_id) {
+            $kpi = $record->kpi;
+        }
+
+        return $kpi instanceof Kpi && $actor->can('update', $kpi);
     }
 
     /**

@@ -23,9 +23,9 @@ Rekaman hanya boleh memakai database demo yang dibuat `demo_seed.php`. Database 
 
 `.env` berisi URL gateway WhatsApp yang asli (`WAG_URL`), dan `config/services.php` juga memakai URL gateway asli sebagai nilai bawaan. Login OTP mengirim pesan WhatsApp sungguhan lewat `App\Services\WhatsAppService::send`. Karena itu tidak ada proses rekaman yang boleh memakai nilai dari `.env`:
 
-- `env.sh` memaksa `WAG_URL=http://127.0.0.1:8019`, `WAG_TOKEN` berisi token dummy, `MAIL_MAILER=log` dan `CACHE_STORE=array`. Nilainya dipaksa, bukan default, jadi `WAG_URL` yang kebetulan di-export di shell juga tertimpa. `setup-db.sh`, `reset.sh`, `serve.sh` dan `wa-stub.sh` memuat file ini lebih dulu. Flow yang menjalankan `php` sendiri (misalnya `aturan-template.php`) memakai nilai yang sama lewat `rec.SAFE_ENV` dari `lib.js`.
+- `env.sh` memaksa `WAG_URL=http://127.0.0.1:8019`, `WAG_TOKEN` berisi token dummy, `MAIL_MAILER=log`, `CACHE_STORE=array` dan `DB_URL` kosong (URL database digabung ke config saat koneksi dibuka dan akan mengganti `DB_DATABASE`). Nilainya dipaksa, bukan default, jadi `WAG_URL` yang kebetulan di-export di shell juga tertimpa. `setup-db.sh`, `reset.sh`, `serve.sh` dan `wa-stub.sh` memuat file ini lebih dulu. Flow yang menjalankan `php` sendiri (misalnya `aturan-template.php`) memakai nilai yang sama lewat `rec.SAFE_ENV` dari `lib.js`.
 - phpdotenv tidak pernah menimpa variabel yang sudah ada di environment proses, jadi nilai dari `env.sh` menang atas `.env`.
-- `guard.php` menyalakan aplikasi dengan environment yang sama lalu menolak kalau database bukan `dnd_demo_*`, kalau URL WhatsApp bukan `http://127.0.0.1:<port>` dari `env.sh`, kalau token bukan token dummy, atau kalau mailer bukan `log`. `serve.sh` menjalankannya sebelum `php -S`, `reset.sh` setelah setiap restore. `demo_seed.php` dan `aturan-template.php` punya pengecekan URL yang sama. Token tidak pernah dicetak.
+- `guard.php` menyalakan aplikasi dengan environment yang sama lalu menolak kalau database bukan `dnd_demo_*` (dicek lewat `demo_db.php`: `DB_URL` harus kosong, dan koneksi yang benar-benar terbuka, `select database()`, harus database demo dari `DB_DATABASE`), kalau URL WhatsApp bukan `http://127.0.0.1:<port>` dari `env.sh`, kalau token bukan token dummy, atau kalau mailer bukan `log`. `serve.sh` menjalankannya sebelum `php -S`, `reset.sh` setelah setiap restore. `demo_seed.php` dan `aturan-template.php` punya pengecekan URL yang sama, dan memanggil `demo_db.php` sebelum `migrate:fresh` atau sebelum membaca data karyawan. Token tidak pernah dicetak.
 - `wa-stub.php` (port 8019) hanya menyimpan pesan ke `.work/wa-outbox.jsonl` dan tidak meneruskan apa pun. Kalau stub mati, aplikasi menampilkan "OTP belum bisa dikirim ke WhatsApp. Coba lagi sebentar lagi." dan tidak ada pesan yang keluar.
 - Jangan pernah menyalakan server, tinker atau skrip demo tanpa `env.sh`.
 
@@ -192,6 +192,7 @@ Hasilnya harus `1100,618`. Frame PNG per langkah tersimpan di `.work/frames/<nam
 | `MYSQL_USER` | `root` | User MySQL untuk `setup-db.sh` dan `reset.sh`. |
 | `SIM_Y` | `190` | Posisi vertikal blok simulasi di GIF `aturan-versi-baru`. |
 | `WAG_URL`, `WAG_TOKEN` | dipaksa oleh `env.sh` | Selalu stub lokal `http://127.0.0.1:8019` dan token dummy. Tidak bisa diubah dari shell. |
+| `DB_URL` | dikosongkan oleh `env.sh` | Tidak bisa diisi dari shell atau `.env`: `demo_db.php` menolak URL database apa pun. |
 
 ## Kalau UI berubah
 

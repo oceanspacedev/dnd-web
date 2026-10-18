@@ -4,6 +4,7 @@ namespace App\Filament\Resources\EmployeeReviews\Pages;
 
 use App\Exports\EmployeeReviewExport;
 use App\Exports\EmployeeReviewImportTemplateExport;
+use App\Filament\Resources\Attendances\Pages\ListAttendances;
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
 use App\Imports\EmployeeReviewImport;
 use App\Policies\EmployeeReviewPolicy;
@@ -102,20 +103,32 @@ class ListEmployeeReviews extends ListRecords
             }
 
             $summary = $import->getImportSummary();
+            $unfilled = $summary['unfilledCount'];
+            // Baris template yang belum dinilai diabaikan, bukan dianggap gagal atau disimpan sebagai penilaian 0.
+            $unfilledNote = $unfilled > 0 ? " {$unfilled} baris template belum dinilai (diabaikan)." : '';
 
             if ($summary['importedCount'] > 0) {
-                $message = "Data Penilaian berhasil diimport. {$summary['importedCount']} data ditambahkan, {$summary['skippedCount']} data dilewati.";
-                Notification::make()
-                    ->title($message)
-                    ->success()
-                    ->send();
+                $notification = Notification::make()
+                    ->title("Data Penilaian berhasil diimport. {$summary['importedCount']} data ditambahkan, {$summary['skippedCount']} data dilewati.{$unfilledNote}")
+                    ->success();
+            } elseif ($summary['skippedCount'] === 0) {
+                $notification = Notification::make()
+                    ->title($unfilled > 0
+                        ? "Tidak ada data yang diimport. Semua baris ({$unfilled}) belum diisi nilai penilaiannya."
+                        : 'Tidak ada data yang diimport. File tidak berisi baris data.')
+                    ->warning();
             } else {
-                $message = "Tidak ada data yang diimport. Semua data ({$summary['skippedCount']}) sudah ada atau tidak valid.";
-                Notification::make()
-                    ->title($message)
-                    ->warning()
-                    ->send();
+                $notification = Notification::make()
+                    ->title("Tidak ada data yang diimport. Semua data ({$summary['skippedCount']}) sudah ada atau tidak valid.{$unfilledNote}")
+                    ->warning();
             }
+
+            // Alasan baris dilewati (beberapa baris pertama): tetap tampil sampai ditutup agar sempat dibaca.
+            if (($details = ListAttendances::importSummaryDetails($summary)) !== null) {
+                $notification->body($details)->persistent();
+            }
+
+            $notification->send();
 
             session()->flash('skippedDetails', $summary['skippedDetails']);
         } catch (Throwable $e) {

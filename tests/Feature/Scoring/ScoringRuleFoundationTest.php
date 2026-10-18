@@ -636,6 +636,72 @@ class ScoringRuleFoundationTest extends TestCase
         }
     }
 
+    public function test_migrate_pretend_previews_the_attendances_component_counts_change(): void
+    {
+        config()->set('database.connections.scoring_pretend', [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]);
+        $previous = DB::getDefaultConnection();
+        DB::setDefaultConnection('scoring_pretend');
+
+        try {
+            Schema::create('attendances', function (Blueprint $table) {
+                $table->id();
+                $table->integer('sick_days')->default(0);
+            });
+            $components = require database_path('migrations/2026_10_18_090000_create_attendance_components_table.php');
+
+            // `migrate --pretend`: introspeksi schema kosong, tetapi ALTER attendances harus tetap tampil.
+            $up = implode("\n", array_column(DB::connection()->pretend(fn () => $components->up()), 'query'));
+            $this->assertMatchesRegularExpression('/alter table "attendances" add column "component_counts"/', $up);
+            $this->assertFalse(Schema::hasColumn('attendances', 'component_counts'));
+
+            $components->up();
+            $this->assertTrue(Schema::hasColumn('attendances', 'component_counts'));
+
+            $down = implode("\n", array_column(DB::connection()->pretend(fn () => $components->down()), 'query'));
+            $this->assertMatchesRegularExpression('/alter table "attendances" drop column "component_counts"/', $down);
+            $this->assertTrue(Schema::hasColumn('attendances', 'component_counts'));
+        } finally {
+            DB::setDefaultConnection($previous);
+            DB::purge('scoring_pretend');
+        }
+    }
+
+    public function test_late_deploy_never_rescores_attendance_already_entered_for_the_new_rule_months(): void
+    {
+        // Deploy 8 Desember 2026: kehadiran November 2026 sudah diimport dengan kode lama (Sakit = sakit + izin).
+        // Versi baru mulai Desember 2026 (belum terkunci), November tetap dinilai aturan lama. Data yang dihapus
+        // (soft delete), periode sesudah bulan deploy (salah ketik), dan periode lama tidak menggeser aturan.
+        $this->travelTo(Date::create(2026, 12, 8, 9));
+        $late = $this->runScoringSeedMigrations([
+            ['periode' => '2026-09'],
+            ['periode' => '2026-10'],
+            ['periode' => '2026-11'],
+            ['periode' => '2026-12', 'deleted_at' => '2026-12-05 10:00:00'],
+            ['periode' => '2027-06'],
+        ]);
+        $this->assertSame([
+            ['2000-01', 'Aturan Lama', 'Aturan sebelum Desember 2026. Kolom Sakit berisi sakit dan izin sehingga tetap dipenalti 5 poin per hari.', true],
+            ['2026-12', 'Aturan Kehadiran Desember 2026', 'Telat > 5 menit 1 poin, telat > 30 menit 3 poin, izin dan mangkir 5 poin per hari; sakit dan cuti tidak mengurangi poin.', false],
+        ], $late['rules']);
+        $this->assertSame('Sebelum Desember 2026 kolom ini berisi sakit dan izin (Sakit/Izin).', $late['sick_description']);
+
+        // Deploy Desember tanpa data November: versi baru tetap mulai November 2026 (tidak ada data yang dinilai ulang).
+        $onTimeData = $this->runScoringSeedMigrations([['periode' => '2026-10']]);
+        $this->assertSame(['2026-11', 'Aturan Kehadiran November 2026'], array_slice($onTimeData['rules'][1], 0, 2));
+        $this->assertSame('Sebelum November 2026 kolom ini berisi sakit dan izin (Sakit/Izin).', $onTimeData['sick_description']);
+
+        // Deploy November dengan data November yang sudah terisi (form lama default bulan berjalan): mulai Desember.
+        $this->travelTo(Date::create(2026, 11, 20, 9));
+        $november = $this->runScoringSeedMigrations([['periode' => '2026-11'], ['periode' => '2026-9']]);
+        $this->assertSame(['2026-12', 'Aturan Kehadiran Desember 2026'], array_slice($november['rules'][1], 0, 2));
+        $this->assertFalse($november['rules'][1][3]);
+    }
+
     public function test_periods_before_the_first_database_version_use_the_hard_coded_legacy_rule(): void
     {
         // Baris versi lama hilang lewat query builder (melewati penjaga Eloquent).
@@ -864,5 +930,64 @@ class ScoringRuleFoundationTest extends TestCase
     private function payloadKey(int $version): string
     {
         return 'scoring_rules:'.$this->databaseTag().':f1:v'.$version.':payload';
+    }
+
+    /**
+     * Jalankan migration attendance_components + scoring_rules (dua kali, idempoten) di database sqlite terpisah
+     * yang sudah berisi data kehadiran $rows. Mengembalikan versi aturan [effective_from, name, notes, terkunci]
+     * dan deskripsi komponen sick_days.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array{rules: list<array{0: string, 1: string, 2: string|null, 3: bool}>, sick_description: string|null}
+     */
+    private function runScoringSeedMigrations(array $rows): array
+    {
+        config()->set('database.connections.scoring_seed', [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]);
+        $previous = DB::getDefaultConnection();
+        DB::setDefaultConnection('scoring_seed');
+
+        try {
+            Schema::create('users', function (Blueprint $table) {
+                $table->id();
+                $table->string('username');
+            });
+            Schema::create('attendances', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('user_id');
+                $table->string('periode');
+                $table->integer('work_days');
+                $table->integer('late_less_30')->default(0);
+                $table->integer('late_more_30')->default(0);
+                $table->integer('sick_days')->default(0);
+                $table->timestamps();
+                $table->softDeletes();
+            });
+            DB::table('users')->insert(['id' => 1, 'username' => 'lama']);
+
+            foreach ($rows as $row) {
+                DB::table('attendances')->insert($row + ['user_id' => 1, 'work_days' => 22, 'sick_days' => 3]);
+            }
+
+            $components = require database_path('migrations/2026_10_18_090000_create_attendance_components_table.php');
+            $rules = require database_path('migrations/2026_10_18_090100_create_scoring_rules_table.php');
+            $components->up();
+            $rules->up();
+            $rules->up();
+
+            return [
+                'rules' => ScoringRule::query()->orderBy('effective_from')->get()
+                    ->map(fn (ScoringRule $rule): array => [$rule->effective_from, $rule->name, $rule->notes, $rule->isLocked()])
+                    ->all(),
+                'sick_description' => DB::table('attendance_components')->where('code', 'sick_days')->value('description'),
+            ];
+        } finally {
+            DB::setDefaultConnection($previous);
+            DB::purge('scoring_seed');
+        }
     }
 }

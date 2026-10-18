@@ -60,7 +60,9 @@ class KpiPerDivisionDetailSheet implements FromArray, WithHeadings, WithTitle
             return [];
         }
 
-        $date = Date::createFromFormat('Y-m', $this->month);
+        // '!' = tanggal 1. Tanpa '!' hari ini dipakai, sehingga bulan yang lebih pendek bergeser ke bulan berikutnya
+        // pada tanggal 29-31 (export September pada 31 Oktober berisi KPI Oktober).
+        $date = Date::createFromFormat('!Y-m', $this->month);
 
         $kpis = Kpi::with([
             'kpi_detail',

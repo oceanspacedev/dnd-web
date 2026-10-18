@@ -139,6 +139,38 @@ class DeploymentComposeTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/FILESYSTEM_DISK:\s*s3\s*$/m', $compose);
     }
 
+    public function test_compose_forwards_every_kpi_config_key_with_its_default(): void
+    {
+        $config = (string) file_get_contents(config_path('kpi.php'));
+        $compose = (string) file_get_contents(base_path('compose.yaml'));
+
+        // Image tidak berisi .env (.dockerignore), jadi key yang tidak diteruskan Compose tidak pernah sampai ke container.
+        $this->assertGreaterThan(0, preg_match_all("/env\\('(KPI_[A-Z0-9_]+)',\\s*(\\d+)\\)/", $config, $matches, PREG_SET_ORDER));
+        $this->assertContains('KPI_CACHE_TTL_SCORING_RULES_SECONDS', array_column($matches, 1));
+
+        foreach ($matches as [, $key, $default]) {
+            $this->assertStringContainsString("{$key}: \${{$key}:-{$default}}", $compose, "{$key} should be forwarded by compose.yaml");
+        }
+    }
+
+    public function test_docker_context_excludes_local_tooling_and_nested_node_modules(): void
+    {
+        $patterns = array_map('trim', file(base_path('.dockerignore'), FILE_IGNORE_NEW_LINES) ?: []);
+
+        // tools/guide-gifs/.work (demo DB, log, outbox WhatsApp stub) dan node_modules bersarang tidak boleh masuk image.
+        $this->assertContains('tools', $patterns);
+        $this->assertContains('**/node_modules', $patterns);
+    }
+
+    public function test_multi_server_overlay_documents_data_node_first_update_order(): void
+    {
+        $app = (string) file_get_contents(base_path('compose.app.yaml'));
+        $readme = (string) file_get_contents(base_path('README.md'));
+
+        $this->assertStringContainsString('perbarui node utama dulu dan tunggu `release` healthy', $app);
+        $this->assertStringContainsString('perbarui node data dulu dan tunggu service `release` healthy', $readme);
+    }
+
     public function test_scale_overlay_enables_redis_without_forcing_object_storage(): void
     {
         $compose = (string) file_get_contents(base_path('compose.scale.yaml'));

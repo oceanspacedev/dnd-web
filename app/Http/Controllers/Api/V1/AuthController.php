@@ -52,8 +52,10 @@ class AuthController extends Controller
                 'token' => $token,
                 'token_type' => 'Bearer',
                 'user' => new UserResource($user),
-                'data_access' => $this->dataAccessSummary($user),
             ],
+            // Path yang sama dengan /auth/me (tingkat atas, di samping 'data'). data.user.data_access tetap
+            // nilai mentah users.data_access ('all' / 'selected' / null).
+            'data_access' => $this->dataAccessSummary($user),
         ]);
     }
 
@@ -149,7 +151,8 @@ class AuthController extends Controller
     }
 
     /**
-     * Ringkasan akses data actor untuk aplikasi mobile (menu Karyawan / Tim Saya).
+     * Ringkasan akses data actor untuk aplikasi mobile (menu Karyawan / Tim Saya). Login dan /auth/me
+     * mengirimnya di kunci tingkat atas 'data_access'.
      *
      * scope: 'all' = seluruh badan usaha, 'selected' = badan usaha di area_ids, 'none' = tanpa akses badan usaha.
      *

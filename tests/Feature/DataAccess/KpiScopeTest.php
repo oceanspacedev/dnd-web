@@ -296,20 +296,34 @@ class KpiScopeTest extends TestCase
         Sanctum::actingAs($this->superAdmin);
         $foreignDetail = $this->gmdKpi->kpi_detail()->firstOrFail();
 
-        $this->postJson('/api/v1/kpis', [
+        $payload = [
             'user_id' => $this->ulsStaff->id,
             'kpi_category_id' => 3,
             'kpi_type_id' => 3,
             'date' => '2026-10-01',
             'percentage' => 100,
-            'details' => [[
-                'kpi_description_id' => $foreignDetail->kpi_description_id,
-                'parent_id' => $foreignDetail->id,
-                'value_plan' => 1,
-            ]],
-        ])->assertStatus(422);
+        ];
+        $kpiCount = Kpi::query()->count();
+
+        // Ditolak lewat validasi FormRequest: envelope API standar dengan errors per detail.
+        $this->postJson('/api/v1/kpis', $payload + ['details' => [[
+            'kpi_description_id' => $foreignDetail->kpi_description_id,
+            'parent_id' => $foreignDetail->id,
+            'value_plan' => 1,
+        ]]])->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Validasi gagal.')
+            ->assertJsonValidationErrors(['details.0.parent_id']);
 
         $this->assertSame(0, KpiDetail::query()->where('parent_id', $foreignDetail->id)->count());
+        $this->assertSame($kpiCount, Kpi::query()->count());
+
+        // parent_id null tetap diterima seperti sebelumnya.
+        $this->postJson('/api/v1/kpis', $payload + ['details' => [[
+            'kpi_description_id' => $foreignDetail->kpi_description_id,
+            'parent_id' => null,
+            'value_plan' => 1,
+        ]]])->assertCreated();
     }
 
     public function test_api_index_for_non_admin_is_unchanged(): void
@@ -357,6 +371,9 @@ class KpiScopeTest extends TestCase
             'description' => 'Target penjualan',
             'is_negative' => false,
         ]);
+        // KPI lain di bulan yang sama (fixture setUp ikut jatuh di sini saat jam berada di November 2026):
+        // assertion hanya boleh melihat KPI yang dibuat form ini.
+        $this->makeKpi($this->cooStaff, '2026-11-03');
 
         $this->actingAs($this->scopedAdmin);
         Livewire::actingAs($this->scopedAdmin);
@@ -381,13 +398,12 @@ class KpiScopeTest extends TestCase
             $undoRepeaterFake();
         }
 
-        $owners = Kpi::query()
-            ->whereYear('date', 2026)
-            ->whereMonth('date', 11)
-            ->pluck('user_id')
-            ->all();
+        $created = Kpi::query()
+            ->whereHas('kpi_detail', fn ($query) => $query->where('kpi_description_id', $description->id))
+            ->get();
 
-        $this->assertEqualsCanonicalizing([$this->ulsStaff->id, $this->cooTeam->id], $owners);
+        $this->assertEqualsCanonicalizing([$this->ulsStaff->id, $this->cooTeam->id], $created->pluck('user_id')->all());
+        $this->assertSame(['2026-11-01', '2026-11-01'], $created->map(fn (Kpi $kpi): string => substr((string) $kpi->date, 0, 10))->all());
     }
 
     public function test_export_options_are_scoped_for_area_admin(): void

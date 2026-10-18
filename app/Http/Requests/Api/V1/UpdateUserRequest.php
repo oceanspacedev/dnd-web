@@ -4,11 +4,11 @@ namespace App\Http\Requests\Api\V1;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\AttendancePolicy;
 use App\Services\DataAccessService;
 use App\Support\WhatsAppNumber;
 use Closure;
 use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
@@ -17,6 +17,8 @@ class UpdateUserRequest extends FormRequest
 {
     /** Dipakai untuk id yang tidak ada maupun di luar akses data. */
     public const APPROVAL_OUT_OF_SCOPE = 'Approval line tidak valid atau berada di luar akses data Anda.';
+
+    public const RESERVED_USERNAME = 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh badan usaha.';
 
     private ?User $targetUser = null;
 
@@ -35,7 +37,25 @@ class UpdateUserRequest extends FormRequest
             && (! $this->exists('no_hp') || DataAccessService::isAdmin($user))
             // Akses data badan usaha hanya diatur admin dengan akses seluruh badan usaha.
             && (! $this->sendsDataAccess() || DataAccessService::hasGlobalAccess($user))
-            && $user->can('update', $target);
+            && $user->can('update', $target)
+            // Data login akun yang aksesnya melampaui cakupan actor hanya diubah super admin (sama dengan form Filament).
+            && (! $this->changesCredentials($target) || $user->can('changeCredentials', $target));
+    }
+
+    /**
+     * Payload mengubah username, password, atau No. HP (login WhatsApp) karyawan.
+     */
+    private function changesCredentials(User $target): bool
+    {
+        if (filled($this->input('password'))) {
+            return true;
+        }
+
+        if ($this->exists('username') && (string) $this->input('username') !== (string) $target->username) {
+            return true;
+        }
+
+        return $this->exists('no_hp') && (string) $this->input('no_hp') !== (string) $target->no_hp;
     }
 
     public function rules(): array
@@ -45,7 +65,7 @@ class UpdateUserRequest extends FormRequest
         $isScopedAdmin = DataAccessService::isAreaScopedAdmin($actor instanceof User ? $actor : null);
 
         return [
-            'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
+            'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId), $this->globalAttendanceUsernameAllowed()],
             'nama_lengkap' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => ['nullable', 'string', 'min:6'],
@@ -121,6 +141,24 @@ class UpdateUserRequest extends FormRequest
         $this->merge([
             'no_hp' => WhatsAppNumber::toLocal((string) $value) ?? $value,
         ]);
+    }
+
+    /**
+     * Username user khusus kehadiran seluruh badan usaha hanya boleh dipakai super admin; nilai yang tidak berubah tetap boleh.
+     */
+    private function globalAttendanceUsernameAllowed(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if (is_scalar($value) && (string) $value === (string) $this->targetUser()?->username) {
+                return;
+            }
+
+            $actor = $this->user();
+
+            if (AttendancePolicy::isGlobalAttendanceUsername($value) && ! ($actor instanceof User && $actor->can('useGlobalAttendanceUsername', User::class))) {
+                $fail(self::RESERVED_USERNAME);
+            }
+        };
     }
 
     private function targetUser(): ?User
@@ -283,15 +321,7 @@ class UpdateUserRequest extends FormRequest
                 return;
             }
 
-            $otherGlobalAdminExists = User::query()
-                ->whereKeyNot($target->getKey())
-                ->whereHas('role', fn (Builder $roleQuery) => $roleQuery->where('name', User::ROLE_ADMIN))
-                ->where(fn (Builder $access) => $access
-                    ->whereNull('data_access')
-                    ->orWhere('data_access', '!=', User::DATA_ACCESS_SELECTED))
-                ->exists();
-
-            if (! $otherGlobalAdminExists) {
+            if (! DataAccessService::anotherGlobalAdminExists($target)) {
                 $fail('Minimal harus ada satu admin dengan akses seluruh badan usaha.');
             }
         };

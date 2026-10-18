@@ -20,6 +20,7 @@ use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -753,6 +754,23 @@ class UsersFilamentScopeTest extends TestCase
         ], $this->superAdmin)['data_access']);
     }
 
+    public function test_last_global_admin_cannot_drop_their_own_admin_role_through_the_edit_form(): void
+    {
+        $this->actAs($this->superAdmin);
+        $staffRoleId = $this->fixtureRole('STAFF')->id;
+        $this->ulsAdminAccount->update(['role_id' => $staffRoleId]);
+
+        // Lewat halaman Edit sungguhan (Select role mengaitkan relasi baru sebelum mutateAuthorizedData).
+        Livewire::test(EditUser::class, ['record' => $this->superAdmin->getRouteKey()])
+            ->fillForm(['role_id' => $staffRoleId])
+            ->call('save')
+            ->assertHasFormErrors(['role_id']);
+
+        $this->superAdmin->refresh();
+        $this->assertTrue($this->superAdmin->isAdmin());
+        $this->assertTrue(DataAccessService::hasGlobalAccess($this->superAdmin));
+    }
+
     public function test_approval_suggestion_ignores_out_of_scope_form_state(): void
     {
         // Kepala divisi GMD dan kepala divisi ULS sama-sama gmdManager.
@@ -892,6 +910,126 @@ class UsersFilamentScopeTest extends TestCase
             [$this->uls->id],
             array_keys($this->selectOptions(Livewire::test(CreateUser::class)->instance()->form, 'area_id')),
         );
+    }
+
+    public function test_login_of_accounts_reaching_beyond_actor_scope_is_super_admin_only(): void
+    {
+        // darkini: user khusus kehadiran seluruh badan usaha (AttendancePolicy), COORDINATOR di ULS di bawah manager ULS.
+        $darkini = $this->fixtureUser('darkini', 'COORDINATOR', $this->uls, $this->ulsManager, ['no_hp' => '081300000001']);
+        // Chief ULS (dalam cakupan ojan) memimpin staff GMD (di luar cakupan ojan).
+        $ulsChief = $this->fixtureUser('uls_chief', 'CHIEF', $this->uls, $this->gmdManager);
+        $gmdSub = $this->fixtureUser('gmd_sub', 'STAFF', $this->gmd, $ulsChief);
+        $darkiniHash = (string) $darkini->password;
+        $chiefHash = (string) $ulsChief->password;
+
+        $this->actAs($this->scopedAdmin);
+        $this->assertFalse(DataAccessService::canSeeUser($this->scopedAdmin, $gmdSub));
+
+        foreach ([$darkini, $ulsChief] as $locked) {
+            $this->assertTrue($this->scopedAdmin->can('update', $locked));
+            $this->assertFalse($this->scopedAdmin->can('changeCredentials', $locked));
+
+            // Form: data login terkunci, data lain tetap bisa diubah.
+            Livewire::test(EditUser::class, ['record' => $locked->getRouteKey()])
+                ->assertFormFieldIsDisabled('username')
+                ->assertFormFieldIsDisabled('password')
+                ->assertFormFieldIsDisabled('no_hp')
+                ->assertSee(UserResource::lockedCredentialsMessage())
+                // State Livewire field disabled yang dimanipulasi tidak ikut tersimpan.
+                ->fillForm([
+                    'nama_lengkap' => 'NAMA BARU '.$locked->id,
+                    'username' => 'ambil_alih_'.$locked->id,
+                    'password' => 'takeover123',
+                    'no_hp' => '081311112222',
+                ])
+                ->call('save')
+                ->assertHasNoFormErrors();
+
+            $locked->refresh();
+            $this->assertSame('NAMA BARU '.$locked->id, $locked->nama_lengkap);
+            $this->assertNotSame('ambil_alih_'.$locked->id, $locked->username);
+            $this->assertFalse(Hash::check('takeover123', (string) $locked->password));
+            $this->assertNotSame('081311112222', $locked->no_hp);
+
+            // Penjaga server menolak perubahan login langsung.
+            $this->assertValidationFails(fn () => UserResource::mutateAuthorizedData(['password' => Hash::make('takeover123')], $locked), 'data.password');
+            $this->assertValidationFails(fn () => UserResource::mutateAuthorizedData(['no_hp' => '081311112222'], $locked), 'data.no_hp');
+            $this->assertValidationFails(fn () => UserResource::mutateAuthorizedData(['username' => 'ambil_alih'], $locked), 'data.username');
+        }
+
+        $this->assertSame($darkiniHash, (string) $darkini->refresh()->password);
+        $this->assertSame('081300000001', $darkini->no_hp);
+        $this->assertSame($chiefHash, (string) $ulsChief->refresh()->password);
+
+        // Karyawan yang seluruh timnya dalam cakupan tetap bisa diubah login-nya.
+        $this->assertTrue($this->scopedAdmin->can('changeCredentials', $this->ulsManager));
+        Livewire::test(EditUser::class, ['record' => $this->ulsManager->getRouteKey()])
+            ->assertFormFieldIsEnabled('password')
+            ->fillForm(['password' => 'complete123', 'no_hp' => '081322223333'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertTrue(Hash::check('complete123', (string) $this->ulsManager->refresh()->password));
+        $this->assertSame('081322223333', $this->ulsManager->no_hp);
+
+        // Atasan approval line darkini (non-admin) juga tidak boleh mengambil alih aksesnya.
+        $this->actAs($this->ulsManager);
+        $this->assertTrue($this->ulsManager->can('update', $darkini));
+        $this->assertFalse($this->ulsManager->can('changeCredentials', $darkini));
+        Livewire::test(EditTeamMember::class, ['record' => $darkini->getRouteKey()])
+            ->assertFormFieldIsDisabled('username')
+            ->assertFormFieldIsDisabled('password')
+            ->fillForm(['password' => 'takeover123'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertFalse(Hash::check('takeover123', (string) $darkini->refresh()->password));
+
+        // Super admin tetap mengelola login akun tersebut.
+        $this->actAs($this->superAdmin);
+        Livewire::test(EditUser::class, ['record' => $darkini->getRouteKey()])
+            ->assertFormFieldIsEnabled('password')
+            ->fillForm(['password' => 'reset12345', 'no_hp' => '081344445555'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertTrue(Hash::check('reset12345', (string) $darkini->refresh()->password));
+        $this->assertSame('081344445555', $darkini->no_hp);
+    }
+
+    public function test_global_attendance_username_is_reserved_for_super_admin(): void
+    {
+        $payload = [
+            'nama_lengkap' => 'Calon Petugas Kehadiran',
+            'password' => 'complete123',
+            'area_id' => $this->uls->id,
+            'divisi_id' => $this->fixtureDivisi($this->uls)->id,
+            'role_id' => $this->fixtureRole('STAFF')->id,
+            'approval_id' => $this->ulsManager->id,
+        ];
+
+        // Username memberi akses kehadiran seluruh badan usaha: admin badan usaha dan atasan tidak boleh memakainya.
+        $this->actAs($this->scopedAdmin);
+        Livewire::test(CreateUser::class)
+            ->fillForm([...$payload, 'username' => 'darkini'])
+            ->call('create')
+            ->assertHasFormErrors(['username']);
+        Livewire::test(EditUser::class, ['record' => $this->ulsStaff->getRouteKey()])
+            ->fillForm(['username' => 'Darkini'])
+            ->call('save')
+            ->assertHasFormErrors(['username']);
+        $this->assertSame('uls_staff', $this->ulsStaff->refresh()->username);
+
+        $this->actAs($this->gmdManager);
+        Livewire::test(CreateTeamMember::class)
+            ->fillForm([...$payload, 'username' => 'darkini', 'area_id' => $this->gmd->id, 'divisi_id' => $this->fixtureDivisi($this->gmd)->id, 'approval_id' => null])
+            ->call('create')
+            ->assertHasFormErrors(['username']);
+        $this->assertDatabaseMissing('users', ['username' => 'darkini']);
+
+        $this->actAs($this->superAdmin);
+        Livewire::test(CreateUser::class)
+            ->fillForm([...$payload, 'username' => 'darkini'])
+            ->call('create')
+            ->assertHasNoFormErrors();
+        $this->assertDatabaseHas('users', ['username' => 'darkini']);
     }
 
     private function actAs(User $user): void

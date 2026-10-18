@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Filament\Resources\ScoringRules\ScoringRulePresenter;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\ListAttendanceComponentsRequest;
+use App\Http\Requests\Api\V1\ResolveScoringRuleRequest;
 use App\Http\Resources\Api\V1\AttendanceComponentResource;
 use App\Http\Resources\Api\V1\ScoringRuleResource;
 use App\Models\AttendanceComponent;
@@ -11,7 +13,6 @@ use App\Models\ScoringRule;
 use App\Services\ScoringRuleService;
 use App\Support\Periode;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 /**
  * Aturan penilaian kinerja berversi dan master komponen kehadiran (hanya baca).
@@ -45,20 +46,22 @@ class ScoringRuleController extends Controller
 
     /**
      * Resolve the scoring rule that applies to a periode (Y-m, default bulan berjalan).
+     *
+     * Versi tersimpan dikirim dari modelnya, sehingga isinya sama dengan item index untuk id yang sama
+     * (termasuk notes untuk super admin dan timestamp); aturan lama tertanam di kode (id null) tanpa keduanya.
      */
-    public function resolve(Request $request): JsonResponse
+    public function resolve(ResolveScoringRuleRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'periode' => ['sometimes', 'nullable', 'string', 'date_format:Y-m'],
-        ]);
+        $validated = $request->validated();
 
         $periode = $validated['periode'] ?? Periode::current();
         $rule = ScoringRuleService::forPeriode($periode);
+        $model = $rule->id !== null ? ScoringRule::query()->find($rule->id) : null;
 
         return response()->json([
             'success' => true,
             'message' => 'Aturan penilaian untuk periode '.ScoringRulePresenter::periodeLabel($periode).' berhasil diambil.',
-            'data' => new ScoringRuleResource($rule),
+            'data' => new ScoringRuleResource($model ?? $rule),
             'meta' => [
                 'periode' => $periode,
             ],
@@ -66,14 +69,10 @@ class ScoringRuleController extends Controller
     }
 
     /**
-     * Get list of attendance components (optionally ?active=1 / ?active=0).
+     * Get list of attendance components (optionally ?active=1 / ?active=0, also true / false).
      */
-    public function components(Request $request): JsonResponse
+    public function components(ListAttendanceComponentsRequest $request): JsonResponse
     {
-        $request->validate([
-            'active' => ['sometimes', 'boolean'],
-        ]);
-
         $components = AttendanceComponent::query()
             ->when($request->has('active'), fn ($query) => $query->where('is_active', $request->boolean('active')))
             ->orderBy('sort_order')

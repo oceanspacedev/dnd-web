@@ -67,9 +67,16 @@ use Throwable;
  * - Karyawan dicari dari ID karyawan di antara seluruh karyawan (termasuk yang di luar cakupan akses atau sudah
  *   dihapus), sehingga ID milik karyawan lain tidak pernah dicocokkan ulang lewat nama ke karyawan lain. Nama
  *   Lengkap hanya dipakai bila ID kosong / tidak dikenal; nama yang dipakai lebih dari satu karyawan ditolak.
- *   Karyawan yang tidak boleh diisi datanya oleh user ditolak dengan alasannya.
+ *   Karyawan yang terlihat tetapi tidak boleh diisi datanya oleh user ditolak dengan alasannya.
+ * - Import terbatas (bukan seluruh karyawan): karyawan di luar cakupan user diperlakukan seperti tidak ada, dengan
+ *   alasan yang sama dengan "tidak ditemukan", agar import tidak membuka keberadaan ID / nama / status dihapus
+ *   karyawan badan usaha lain. ID yang diisi harus ID karyawan dalam cakupan (tidak dicocokkan ulang lewat nama).
+ * - Nama dipakai beberapa karyawan yang belum memiliki ID karyawan: alasannya meminta ID karyawan dilengkapi di data
+ *   karyawan dulu (mengisi kolom ID di file saja tidak cukup, karena ID itu belum dikenal).
  * - Data karyawan + periode yang sudah ada tidak ditimpa; baris ganda (karyawan + periode sama) di file yang
- *   sama hanya diimport baris pertamanya, dan baris berikutnya dilewati dengan alasan "baris ganda".
+ *   sama hanya diimport baris pertamanya, dan baris berikutnya dilewati dengan alasan "baris ganda". Keduanya dicek
+ *   sebelum isi baris divalidasi, sehingga baris yang datanya sudah ada selalu dilaporkan "sudah ada" (mis. baris
+ *   Hari Kerja 0 dari API di file export yang diimport ulang).
  */
 class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalculatedFormulas, WithEvents
 {
@@ -132,11 +139,17 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
      */
     private const READ_ONLY_EMPLOYEE_REASON = 'Kehadiran akun ADMIN (termasuk akun Anda sendiri) hanya dapat dicatat oleh super admin.';
 
+    /** Juga dipakai untuk karyawan di luar cakupan user, agar keberadaannya tidak terbaca dari alasan penolakan. */
+    private const NOT_FOUND_REASON = 'Karyawan tidak ditemukan. Periksa ID karyawan dan Nama Lengkap.';
+
     /** @var array<string, array{id: int, deleted: bool}> employee_id => pemilik (seluruh karyawan, termasuk yang dihapus) */
     private array $usersByEmployeeId = [];
 
     /** @var array<string, list<int>> nama_lengkap => user id karyawan aktif (lebih dari satu = nama dipakai beberapa karyawan) */
     private array $usersByName = [];
+
+    /** @var array<int, true> user id karyawan aktif yang bisa dipilih lewat ID karyawan (pemilik ID di usersByEmployeeId) */
+    private array $usersWithEmployeeId = [];
 
     /** @var array<int, true>|null */
     private ?array $allowedUserIds = null;
@@ -229,6 +242,12 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
 
             if (! $deleted && ($name = self::lookupKey($user->nama_lengkap)) !== null) {
                 $this->usersByName[$name][] = (int) $user->id;
+            }
+        }
+
+        foreach ($this->usersByEmployeeId as $owner) {
+            if (! $owner['deleted']) {
+                $this->usersWithEmployeeId[$owner['id']] = true;
             }
         }
     }
@@ -337,6 +356,26 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
             return $this->skip($employeeId, $name, $periode, "Periode di file ({$periode}) berbeda dengan periode yang dipilih ({$this->periode}).", detailed: false);
         }
 
+        // Baris pertama yang diimport menang; baris berikutnya untuk karyawan + periode yang sama dilaporkan sebagai
+        // baris ganda (bukan "sudah ada", yang berarti data sebelum import).
+        $rowKey = "{$userId}|{$periode}";
+
+        if (isset($this->importedRows[$rowKey])) {
+            return $this->skip($employeeId, $name, $periode, 'Baris ganda: karyawan dan periode ini sudah diisi di baris sebelumnya pada file yang sama. Hanya baris pertama yang diimport.');
+        }
+
+        // Cek apakah absensi untuk userId dan periode sudah ada (data lama tidak ditimpa). Dicek sebelum isi baris
+        // divalidasi: baris yang datanya sudah ada tidak akan diimport apa pun isinya, jadi alasannya "sudah ada" (mis.
+        // file export yang diimport ulang, termasuk baris Hari Kerja 0 yang hanya bisa dibuat lewat API).
+        $existingAttendance = Attendance::query()
+            ->where('user_id', $userId)
+            ->where('periode', $periode)
+            ->exists();
+
+        if ($existingAttendance) {
+            return $this->skip($employeeId, $name, $periode, 'Data kehadiran karyawan ini untuk periode tersebut sudah ada.');
+        }
+
         $rawWorkDays = self::cell($row, $base[self::FIELD_WORK_DAYS] ?? null);
         $workDayLabel = self::baseLabel(self::FIELD_WORK_DAYS);
 
@@ -369,24 +408,6 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
 
         if ($unused !== []) {
             return $this->skip($employeeId, $name, $periode, AttendanceCountInput::unusedComponentsMessage($unused, $periode));
-        }
-
-        // Baris pertama yang diimport menang; baris berikutnya untuk karyawan + periode yang sama dilaporkan sebagai
-        // baris ganda (bukan "sudah ada", yang berarti data sebelum import).
-        $rowKey = "{$userId}|{$periode}";
-
-        if (isset($this->importedRows[$rowKey])) {
-            return $this->skip($employeeId, $name, $periode, 'Baris ganda: karyawan dan periode ini sudah diisi di baris sebelumnya pada file yang sama. Hanya baris pertama yang diimport.');
-        }
-
-        // Cek apakah absensi untuk userId dan periode sudah ada (data lama tidak ditimpa).
-        $existingAttendance = Attendance::query()
-            ->where('user_id', $userId)
-            ->where('periode', $periode)
-            ->exists();
-
-        if ($existingAttendance) {
-            return $this->skip($employeeId, $name, $periode, 'Data kehadiran karyawan ini untuk periode tersebut sudah ada.');
         }
 
         // File tanpa baris judul hanya memuat komponen sampai kolom terakhirnya.
@@ -558,6 +579,7 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
      *
      * ID karyawan yang dikenal selalu menunjuk pemiliknya (di luar cakupan / sudah dihapus = ditolak); Nama
      * Lengkap hanya dipakai bila ID kosong atau tidak dikenal, dan harus menunjuk tepat satu karyawan aktif.
+     * Karyawan di luar cakupan user ditolak dengan alasan yang sama dengan karyawan yang tidak ada.
      *
      * @return array{0: ?int, 1: ?string}
      */
@@ -568,25 +590,76 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
         if ($idKey !== null && isset($this->usersByEmployeeId[$idKey])) {
             $owner = $this->usersByEmployeeId[$idKey];
 
+            if (! $this->isVisibleUser($owner['id'])) {
+                return [null, self::NOT_FOUND_REASON];
+            }
+
             return $owner['deleted']
                 ? [null, "ID karyawan \"{$idKey}\" milik karyawan yang sudah dihapus."]
                 : $this->writableUser($owner['id']);
         }
 
+        // Import terbatas: mencocokkan ulang lewat nama hanya untuk ID yang tidak ada di perusahaan akan membedakan
+        // ID karyawan badan usaha lain (ditolak di atas) dari ID yang tidak ada. ID yang diisi harus ID dalam cakupan.
+        if ($idKey !== null && $this->isLimited()) {
+            return [null, self::NOT_FOUND_REASON];
+        }
+
         if (($nameKey = self::lookupKey($name)) !== null) {
             $candidates = $this->usersByName[$nameKey] ?? [];
+            $visibleCandidates = array_values(array_filter($candidates, fn (int $userId): bool => $this->isVisibleUser($userId)));
 
-            if (count($candidates) > 1) {
-                return [null, "Nama \"{$nameKey}\" dipakai lebih dari satu karyawan. ".($idKey === null ? 'Isi' : 'Perbaiki')
-                    .' kolom ID karyawan agar data tidak masuk ke karyawan lain.'];
+            // Nama yang tidak dipakai karyawan dalam cakupan: sama dengan tidak ditemukan. Nama karyawan dalam cakupan
+            // yang juga dipakai karyawan lain tetap ditolak agar data tidak masuk ke karyawan yang salah.
+            if (count($candidates) > 1 && $visibleCandidates !== []) {
+                return [null, $this->ambiguousNameReason($nameKey, $idKey, $visibleCandidates)];
             }
 
-            if ($candidates !== []) {
-                return $this->writableUser($candidates[0]);
+            if ($visibleCandidates !== []) {
+                return $this->writableUser($visibleCandidates[0]);
             }
         }
 
-        return [null, 'Karyawan tidak ditemukan. Periksa ID karyawan dan Nama Lengkap.'];
+        return [null, self::NOT_FOUND_REASON];
+    }
+
+    /**
+     * Alasan penolakan nama yang dipakai lebih dari satu karyawan. Karyawan dalam cakupan yang belum memiliki ID
+     * karyawan tidak bisa dipilih lewat kolom ID (ID apa pun yang diisi tidak dikenal), jadi ID-nya harus dilengkapi
+     * di data karyawan dulu.
+     *
+     * @param  list<int>  $visibleCandidates
+     */
+    private function ambiguousNameReason(string $nameKey, ?string $idKey, array $visibleCandidates): string
+    {
+        $withoutEmployeeId = array_filter($visibleCandidates, fn (int $userId): bool => ! isset($this->usersWithEmployeeId[$userId]));
+
+        if (count($withoutEmployeeId) === count($visibleCandidates)) {
+            return "Nama \"{$nameKey}\" dipakai lebih dari satu karyawan, dan ID karyawan untuk nama ini belum diisi di data karyawan. "
+                .'Lengkapi ID karyawan di data karyawan (menu Karyawan / Tim Saya) lalu isi kolom ID karyawan di file, atau isi kehadirannya lewat form Kehadiran.';
+        }
+
+        return "Nama \"{$nameKey}\" dipakai lebih dari satu karyawan. ".($idKey === null ? 'Isi' : 'Perbaiki')
+            .' kolom ID karyawan agar data tidak masuk ke karyawan lain.'
+            .($withoutEmployeeId !== [] ? ' Karyawan bernama sama yang belum memiliki ID karyawan perlu dilengkapi dulu ID-nya di data karyawan.' : '');
+    }
+
+    /**
+     * Import dibatasi ke sebagian karyawan (admin per badan usaha, atasan), bukan seluruh karyawan.
+     */
+    private function isLimited(): bool
+    {
+        return $this->allowedUserIds !== null;
+    }
+
+    /**
+     * Karyawan dalam cakupan user: boleh diisi datanya, atau terlihat di daftar Kehadiran.
+     */
+    private function isVisibleUser(int $userId): bool
+    {
+        return ! $this->isLimited()
+            || isset($this->allowedUserIds[$userId])
+            || isset($this->visibleUserIds[$userId]);
     }
 
     /**
@@ -598,21 +671,30 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
             return [$userId, null];
         }
 
-        return [null, isset($this->visibleUserIds[$userId])
-            ? self::READ_ONLY_EMPLOYEE_REASON
-            : 'Karyawan di luar cakupan akses data Anda.'];
+        // Pemanggil sudah memastikan karyawan dalam cakupan (isVisibleUser).
+        return [null, self::READ_ONLY_EMPLOYEE_REASON];
     }
 
     /**
-     * ID karyawan dikenal (termasuk karyawan yang dihapus / di luar cakupan) atau Nama Lengkap milik karyawan aktif.
+     * ID karyawan dikenal (termasuk karyawan yang dihapus) atau Nama Lengkap milik karyawan aktif, dalam cakupan user:
+     * baris tentang karyawan di luar cakupan diperlakukan sama dengan baris tentang karyawan yang tidak ada.
      */
     private function isKnownEmployee(mixed $employeeId, mixed $name): bool
     {
         $idKey = self::lookupKey($employeeId);
         $nameKey = self::lookupKey($name);
 
-        return ($idKey !== null && isset($this->usersByEmployeeId[$idKey]))
-            || ($nameKey !== null && isset($this->usersByName[$nameKey]));
+        if ($idKey !== null && isset($this->usersByEmployeeId[$idKey]) && $this->isVisibleUser($this->usersByEmployeeId[$idKey]['id'])) {
+            return true;
+        }
+
+        foreach ($nameKey === null ? [] : ($this->usersByName[$nameKey] ?? []) as $userId) {
+            if ($this->isVisibleUser($userId)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1051,8 +1133,9 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
 
     /**
      * Kunci pencarian karyawan: teks yang di-trim; angka bulat dari Excel (mis. 1001.0) menjadi "1001".
+     * Juga dipakai EmployeeReviewImport.
      */
-    private static function lookupKey(mixed $value): ?string
+    public static function lookupKey(mixed $value): ?string
     {
         if (is_float($value) && floor($value) === $value) {
             $value = (int) $value;
@@ -1070,10 +1153,12 @@ class AttendanceImport implements HasReferencesToOtherSheets, ToModel, WithCalcu
     /**
      * Periode 'Y-m' dari teks (Periode::normalize: '2026-11', '2026-1', '2026-11-01', ...), tanggal Excel
      * (angka serial / DateTime), atau teks 'd/m/Y' / 'd/m/y' (format lama). Tahun di luar 2000-2100 ditolak.
+     * Tidak bergantung pada tanggal hari ini (tidak ada bulan yang bergeser pada tanggal 29-31). Juga dipakai
+     * EmployeeReviewImport.
      *
      * @return array{0: ?string, 1: ?string} [periode, alasan bila ditolak]
      */
-    private static function parsePeriode(mixed $value): array
+    public static function parsePeriode(mixed $value): array
     {
         if ($value === null || $value === '') {
             return [null, 'Periode kosong. Isi kolom Periode dengan format YYYY-MM (mis. 2026-11).'];

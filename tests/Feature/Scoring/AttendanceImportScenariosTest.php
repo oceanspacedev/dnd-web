@@ -42,6 +42,8 @@ class AttendanceImportScenariosTest extends TestCase
 
     private const READ_ONLY_REASON = 'Kehadiran akun ADMIN (termasuk akun Anda sendiri) hanya dapat dicatat oleh super admin.';
 
+    private const NOT_FOUND_REASON = 'Karyawan tidak ditemukan. Periksa ID karyawan dan Nama Lengkap.';
+
     private User $admin;
 
     private User $alpha;
@@ -201,8 +203,9 @@ class AttendanceImportScenariosTest extends TestCase
         // Tanpa ID, nama yang dipakai karyawan lain di perusahaan juga ditolak.
         $this->assertNull($scoped->model(['', 'ANDI', '2026-11', 20, 7, 0, 3]));
         $this->assertSame($inScope->id, $scoped->model(['EMP-IN', 'ANDI', '2026-11', 20, 7, 0, 3])?->user_id);
+        // ID di luar cakupan dilaporkan sama dengan ID yang tidak ada (keberadaannya tidak dibuka).
         $this->assertSame([
-            'Karyawan di luar cakupan akses data Anda.',
+            self::NOT_FOUND_REASON,
             'Nama "ANDI" dipakai lebih dari satu karyawan. Isi kolom ID karyawan agar data tidak masuk ke karyawan lain.',
         ], array_column($scoped->getImportSummary()['skippedDetails'], 'reason'));
 
@@ -225,10 +228,104 @@ class AttendanceImportScenariosTest extends TestCase
         $this->resetAccessMemos();
         $supervisor = new AttendanceImport(AttendancePolicy::writableUserIds($manager), AttendancePolicy::visibleUserIds($manager));
         $this->assertNull($supervisor->model(['EMP-TLS', 'ANDI WIJAYA', '2026-12', 19, 0, 0, 0]));
-        $this->assertSame('Karyawan di luar cakupan akses data Anda.', $supervisor->getImportSummary()['skippedDetails'][0]['reason']);
+        $this->assertSame(self::NOT_FOUND_REASON, $supervisor->getImportSummary()['skippedDetails'][0]['reason']);
         $this->assertSame($managed->id, $supervisor->model(['EMP-GMD', 'ANDI WIJAYA', '2026-12', 19, 0, 0, 0])?->user_id);
 
         $this->assertSame(0, Attendance::query()->whereIn('user_id', [$inScope->id, $outOfScope->id, $new->id, $managed->id])->count());
+    }
+
+    public function test_limited_import_does_not_reveal_employees_outside_the_users_scope(): void
+    {
+        $coo = $this->fixtureArea('COO');
+        $uls = $this->fixtureArea('ULS');
+        $gmd = $this->fixtureArea('GMD');
+        $ojan = $this->fixtureScopedAdmin('ojan', $coo, [$uls]);
+        $inScope = $this->fixtureUser('uls_staff', 'STAFF', $uls, null, ['employee_id' => 'EMP-ULS', 'nama_lengkap' => 'ULS STAFF']);
+        $ulsDeleted = $this->fixtureUser('uls_old', 'STAFF', $uls, null, ['employee_id' => 'EMP-ULS-OLD', 'nama_lengkap' => 'ULS OLD']);
+        $ulsDeleted->delete();
+        $this->fixtureUser('gmd_a', 'STAFF', $gmd, null, ['employee_id' => 'EMP-GMD-A', 'nama_lengkap' => 'SECRET PERSON']);
+        $this->fixtureUser('gmd_twin_1', 'STAFF', $gmd, null, ['employee_id' => 'EMP-GMD-T1', 'nama_lengkap' => 'TWIN NAME']);
+        $this->fixtureUser('gmd_twin_2', 'STAFF', $gmd, null, ['employee_id' => 'EMP-GMD-T2', 'nama_lengkap' => 'TWIN NAME']);
+        $this->fixtureUser('gmd_del', 'STAFF', $gmd, null, ['employee_id' => 'EMP-GMD-DEL', 'nama_lengkap' => 'GONE PERSON'])->delete();
+        $this->resetAccessMemos();
+
+        $probes = [
+            ['EMP-GMD-A', 'X'],         // ID karyawan badan usaha lain
+            ['EMP-NOPE', 'X'],          // ID yang tidak ada
+            ['', 'SECRET PERSON'],      // nama karyawan badan usaha lain
+            ['', 'NOBODY HERE'],        // nama yang tidak ada
+            ['', 'TWIN NAME'],          // nama yang dipakai dua karyawan badan usaha lain
+            ['EMP-GMD-DEL', 'X'],       // ID karyawan badan usaha lain yang sudah dihapus
+            ['EMP-GMD-A', 'ULS STAFF'], // ID badan usaha lain + nama karyawan dalam cakupan
+            ['EMP-NOPE', 'ULS STAFF'],  // ID yang tidak ada + nama karyawan dalam cakupan
+        ];
+
+        $scoped = new AttendanceImport(AttendancePolicy::writableUserIds($ojan), AttendancePolicy::visibleUserIds($ojan));
+        foreach ($probes as [$employeeId, $name]) {
+            $this->assertNull($scoped->model([$employeeId, $name, '2026-11', 20, 0, 0, 0]));
+        }
+
+        $this->assertSame(
+            array_fill(0, count($probes), self::NOT_FOUND_REASON),
+            array_column($scoped->getImportSummary()['skippedDetails'], 'reason'),
+        );
+
+        // Baris template kosong tentang karyawan badan usaha lain diabaikan seperti baris tentang karyawan yang tidak ada.
+        $blank = new AttendanceImport(AttendancePolicy::writableUserIds($ojan), AttendancePolicy::visibleUserIds($ojan));
+        $this->assertNull($blank->model(['EMP-GMD-A', 'SECRET PERSON', '2026-11', '', '', '', '']));
+        $this->assertNull($blank->model(['EMP-NOPE', 'NOBODY HERE', '2026-11', '', '', '', '']));
+        $this->assertSame(0, $blank->getImportSummary()['unfilledCount']);
+        $this->assertNull($blank->model(['EMP-ULS', 'ULS STAFF', '2026-11', '', '', '', '']));
+        $this->assertSame(1, $blank->getImportSummary()['unfilledCount']);
+
+        // Karyawan dalam cakupan tetap dikenali (termasuk yang sudah dihapus).
+        $this->assertSame($inScope->id, $scoped->model(['EMP-ULS', 'ULS STAFF', '2026-11', 20, 0, 0, 0])?->user_id);
+        $this->assertSame($inScope->id, $scoped->model(['', 'ULS STAFF', '2026-12', 20, 0, 0, 0])?->user_id);
+        $this->assertNull($scoped->model(['EMP-ULS-OLD', 'ULS OLD', '2026-11', 20, 0, 0, 0]));
+        $this->assertSame(
+            'ID karyawan "EMP-ULS-OLD" milik karyawan yang sudah dihapus.',
+            collect($scoped->getImportSummary()['skippedDetails'])->last()['reason'],
+        );
+
+        // Super admin (seluruh karyawan) tetap mendapat alasan rinci.
+        $global = new AttendanceImport;
+        $this->assertNull($global->model(['', 'TWIN NAME', '2026-11', 20, 0, 0, 0]));
+        $this->assertNull($global->model(['EMP-GMD-DEL', 'X', '2026-11', 20, 0, 0, 0]));
+        $this->assertSame([
+            'Nama "TWIN NAME" dipakai lebih dari satu karyawan. Isi kolom ID karyawan agar data tidak masuk ke karyawan lain.',
+            'ID karyawan "EMP-GMD-DEL" milik karyawan yang sudah dihapus.',
+        ], array_column($global->getImportSummary()['skippedDetails'], 'reason'));
+    }
+
+    public function test_same_name_employees_without_employee_id_are_told_to_complete_the_id_in_master_data(): void
+    {
+        $area = $this->fixtureArea('COO');
+        $first = $this->fixtureUser('dupe_1', 'STAFF', $area, null, ['nama_lengkap' => 'DUPE']);
+        $second = $this->fixtureUser('dupe_2', 'STAFF', $area, null, ['nama_lengkap' => 'DUPE']);
+        $noIdReason = 'Nama "DUPE" dipakai lebih dari satu karyawan, dan ID karyawan untuk nama ini belum diisi di data karyawan. '
+            .'Lengkapi ID karyawan di data karyawan (menu Karyawan / Tim Saya) lalu isi kolom ID karyawan di file, atau isi kehadirannya lewat form Kehadiran.';
+
+        // Template mengirim kedua baris dengan ID kosong; ID apa pun yang diisi di file belum dikenal.
+        $this->assertSame([[null, 'DUPE'], [null, 'DUPE']], (new AttendanceImportTemplateExport)->collection()
+            ->filter(fn ($row): bool => $row['nama_lengkap'] === 'DUPE')
+            ->map(fn ($row): array => [$row['employee_id'], $row['nama_lengkap']])->values()->all());
+        $import = new AttendanceImport;
+        $this->assertNull($import->model(['', 'DUPE', '2026-11', 20, 0, 0, 0]));
+        $this->assertNull($import->model(['EMP-BARU', 'DUPE', '2026-11', 20, 0, 0, 0]));
+        $this->assertSame([$noIdReason, $noIdReason], array_column($import->getImportSummary()['skippedDetails'], 'reason'));
+
+        // Setelah ID salah satu dilengkapi di data karyawan, ID itu memilih karyawannya; baris tanpa ID tetap ditolak
+        // dan alasannya menyebut karyawan yang belum memiliki ID.
+        $first->forceFill(['employee_id' => 'EMP-DUPE-1'])->save();
+        $completed = new AttendanceImport;
+        $this->assertSame($first->id, $completed->model(['EMP-DUPE-1', 'DUPE', '2026-11', 20, 0, 0, 0])?->user_id);
+        $this->assertNull($completed->model(['', 'DUPE', '2026-11', 20, 0, 0, 0]));
+        $this->assertSame(
+            'Nama "DUPE" dipakai lebih dari satu karyawan. Isi kolom ID karyawan agar data tidak masuk ke karyawan lain. '
+            .'Karyawan bernama sama yang belum memiliki ID karyawan perlu dilengkapi dulu ID-nya di data karyawan.',
+            $completed->getImportSummary()['skippedDetails'][0]['reason'],
+        );
+        $this->assertNotSame($first->id, $second->id);
     }
 
     public function test_formula_cells_are_read_from_their_calculated_values(): void
@@ -505,8 +602,10 @@ class AttendanceImportScenariosTest extends TestCase
 
         $this->assertStringContainsString('EMP-OJAN / OJAN (2026-11): '.self::READ_ONLY_REASON, $body);
         $this->assertStringContainsString('EMP-SUPER / ULS SUPER (2026-11): '.self::READ_ONLY_REASON, $body);
-        $this->assertStringContainsString('EMP-ALPHA / ALPHA (2026-11): Karyawan di luar cakupan akses data Anda.', $body);
-        $this->assertStringContainsString('EMP-NOPE / NOPE (2026-11): Karyawan tidak ditemukan.', $body);
+        // Karyawan di luar cakupan dilaporkan sama dengan karyawan yang tidak ada.
+        $this->assertStringContainsString('EMP-ALPHA / ALPHA (2026-11): '.self::NOT_FOUND_REASON, $body);
+        $this->assertStringContainsString('EMP-NOPE / NOPE (2026-11): '.self::NOT_FOUND_REASON, $body);
+        $this->assertStringNotContainsString('di luar cakupan', $body);
         $this->assertSame('ULS STAFF', Attendance::query()->with('user')->sole()->user->nama_lengkap);
     }
 
@@ -523,6 +622,19 @@ class AttendanceImportScenariosTest extends TestCase
         $this->assertEquals(['EMP-ALPHA', 'ALPHA', '2026-11', 0, 0, 0, 0, 2, 0, 0, 0], $rows['EMP-ALPHA']);
         $this->assertEquals(['EMP-BRAVO', 'BRAVO', '2026-12', 20, 0, 0, 0, 0, 0, 0, 0], $rows['EMP-BRAVO']);
         $this->assertNotContains(null, $rows['EMP-BRAVO']);
+
+        // Diimport ulang selagi datanya masih ada: kedua baris "sudah ada" (termasuk baris Hari Kerja 0), bukan
+        // "tidak valid".
+        $again = new AttendanceImport;
+        Excel::import($again, 'export.xlsx', 'local');
+        $this->assertSame(0, $again->getImportSummary()['importedCount']);
+        $this->assertSame([
+            ['EMP-ALPHA', 'Data kehadiran karyawan ini untuk periode tersebut sudah ada.'],
+            ['EMP-BRAVO', 'Data kehadiran karyawan ini untuk periode tersebut sudah ada.'],
+        ], array_map(
+            static fn (array $detail): array => [$detail['employee_id'], $detail['reason']],
+            $again->getImportSummary()['skippedDetails'],
+        ));
 
         Attendance::query()->forceDelete();
         $import = new AttendanceImport;

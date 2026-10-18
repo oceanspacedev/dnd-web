@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\EmployeeReview;
+use App\Services\LeaderboardScoreService;
 use App\Services\PerformanceScoreCalculator;
 use App\Services\ScoringRuleService;
 use Illuminate\Http\Request;
@@ -53,6 +54,8 @@ class EmployeeReviewResource extends JsonResource
                 'review_weight' => $rule->reviewWeight,
             ],
             'scoring_rule_id' => $rule->id,
+            // Ringkasan aturan dengan bentuk yang sama seperti endpoint lain (scoring_rule_id dipertahankan).
+            'scoring_rule' => LeaderboardScoreService::ruleSummary($rule),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

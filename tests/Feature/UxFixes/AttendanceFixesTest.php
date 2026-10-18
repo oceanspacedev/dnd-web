@@ -57,6 +57,10 @@ class AttendanceFixesTest extends TestCase
 
     private const IZIN_OCTOBER_API_ERROR = 'Aturan penilaian Oktober 2026 belum memakai Izin, tetapi nilainya lebih dari 0. Untuk periode ini izin dicatat di sick_days (Sakit/Izin): tambahkan jumlah izin ke sick_days dan kirim components.izin 0. Bila periodenya yang keliru, perbaiki periodenya.';
 
+    private const SICK_IZIN_SPLIT_API_ERROR = 'Data ini menyimpan Sakit/Izin 2 hari (sakit + izin) menurut aturan penilaian Oktober 2026. Aturan penilaian November 2026 mencatat izin terpisah dari sakit: kirim sick_days (sakit saja) dan components.izin (jumlah izin, 0 bila tidak ada) bersama periode baru. Bila periodenya yang keliru, perbaiki periodenya.';
+
+    private const SICK_IZIN_SPLIT_FORM_HELP = 'Data ini menyimpan Sakit/Izin 2 hari (sakit + izin) menurut aturan penilaian Oktober 2026. Aturan penilaian November 2026 mencatat izin terpisah dari sakit: isi Sakit dengan hari sakit saja dan Izin dengan hari izin, lalu centang konfirmasi ini. Bila periodenya yang keliru, perbaiki periodenya.';
+
     private const IZIN_OCTOBER_FORM_ERROR = 'Aturan penilaian Oktober 2026 belum memakai Izin, tetapi isian ini lebih dari 0. Untuk periode ini izin dicatat di Sakit/Izin: jumlahkan ke Sakit/Izin, lalu isi 0 di sini. Bila periodenya yang keliru, perbaiki periodenya.';
 
     private User $admin;
@@ -304,13 +308,16 @@ class AttendanceFixesTest extends TestCase
             ->assertHasNoFormErrors();
         $this->assertSame([3, null], [(int) $attendance->refresh()->sick_days, $attendance->component_counts]);
 
-        // Setelah kosong, isian izin Oktober kembali nonaktif; dipindah ke November izin bisa diisi dan disimpan.
+        // Setelah kosong, isian izin Oktober kembali nonaktif; dipindah ke November izin bisa diisi dan disimpan
+        // setelah Sakit/Izin 3 dipisah lagi menjadi Sakit dan Izin (dikonfirmasi).
         Livewire::test(EditAttendance::class, ['record' => $attendance->id])
             ->assertFormFieldDisabled('component_counts.izin')
-            ->fillForm(['periode' => '2026-11', 'component_counts.izin' => 3])
+            ->fillForm(['periode' => '2026-11'])
+            ->fillForm(['sick_days' => 1, 'component_counts.izin' => 2, 'confirm_sick_split' => true])
             ->call('save')
             ->assertHasNoFormErrors();
-        $this->assertSame(['2026-11', ['izin' => 3]], [$attendance->refresh()->periode, $attendance->component_counts]);
+        $attendance->refresh();
+        $this->assertSame(['2026-11', 1, ['izin' => 2]], [$attendance->periode, (int) $attendance->sick_days, $attendance->component_counts]);
     }
 
     public function test_edit_form_does_not_move_counts_into_a_periode_whose_rule_does_not_use_them(): void
@@ -631,9 +638,11 @@ class AttendanceFixesTest extends TestCase
             ->assertJsonValidationErrors(['components.mangkir']);
         $this->putJson('/api/v1/attendances/'.$attendance->id, ['sick_days' => 4])->assertOk();
 
-        // Pindah ke periode yang memakai izin: boleh; kembali ke periode lama dengan izin: ditolak.
-        $this->putJson('/api/v1/attendances/'.$attendance->id, ['periode' => '2026-11', 'components' => ['izin' => 2]])
+        // Pindah ke periode yang memakai izin (Sakit/Izin 4 dipisah: sakit 2, izin 2): boleh; kembali ke periode lama
+        // dengan izin: ditolak.
+        $this->putJson('/api/v1/attendances/'.$attendance->id, ['periode' => '2026-11', 'sick_days' => 2, 'components' => ['izin' => 2]])
             ->assertOk()
+            ->assertJsonPath('data.sick_days', 2)
             ->assertJsonPath('data.components.izin.count', 2);
         $errors = $this->putJson('/api/v1/attendances/'.$attendance->id, ['periode' => '2026-10', 'components' => ['izin' => 1]])
             ->assertStatus(422)
@@ -701,6 +710,99 @@ class AttendanceFixesTest extends TestCase
             ->assertJsonValidationErrors(['periode']);
         $legacy->refresh();
         $this->assertSame(['2026-10', 21, 1, ['izin' => 2]], [$legacy->periode, (int) $legacy->work_days, (int) $legacy->late_less_30, $legacy->component_counts]);
+    }
+
+    public function test_api_update_does_not_move_izin_folded_into_sick_days_into_a_periode_that_records_izin_separately(): void
+    {
+        Sanctum::actingAs($this->admin);
+        // Oktober 2026 (aturan lama): Sakit/Izin 2 = sakit 1 + izin 1 => penalti 10.
+        $attendance = Attendance::query()->create([
+            'user_id' => $this->alpha->id, 'periode' => '2026-10', 'work_days' => 22, 'sick_days' => 2,
+        ]);
+        $this->getJson('/api/v1/attendances/'.$attendance->id)->assertOk()->assertJsonPath('data.metrics.penalty_points', 10);
+
+        // Hanya periode, atau tanpa salah satu dari sick_days / components.izin: ditolak, bukan dinilai sebagai sakit
+        // tanpa penalti di November 2026.
+        foreach ([
+            ['periode' => '2026-11'],
+            ['periode' => '2026-11', 'components' => ['izin' => 1]],
+            ['periode' => '2026-11', 'sick_days' => 1],
+            ['periode' => '2026-11', 'work_days' => 21, 'components' => ['mangkir' => 0]],
+        ] as $payload) {
+            $this->putJson('/api/v1/attendances/'.$attendance->id, $payload)
+                ->assertStatus(422)
+                ->assertJsonPath('errors', ['periode' => [self::SICK_IZIN_SPLIT_API_ERROR]]);
+        }
+        $attendance->refresh();
+        $this->assertSame(['2026-10', 22, 2, null], [$attendance->periode, (int) $attendance->work_days, (int) $attendance->sick_days, $attendance->component_counts]);
+
+        // Dipisah: sakit 1 + izin 1 => penalti izin tetap 5 poin.
+        $this->putJson('/api/v1/attendances/'.$attendance->id, ['periode' => '2026-11', 'sick_days' => 1, 'components' => ['izin' => 1]])
+            ->assertOk()
+            ->assertJsonPath('data.periode', '2026-11')
+            ->assertJsonPath('data.sick_days', 1)
+            ->assertJsonPath('data.components.izin.count', 1)
+            ->assertJsonPath('data.metrics.penalty_points', 5);
+        $this->assertSame(['2026-11', 1, ['izin' => 1]], [$attendance->refresh()->periode, (int) $attendance->sick_days, $attendance->component_counts]);
+
+        // Konfirmasi lewat components.sick_days dan izin 0 (semuanya sakit) juga diterima.
+        $allSick = Attendance::query()->create([
+            'user_id' => $this->bravo->id, 'periode' => '2026-10', 'work_days' => 22, 'sick_days' => 2,
+        ]);
+        $this->putJson('/api/v1/attendances/'.$allSick->id, ['periode' => '2026-11', 'components' => ['sick_days' => 2, 'izin' => 0]])
+            ->assertOk()
+            ->assertJsonPath('data.metrics.penalty_points', 0);
+
+        // Tanpa Sakit/Izin, antarperiode aturan lama, atau ke periode lama: tidak perlu dipisah.
+        $noSick = Attendance::query()->create([
+            'user_id' => $this->alpha->id, 'periode' => '2026-08', 'work_days' => 22, 'late_less_30' => 1,
+        ]);
+        $this->putJson('/api/v1/attendances/'.$noSick->id, ['periode' => '2026-12'])->assertOk();
+        $oldSick = Attendance::query()->create([
+            'user_id' => $this->bravo->id, 'periode' => '2026-08', 'work_days' => 22, 'sick_days' => 3,
+        ]);
+        $this->putJson('/api/v1/attendances/'.$oldSick->id, ['periode' => '2026-09'])->assertOk();
+        $this->putJson('/api/v1/attendances/'.$allSick->id, ['periode' => '2026-10'])->assertOk();
+    }
+
+    public function test_edit_form_asks_hr_to_split_sakit_izin_before_moving_to_a_periode_that_records_izin_separately(): void
+    {
+        $attendance = Attendance::query()->create([
+            'user_id' => $this->alpha->id, 'periode' => '2026-10', 'work_days' => 22, 'sick_days' => 2,
+        ]);
+        $this->actingAs($this->admin);
+
+        $form = Livewire::test(EditAttendance::class, ['record' => $attendance->id])
+            ->assertFormFieldHidden('confirm_sick_split')
+            ->fillForm(['periode' => '2026-11'])
+            ->assertFormFieldVisible('confirm_sick_split')
+            ->assertSee(self::SICK_IZIN_SPLIT_FORM_HELP)
+            ->call('save')
+            ->assertHasFormErrors(['confirm_sick_split' => 'accepted']);
+        $this->assertSame(['2026-10', 2, null], [$attendance->refresh()->periode, (int) $attendance->sick_days, $attendance->component_counts]);
+
+        // Kembali ke periode aturan lama: konfirmasi tidak diperlukan; pindah lagi: konfirmasi dicentang ulang.
+        $form->fillForm(['periode' => '2026-09'])
+            ->assertFormFieldHidden('confirm_sick_split')
+            ->fillForm(['periode' => '2026-12'])
+            ->fillForm(['confirm_sick_split' => true])
+            ->fillForm(['periode' => '2026-11'])
+            ->assertFormSet(['confirm_sick_split' => false])
+            ->fillForm(['sick_days' => 1, 'component_counts.izin' => 1, 'confirm_sick_split' => true])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $attendance->refresh();
+        $this->assertSame(['2026-11', 1, ['izin' => 1]], [$attendance->periode, (int) $attendance->sick_days, $attendance->component_counts]);
+        $this->assertArrayNotHasKey('confirm_sick_split', $attendance->getAttributes());
+
+        // Tanpa Sakit/Izin tersimpan: tidak ada konfirmasi.
+        $noSick = Attendance::query()->create(['user_id' => $this->bravo->id, 'periode' => '2026-10', 'work_days' => 22]);
+        Livewire::test(EditAttendance::class, ['record' => $noSick->id])
+            ->fillForm(['periode' => '2026-11'])
+            ->assertFormFieldHidden('confirm_sick_split')
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertSame('2026-11', $noSick->refresh()->periode);
     }
 
     public function test_create_form_tells_hr_when_a_periode_change_clears_typed_counts(): void

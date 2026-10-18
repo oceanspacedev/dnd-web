@@ -207,6 +207,8 @@ Versi bawaan dari migration `2026_10_18_090100_create_scoring_rules_table.php`:
 | Mangkir | tidak dihitung | 5 poin per hari, tidak mengurangi rumus dasar |
 | Cuti tahunan, cuti lainnya | tidak dihitung | 0 poin, tidak mengurangi rumus dasar |
 
+Deploy branch ini sebelum data kehadiran November 2026 diisi (sekitar 1 Desember 2026). Bila migration berjalan setelah data kehadiran periode 2026-11 atau sesudahnya sudah diisi dengan kode lama (kolom Sakit = sakit + izin, tanpa izin/mangkir sendiri), v2 otomatis mulai bulan sesudah periode data terakhir itu, dan namanya ikut menyesuaikan (mis. "Aturan Kehadiran Desember 2026"). Dengan begitu data tersebut tidak dinilai ulang diam-diam. Periode sesudah bulan deploy (salah ketik) dan data yang sudah dihapus tidak dihitung. Selama versi itu belum terkunci, super admin masih bisa mengubah bulan berlakunya.
+
 Contoh v2 untuk hari kerja 22, terlambat ≤ 30 menit 2 kali, terlambat > 30 menit 1 kali, sakit 1 hari, dan izin 1 hari:
 
 - Rumus dasar = (22 − 4) / 22 × 100 = 81,82%.
@@ -231,6 +233,10 @@ Setelah versi baru disimpan:
 
 Aplikasi mobile membaca aturan lewat endpoint baca saja `GET /api/v1/master/scoring-rules`, `GET /api/v1/master/scoring-rules/resolve?periode=Y-m`, dan `GET /api/v1/master/attendance-components`. Catatan versi (`notes`) bersifat internal dan hanya dikirim ke super admin.
 
+`POST` dan `PUT /api/v1/attendances` menerima field lama (`late_less_30`, `late_more_30`, `sick_days`) dan objek opsional `components` (`{kode: jumlah}`). Sejak November 2026 `sick_days` hanya berisi sakit; izin dikirim di `components.izin`. Respons sukses memuat `warnings` (array, kosong bila tidak ada) yang menyebut komponen yang dinilai aturan periode data tetapi tidak dikirim dan bernilai 0, misalnya klien lama yang hanya mengirim field lama untuk periode November 2026. Data tetap disimpan. `PUT` menolak (422) pemindahan periode data yang menyimpan `sick_days` > 0 dari aturan lama ke periode yang mencatat izin sendiri, kecuali `sick_days` (sakit saja) dan `components.izin` ikut dikirim.
+
+`GET /api/v1/evaluations/user/{id}/score?periode=` mencocokkan periode bulanan yang terbaca (`2026-1`, `2026-01`, `2026-01-15`) persis dengan bentuk `Y-m`-nya, sama seperti leaderboard. Periode berupa tahun saja tetap dicocokkan dengan prefix. `penalty_points` di respons kehadiran dan evaluasi dibulatkan 2 desimal (bilangan bulat tetap dikirim sebagai integer).
+
 Aturan dan komponen di-cache dengan kunci berversi. Observer menaikkan versinya setiap kali ada perubahan lewat Eloquent. Penulisan langsung lewat query builder atau SQL harus diikuti `ScoringRuleService::clearCache()`.
 
 Review karyawan terdiri dari `responsiveness`, `problem_solver`, `helpfulness`, dan `initiative`, masing-masing bernilai 0–5. Lokasi kode terkait:
@@ -250,7 +256,7 @@ Panduan visual tersedia di panel:
 
 ### 3. Kehadiran, review, cutpoint, dan overopen
 
-- Kehadiran menyimpan periode, hari kerja, dan hitungan per komponen kehadiran (master **Komponen Kehadiran**). Terlambat ≤ 30 menit, terlambat > 30 menit, dan sakit memakai kolom lama; izin, mangkir, cuti, dan komponen baru disimpan di `attendances.component_counts`. Sebelum November 2026 kolom sakit berisi sakit + izin.
+- Kehadiran menyimpan periode, hari kerja, dan hitungan per komponen kehadiran (master **Komponen Kehadiran**). Terlambat ≤ 30 menit, terlambat > 30 menit, dan sakit memakai kolom lama; izin, mangkir, cuti, dan komponen baru disimpan di `attendances.component_counts`. Sebelum November 2026 kolom sakit berisi sakit + izin. Bila periode data yang menyimpan Sakit/Izin diganti ke periode yang mencatat izin sendiri (mis. Oktober ke November 2026), form Kehadiran meminta HR mengisi Sakit dan Izin secara terpisah lalu mencentang konfirmasi, agar penalti izin tidak hilang.
 - Review menyimpan empat dimensi perilaku dengan skala 0–5. Bobotnya mengikuti versi aturan penilaian periode tersebut (bawaan 15%).
 - Cutpoint adalah potongan poin manual per periode dan dikurangi dari leaderboard web.
 - Overopen adalah counter mingguan yang diisi manual untuk keterlambatan daily, weekly, atau monthly; record-nya tidak berelasi langsung ke record activity. Overopen tidak otomatis menghasilkan cutpoint.
@@ -440,7 +446,7 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `OCTANE_WORKERS` | Tidak | Jumlah worker web persisten; Compose default `2`, lalu sesuaikan dengan vCPU/RAM |
 | `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
-| `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori/deskripsi/posisi (`300` dtk) dan skor leaderboard (`60` dtk) |
+| `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori/deskripsi/posisi (`300` dtk), skor leaderboard (`60` dtk), dan aturan penilaian/komponen kehadiran (`KPI_CACHE_TTL_SCORING_RULES_SECONDS`, `3600` dtk) |
 | `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
 | `WAG_URL` | Untuk WhatsApp | Endpoint gateway WhatsApp |
 | `WAG_TOKEN` | Untuk WhatsApp | Bearer credential gateway WhatsApp |
@@ -563,6 +569,17 @@ Response API umumnya menggunakan bentuk berikut:
 ```
 
 Endpoint update menggunakan method `PUT`; saat ini tidak ada route `PATCH`.
+
+Error validasi FormRequest memakai bentuk `{"success": false, "message": "Validasi gagal.", "errors": {...}}` dengan status 422, juga tanpa header `Accept: application/json`.
+
+### Perubahan kontrak API untuk aplikasi mobile (akses data dan aturan penilaian)
+
+- **Login dan `/auth/me`**: ringkasan akses data (`scope`, `area_ids`, `can_access_employees`, `can_access_team`) ada di kunci tingkat atas `data_access` pada kedua respons. `user.data_access` (di login: `data.user.data_access`; di `/auth/me`: `data.data_access`) adalah nilai mentah `all`, `selected`, atau `null`.
+- **`scoring_rule`**: semua endpoint (presensi, review, evaluasi, ringkasan KPI, analytics) mengirim ringkasan dengan bentuk yang sama: `id`, `name`, `effective_from`, `kpi_weight`, `attendance_weight`, `review_weight`, `review_max_points`. Resource lengkap `/master/scoring-rules` dan `/resolve` juga memuat semua kunci itu. Review tetap mengirim `scoring_rule_id`. `/resolve` untuk versi tersimpan sama persis dengan item `/master/scoring-rules` untuk id yang sama.
+- **`POST`/`PUT /attendances`**: `periode` harus terbaca sebagai tahun-bulan (`2026-11`, `2026-1`, `2026-11-15`, atau tanggal-jam ISO-8601; disimpan sebagai `Y-m`) dengan tahun 2000–2100, `work_days` 0–31, dan setiap hitungan 0–999. Respons GET mengirim `components` sebagai `{kode: {name, unit, count}}`, sedangkan input `components` adalah `{kode: jumlah}`. Entri input berbentuk objek dari respons GET diabaikan, sehingga body GET bisa diubah lalu dikirim ulang utuh. Bila `count` di salinan itu diubah, nilainya tidak dipakai dan disebut di `warnings`. `PUT` menerima periode tersimpan yang dikirim balik tanpa diubah, termasuk data lama di luar rentang (mis. `1900-01`).
+- **`POST /kpis`**: `details[].parent_id` ditolak (422, `errors.details.N.parent_id`) karena KPI baru belum punya detail. Tambahkan sub-detail lewat `POST /kpis/{id}/details`.
+- **`GET /kpis/user/{id}/summary`**: selain super admin, id karyawan yang tidak ada atau sudah dihapus mendapat 403 seperti karyawan di luar cakupan, bukan 404.
+- **`GET /master/attendance-components?active=`** menerima `1`/`0` dan `true`/`false`. `GET /master/scoring-rules/resolve?periode=` tetap memakai format ketat `Y-m`, sama seperti endpoint analytics.
 
 ## Scheduler dan reminder KPI
 
@@ -1059,6 +1076,8 @@ FILESYSTEM_DISK=s3
 docker compose -f compose.app.yaml up --detach --build --scale web=2 --scale worker=1
 ```
 
+Urutan update versi baru: perbarui node data dulu dan tunggu service `release` healthy (migration selesai), baru perbarui node compute. Node compute tidak menjalankan migration dan tidak menunggu `release` di server lain, sehingga kode baru yang lebih dulu jalan di atas schema lama akan error sampai node data selesai migrate (mis. leaderboard dan form kehadiran sebelum kolom `attendances.component_counts` ada, atau ubah role user sebelum `users.data_access` ada). Urutan sebaliknya aman selama migration bersifat aditif (kolom baru nullable/berdefault dan tabel baru), seperti migration akses data dan aturan penilaian.
+
 Load balancer di depan (Coolify cluster, DNS, atau proxy) menunjuk ke semua entry HTTP. Firewall hanya mengizinkan node compute ke `DATA_BIND:3306` dan `:6379`. Jangan membuka port itu ke internet.
 
 #### Yang tidak boleh
@@ -1088,6 +1107,8 @@ Load balancer di depan (Coolify cluster, DNS, atau proxy) menunjuk ke semua entr
 - Root disk `local` Laravel 12 berada di `storage/app/private`, sedangkan instalasi lama dapat menyimpan file langsung di `storage/app`. Satu instance boleh tetap di disk `local`/`public` pada volume `storage_data`. Bila pindah ke S3, inventarisasi seluruh `storage/app`, lalu salin file bisnis private/public ke bucket dengan prefix serta visibility yang sesuai; verifikasi checksum/jumlah object dan backup sumber terlebih dahulu. File import dan `livewire-tmp` bersifat sementara dan tidak perlu dimigrasikan.
 - Bila histori export lama harus tetap dapat diunduh setelah pindah ke S3, pindahkan object `filament_exports/{export-id}` dan ubah `exports.file_disk` dari `local` ke `s3` hanya setelah tiap object terverifikasi. Jika histori tidak dipertahankan, hapus/expire record dan file lama sesuai kebijakan retensi.
 - Setelah mengubah disk atau driver session/cache/queue, jalankan `php artisan app:storage-probe` dan `php artisan optimize:clear`, lalu ulangi smoke test login, upload/import, export, queue, scheduler, dan reminder dry-run.
+- Migration akses data `2026_10_17_090000_add_data_access_to_users_table` menambah `users.data_access` (default `all`, sehingga admin lama tetap melihat seluruh badan usaha) dan pivot `user_area_access`. Bila migration ini di-rollback, admin dengan akses `selected` beserta badan usahanya disimpan di tabel `user_area_access_rollback_backup` dan dipulihkan otomatis saat `migrate` berikutnya, agar admin badan usaha tertentu tidak diam-diam menjadi super admin. Jangan hapus tabel itu selama rollback. Admin yang dibuat atau dipromosikan selama rollback mendapat default `all` seperti saat deploy pertama; periksa daftar admin setelah migrate ulang.
+- Pada deployment banyak server, migrate node data dulu (lihat Level 2 di atas) sebelum node compute menjalankan kode yang membaca kolom baru `attendances.component_counts` dan `users.data_access`.
 
 ## Batasan dan technical debt
 

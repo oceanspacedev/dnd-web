@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\V1;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\AttendancePolicy;
 use App\Services\DataAccessService;
 use App\Support\WhatsAppNumber;
 use Closure;
@@ -31,7 +32,7 @@ class StoreUserRequest extends FormRequest
         $isScopedAdmin = DataAccessService::isAreaScopedAdmin($actor instanceof User ? $actor : null);
 
         return [
-            'username' => ['required', 'string', 'max:255', 'unique:users,username'],
+            'username' => ['required', 'string', 'max:255', 'unique:users,username', $this->globalAttendanceUsernameAllowed()],
             'nama_lengkap' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
@@ -110,6 +111,20 @@ class StoreUserRequest extends FormRequest
         $this->merge([
             'no_hp' => WhatsAppNumber::toLocal((string) $value) ?? $value,
         ]);
+    }
+
+    /**
+     * Username user khusus kehadiran seluruh badan usaha hanya boleh dipakai super admin.
+     */
+    private function globalAttendanceUsernameAllowed(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            $actor = $this->user();
+
+            if (AttendancePolicy::isGlobalAttendanceUsername($value) && ! ($actor instanceof User && $actor->can('useGlobalAttendanceUsername', User::class))) {
+                $fail(UpdateUserRequest::RESERVED_USERNAME);
+            }
+        };
     }
 
     private function sendsDataAccess(): bool

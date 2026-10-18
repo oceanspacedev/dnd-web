@@ -47,7 +47,7 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
 
         for ($month = 1; $month <= 12; $month++) {
             $yearMonth = $this->year.'-'.sprintf('%02d', $month);
-            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
+            $carbonDate = Date::createFromFormat('!Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 
@@ -130,7 +130,7 @@ class KpiMonthlySummarySheet implements FromArray, WithHeadings, WithMapping, Wi
 
         for ($month = 1; $month <= 12; $month++) {
             $yearMonth = $this->year.'-'.sprintf('%02d', $month);
-            $carbonDate = Date::createFromFormat('Y-m', $yearMonth);
+            $carbonDate = Date::createFromFormat('!Y-m', $yearMonth);
             $this->usersMonthYear[] = $carbonDate->isoFormat('MMM');
         }
 

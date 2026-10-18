@@ -658,6 +658,34 @@ class UserFixesTest extends TestCase
         $this->assertSame(['Baris 3: EX ADMIN (GMD; daftar badan usaha lama dipertahankan)'], $import->getNotices());
     }
 
+    public function test_users_import_keeps_the_last_global_admin(): void
+    {
+        $this->fixtureRole('STAFF');
+        $import = new UsersImport;
+
+        // Satu-satunya super admin (ojan dibatasi badan usaha tertentu) tidak bisa diturunkan lewat file import.
+        $import->model($this->importRow(['nama_lengkap' => 'BOSS', 'username' => 'boss', 'role' => 'STAFF', 'area' => 'COO']));
+        $this->assertSame(
+            ['Baris 2: Role "STAFF" tidak dapat diberikan kepada BOSS: minimal harus ada satu admin dengan akses seluruh badan usaha.'],
+            $import->getErrors(),
+        );
+        $this->assertTrue(DataAccessService::hasGlobalAccess($this->superAdmin->refresh()));
+
+        // Selama masih ada super admin lain, super admin boleh diturunkan; super admin terakhir tetap ditolak.
+        $second = $this->fixtureGlobalAdmin('boss_two', $this->coo);
+        $import->model($this->importRow(['nama_lengkap' => 'BOSS TWO', 'username' => 'boss_two', 'role' => 'STAFF', 'area' => 'COO']));
+        $import->model($this->importRow(['nama_lengkap' => 'BOSS', 'username' => 'boss', 'role' => 'STAFF', 'area' => 'COO']));
+        $this->assertFalse($second->refresh()->isAdmin());
+        $this->assertTrue(DataAccessService::hasGlobalAccess($this->superAdmin->refresh()));
+        $this->assertCount(2, $import->getErrors());
+        $this->assertSame(1, $import->getSuccessCount());
+
+        // Admin badan usaha tertentu tetap boleh diturunkan.
+        $import->model($this->importRow(['nama_lengkap' => 'OJAN', 'username' => 'ojan', 'role' => 'STAFF', 'area' => 'COO']));
+        $this->assertFalse($this->scopedAdmin->refresh()->isAdmin());
+        $this->assertSame(2, $import->getSuccessCount());
+    }
+
     public function test_users_import_page_reports_restricted_admins(): void
     {
         $this->fixtureRole('ADMIN');

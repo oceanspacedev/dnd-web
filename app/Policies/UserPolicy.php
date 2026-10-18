@@ -122,4 +122,35 @@ class UserPolicy
     {
         return $this->canManageAll($user);
     }
+
+    /**
+     * Mengubah data login (username, password, No. HP WhatsApp) sama dengan bisa masuk sebagai karyawan itu,
+     * jadi selain super admin hanya boleh bila akses akun tersebut tidak melampaui cakupan actor:
+     * - user khusus kehadiran seluruh badan usaha (AttendancePolicy) hanya dikelola super admin;
+     * - admin badan usaha tertentu tidak boleh mengubah login atasan yang timnya berisi karyawan di luar cakupannya.
+     */
+    public function changeCredentials(User $user, User $model): bool
+    {
+        if (! $this->update($user, $model)) {
+            return false;
+        }
+
+        if ($this->canManageAll($user)) {
+            return true;
+        }
+
+        if (AttendancePolicy::isGlobalAttendanceUsername($model->getOriginal('username'))) {
+            return false;
+        }
+
+        return ! DataAccessService::isAreaScopedAdmin($user) || DataAccessService::coversTeamOf($user, $model);
+    }
+
+    /**
+     * Username user khusus kehadiran memberi akses seluruh badan usaha, jadi hanya super admin yang boleh memakainya.
+     */
+    public function useGlobalAttendanceUsername(User $user): bool
+    {
+        return $this->canManageAll($user);
+    }
 }

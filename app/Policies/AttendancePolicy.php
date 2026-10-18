@@ -26,7 +26,16 @@ class AttendancePolicy
             return true;
         }
 
-        return in_array(strtolower((string) $user->username), self::GLOBAL_ATTENDANCE_USERNAMES, true);
+        return self::isGlobalAttendanceUsername($user->username);
+    }
+
+    /**
+     * Username user khusus kehadiran seluruh badan usaha. Akses ini melekat pada username, jadi username dan
+     * data login akun tersebut hanya boleh diatur super admin (lihat UserPolicy::changeCredentials).
+     */
+    public static function isGlobalAttendanceUsername(mixed $username): bool
+    {
+        return is_string($username) && in_array(strtolower($username), self::GLOBAL_ATTENDANCE_USERNAMES, true);
     }
 
     /**

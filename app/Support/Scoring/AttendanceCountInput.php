@@ -181,6 +181,45 @@ final class AttendanceCountInput
     }
 
     /**
+     * Periode data dipindah dari versi aturan yang mencatat izin bersama sakit (sick_days = Sakit/Izin, izin ikut
+     * dipenalti) ke versi yang mencatat izin sendiri (sick_days = sakit saja), mis. Oktober -> November 2026.
+     * sick_days tersimpan bisa berisi hari izin yang akan kehilangan penaltinya bila tidak dipisah ke komponen
+     * Izin. Periode tujuan yang belum valid = false (validasi periode yang menolak).
+     */
+    public static function movesIzinOutOfSick(mixed $fromPeriode, mixed $toPeriode): bool
+    {
+        $from = Periode::normalize($fromPeriode);
+        $to = self::periode($toPeriode);
+
+        if ($from === null || $to === null || $from === $to) {
+            return false;
+        }
+
+        return self::recordsIzinInSick(ScoringRuleService::forPeriode($from))
+            && ! self::recordsIzinInSick(ScoringRuleService::forPeriode($to));
+    }
+
+    /**
+     * Alasan penolakan memindah data yang menyimpan Sakit/Izin > 0 ke periode yang mencatat izin sendiri
+     * (movesIzinOutOfSick()), dengan langkah memisahkannya:
+     * - api: kirim sick_days (sakit saja) dan components.izin bersama periode baru.
+     * - form: isi Sakit dan Izin, lalu centang konfirmasi pemisahan.
+     */
+    public static function sickIzinSplitMessage(int $sickDays, string $fromPeriode, string $toPeriode, string $context = self::CONTEXT_API): string
+    {
+        $sick = self::componentName(self::SICK_CODE);
+        $izin = self::componentName(self::IZIN_CODE);
+        $lead = 'Data ini menyimpan '.self::SICK_IZIN_LABEL." {$sickDays} hari (sakit + izin) menurut aturan penilaian "
+            .Periode::label($fromPeriode).'. Aturan penilaian '.Periode::label($toPeriode).' mencatat izin terpisah dari sakit';
+
+        $step = $context === self::CONTEXT_FORM
+            ? ": isi {$sick} dengan hari sakit saja dan {$izin} dengan hari izin, lalu centang konfirmasi ini."
+            : ': kirim sick_days (sakit saja) dan components.'.self::IZIN_CODE.' (jumlah izin, 0 bila tidak ada) bersama periode baru.';
+
+        return $lead.$step.' Bila periodenya yang keliru, perbaiki periodenya.';
+    }
+
+    /**
      * Nama komponen untuk periode versi aturan $rule: kolom sick_days bernama "Sakit/Izin" bila izin dicatat
      * bersama sakit; selain itu nama komponen di master. Tanpa versi aturan (periode belum valid) = nama master.
      */

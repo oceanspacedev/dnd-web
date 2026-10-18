@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesDataAccessFixtures;
@@ -398,6 +399,8 @@ class UsersApiScopeTest extends TestCase
                 'can_access_team' => true,
             ]);
 
+        // Login memakai path yang sama dengan /auth/me: ringkasan di 'data_access' tingkat atas, nilai mentah
+        // users.data_access di objek user. data.data_access tidak dipakai ulang dengan bentuk lain.
         $this->resetAccessMemos();
         $this->postJson('/api/v1/auth/login', [
             'login' => 'ojan',
@@ -406,18 +409,23 @@ class UsersApiScopeTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('data.user.data_access', User::DATA_ACCESS_SELECTED)
-            ->assertJsonPath('data.data_access.scope', 'selected')
-            ->assertJsonPath('data.data_access.area_ids', [$this->uls->id])
-            ->assertJsonPath('data.data_access.can_access_employees', true);
+            ->assertJsonMissingPath('data.data_access')
+            ->assertJsonPath('data_access', [
+                'scope' => 'selected',
+                'area_ids' => [$this->uls->id],
+                'can_access_employees' => true,
+                'can_access_team' => true,
+            ]);
 
         $this->postJson('/api/v1/auth/login', [
             'login' => 'uls_staff',
             'password' => 'password',
         ])
             ->assertOk()
-            ->assertJsonPath('data.data_access.scope', 'none')
-            ->assertJsonPath('data.data_access.can_access_employees', false)
-            ->assertJsonPath('data.data_access.can_access_team', false);
+            ->assertJsonMissingPath('data.data_access')
+            ->assertJsonPath('data_access.scope', 'none')
+            ->assertJsonPath('data_access.can_access_employees', false)
+            ->assertJsonPath('data_access.can_access_team', false);
     }
 
     public function test_non_admin_supervisor_keeps_team_rules_and_any_existing_approver(): void
@@ -596,6 +604,50 @@ class UsersApiScopeTest extends TestCase
         $this->ulsOtherAdmin->restore();
         $this->putJson('/api/v1/users/'.$this->superAdmin->id, ['role_id' => $this->fixtureRole('STAFF')->id])
             ->assertOk();
+    }
+
+    public function test_login_of_accounts_reaching_beyond_actor_scope_is_super_admin_only(): void
+    {
+        // darkini: user khusus kehadiran seluruh badan usaha; uls_lead membawahi karyawan GMD (di luar cakupan ojan).
+        $darkini = $this->fixtureUser('darkini', 'COORDINATOR', $this->uls, $this->ulsLead, ['no_hp' => '081300000001']);
+        $this->actingAsApi($this->scopedAdmin);
+
+        foreach ([$darkini, $this->ulsLead] as $locked) {
+            $this->putJson('/api/v1/users/'.$locked->id, ['password' => 'takeover123'])->assertForbidden();
+            $this->putJson('/api/v1/users/'.$locked->id, ['no_hp' => '081311112222'])->assertForbidden();
+            $this->putJson('/api/v1/users/'.$locked->id, ['username' => 'ambil_alih_'.$locked->id])->assertForbidden();
+            $this->assertFalse(Hash::check('takeover123', (string) $locked->fresh()->password));
+
+            // Data lain, dan data login yang tidak berubah, tetap boleh dikirim.
+            $this->putJson('/api/v1/users/'.$locked->id, [
+                'nama_lengkap' => 'NAMA BARU '.$locked->id,
+                'username' => $locked->username,
+                'no_hp' => $locked->no_hp,
+                'password' => '',
+            ])->assertOk();
+            $this->assertSame('NAMA BARU '.$locked->id, $locked->fresh()->nama_lengkap);
+        }
+
+        $this->assertSame('081300000001', $darkini->fresh()->no_hp);
+
+        // Karyawan tanpa tim di luar cakupan tetap bisa diubah login-nya.
+        $this->putJson('/api/v1/users/'.$this->ulsStaff->id, ['password' => 'complete123', 'no_hp' => '081322223333'])->assertOk();
+        $this->assertTrue(Hash::check('complete123', (string) $this->ulsStaff->fresh()->password));
+
+        // Username user khusus kehadiran hanya boleh dipakai super admin.
+        $darkini->forceDelete();
+        $this->postJson('/api/v1/users', $this->newEmployeePayload('darkini', $this->uls))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('username');
+        $this->putJson('/api/v1/users/'.$this->ulsStaff->id, ['username' => 'Darkini'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('username');
+        $this->assertSame('uls_staff', $this->ulsStaff->fresh()->username);
+
+        $this->actingAsApi($this->superAdmin);
+        $this->putJson('/api/v1/users/'.$this->ulsLead->id, ['password' => 'reset12345'])->assertOk();
+        $this->assertTrue(Hash::check('reset12345', (string) $this->ulsLead->fresh()->password));
+        $this->postJson('/api/v1/users', $this->newEmployeePayload('darkini', $this->uls))->assertCreated();
     }
 
     private function actingAsApi(User $user): void

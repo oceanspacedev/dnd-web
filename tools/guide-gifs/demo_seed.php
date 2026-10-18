@@ -31,6 +31,7 @@ chdir($repo);
 require $repo.'/vendor/autoload.php';
 $app = require $repo.'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+require __DIR__.'/demo_db.php';
 
 // .env holds the real WhatsApp gateway: refuse unless env.sh pointed it at the local stub (setup-db.sh / reset.sh do).
 if (config('services.whatsapp.api_url') !== getenv('WAG_URL')
@@ -41,9 +42,9 @@ if (config('services.whatsapp.api_url') !== getenv('WAG_URL')
 
 $layer = $argv[1] ?? 'base';
 if ($layer === 'kpi') {
-    $db = config('database.connections.'.config('database.default').'.database');
-    if (! in_array($db, ['dnd_demo_kpimanajerial', 'dnd_demo_kpioperasional'], true)) {
-        fwrite(STDERR, "Refusing to seed the KPI layer: DB_DATABASE is not dnd_demo_kpimanajerial or dnd_demo_kpioperasional\n");
+    // Config, DB_URL and the live connection (select database()), see demo_db.php.
+    if (($problem = guideGifsDemoDatabaseProblem(['dnd_demo_kpimanajerial', 'dnd_demo_kpioperasional'])) !== null) {
+        fwrite(STDERR, "Refusing to seed the KPI layer: $problem\n");
         exit(1);
     }
     echo json_encode(seedKpiLayer(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE).PHP_EOL;
@@ -54,10 +55,15 @@ if ($layer !== 'base') {
     exit(2);
 }
 
-// migrate:fresh drops every table, so only ever run it on the demo database (a cached config would ignore DB_DATABASE).
+// migrate:fresh drops every table, so only ever run it on the demo database (a cached config would ignore DB_DATABASE,
+// a DB_URL would replace it when the connection opens: demo_db.php asks the live connection).
 if (config('database.connections.mysql.database') !== 'dnd_demo_panduan'
     || config('database.connections.'.config('database.default').'.database') !== 'dnd_demo_panduan') {
     fwrite(STDERR, "Refusing to seed: DB_DATABASE is not dnd_demo_panduan\n");
+    exit(1);
+}
+if (($problem = guideGifsDemoDatabaseProblem(['dnd_demo_panduan'])) !== null) {
+    fwrite(STDERR, "Refusing to seed: $problem\n");
     exit(1);
 }
 

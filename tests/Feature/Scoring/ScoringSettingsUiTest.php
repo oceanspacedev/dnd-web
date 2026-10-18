@@ -951,6 +951,68 @@ class ScoringSettingsUiTest extends TestCase
         $this->getJson('/api/v1/master/attendance-components?active=1')
             ->assertOk()
             ->assertJsonPath('meta.total', 6);
+
+        // Nilai boolean yang umum dikirim klien HTTP di query string.
+        $this->getJson('/api/v1/master/attendance-components?active=true')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 6);
+        $this->getJson('/api/v1/master/attendance-components?active=false')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.code', 'mangkir');
+    }
+
+    public function test_api_read_endpoints_return_validation_errors_in_the_api_envelope(): void
+    {
+        Sanctum::actingAs($this->staff);
+
+        $cases = [
+            '/api/v1/master/scoring-rules/resolve?periode=2026-9' => 'periode',
+            '/api/v1/master/attendance-components?active=maybe' => 'active',
+            '/api/v1/master/attendance-components?active[]=1' => 'active',
+            '/api/v1/activities/summary?user_id=abc' => 'user_id',
+        ];
+
+        foreach ($cases as $uri => $field) {
+            $this->getJson($uri)
+                ->assertUnprocessable()
+                ->assertJsonPath('success', false)
+                ->assertJsonPath('message', 'Validasi gagal.')
+                ->assertJsonValidationErrors($field);
+
+            // Tanpa header Accept: application/json tetap JSON 422 seperti FormRequest API lain (bukan redirect 302).
+            $this->get($uri)
+                ->assertUnprocessable()
+                ->assertJsonPath('success', false)
+                ->assertJsonValidationErrors($field);
+        }
+
+        $this->getJson('/api/v1/master/scoring-rules/resolve?periode=2026-9')
+            ->assertJsonPath('errors.periode.0', 'Periode harus berformat tahun-bulan YYYY-MM (mis. 2026-11).');
+    }
+
+    public function test_api_resolve_returns_the_same_rule_as_the_index(): void
+    {
+        $this->november->update(['notes' => 'Catatan internal versi November 2026.']);
+
+        foreach ([$this->superAdmin, $this->scopedAdmin, $this->staff] as $user) {
+            Sanctum::actingAs($user);
+            $this->resetAccessMemos();
+            $index = collect($this->getJson('/api/v1/master/scoring-rules')->assertOk()->json('data'))->keyBy('id');
+
+            foreach (['2026-10' => $this->legacy, '2026-11' => $this->november, '2027-03' => $this->november] as $periode => $rule) {
+                $resolved = $this->getJson('/api/v1/master/scoring-rules/resolve?periode='.$periode)->assertOk()->json('data');
+
+                // Versi tersimpan: isi sama persis dengan item index (notes untuk super admin, timestamp).
+                $this->assertSame($index->get($rule->id), $resolved, $user->username.' '.$periode);
+                $this->assertNotNull($resolved['created_at']);
+            }
+        }
+
+        Sanctum::actingAs($this->superAdmin);
+        $this->resetAccessMemos();
+        $this->getJson('/api/v1/master/scoring-rules/resolve?periode=2026-11')
+            ->assertJsonPath('data.notes', 'Catatan internal versi November 2026.');
     }
 
     public function test_review_max_points_cannot_be_below_the_reachable_review_points(): void

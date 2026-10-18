@@ -17,6 +17,7 @@ use App\Services\LeaderboardScoreService;
 use App\Services\PerformanceScoreCalculator;
 use App\Services\ScoringRuleService;
 use App\Support\Periode;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -228,30 +229,34 @@ class EmployeeReviewController extends Controller
         $this->authorize('view', new EmployeeReview(['user_id' => $userId]));
 
         $periode = $request->query('periode', Date::now()->format('Y-m'));
-        $parts = explode('-', $periode);
+        // Periode bulanan yang terbaca ('Y-m', 'Y-n', 'Y-m-d', ...) dalam bentuk 'Y-m'; null mis. bila hanya tahun.
+        $monthPeriode = Periode::normalize($periode);
+        $parts = explode('-', $monthPeriode ?? $periode);
         $year = (int) ($parts[0] ?? date('Y'));
         $month = isset($parts[1]) ? (int) $parts[1] : null;
 
-        // 1. Data periode (pencocokan LIKE prefix dipertahankan seperti sebelumnya).
+        // 1. Data periode. Periode bulanan dicocokkan persis dengan bentuk 'Y-m'-nya, seperti leaderboard (prefix
+        //    LIKE '2026-1%' akan memilih baris Oktober-Desember, masing-masing dengan aturannya sendiri, untuk
+        //    permintaan Januari). Selain itu (mis. hanya tahun) tetap LIKE prefix seperti sebelumnya.
         $kpiQuery = Kpi::where('user_id', $userId)->whereYear('date', $year)->with('kpi_detail.kpi_description');
         if ($month !== null) {
             $kpiQuery->whereMonth('date', $month);
         }
         $kpis = $kpiQuery->get();
 
-        $attendance = Attendance::where('user_id', $userId)
-            ->where('periode', 'like', "{$periode}%")
-            ->first();
+        $matchPeriode = fn (Builder $query): Builder => $monthPeriode !== null
+            ? $query->where('periode', $monthPeriode)
+            : $query->where('periode', 'like', "{$periode}%");
 
-        $review = EmployeeReview::where('user_id', $userId)
-            ->where('periode', 'like', "{$periode}%")
-            ->first();
+        $attendance = $matchPeriode(Attendance::where('user_id', $userId))->first();
+
+        $review = $matchPeriode(EmployeeReview::where('user_id', $userId))->first();
 
         // 2. Versi aturan periode yang diminta (dinormalisasi). Periode yang bukan 'Y-m' (mis. hanya tahun) memakai
         //    periode data terakhir, bukan tanggal hari ini: KPI dulu (agar bobot KPI tidak bergantung pada ada/tidaknya
         //    baris kehadiran), lalu kehadiran/penilaian; tanpa data => bulan berjalan. Tahun 'YYYY' menjepit hasilnya
         //    ke tahun itu. Kehadiran dan penilaian tetap memakai aturan periodenya sendiri (langkah 4 dan 5).
-        $rulePeriode = Periode::normalize($periode)
+        $rulePeriode = $monthPeriode
             ?? LeaderboardScoreService::dataRulePeriode(
                 [$kpis->pluck('date'), [$attendance?->periode, $review?->periode]],
                 is_string($periode) ? $periode : null,

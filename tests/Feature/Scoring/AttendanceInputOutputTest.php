@@ -13,6 +13,7 @@ use App\Models\Attendance;
 use App\Models\AttendanceComponent;
 use App\Models\User;
 use App\Services\ScoringRuleService;
+use App\Support\Scoring\AttendanceCountInput;
 use Database\Seeders\LoadTestSeeder;
 use Filament\Forms\Components\TextInput;
 use Illuminate\Database\Schema\Blueprint;
@@ -270,7 +271,11 @@ class AttendanceInputOutputTest extends TestCase
         $this->assertSame(['name' => 'Mangkir (tanpa keterangan)', 'unit' => 'hari', 'count' => 1], $data['components']['mangkir']);
         $this->assertSame(1, $data['components']['sick_days']['count']);
         $this->assertSame(0, $data['components']['cuti_lainnya']['count']);
-        $this->assertSame(['id', 'name', 'effective_from'], array_keys($data['scoring_rule']));
+        // Ringkasan aturan berbentuk sama dengan endpoint lain (LeaderboardScoreService::ruleSummary).
+        $this->assertSame(
+            ['id', 'name', 'effective_from', 'kpi_weight', 'attendance_weight', 'review_weight', 'review_max_points'],
+            array_keys($data['scoring_rule']),
+        );
         $this->assertSame('2026-11', $data['scoring_rule']['effective_from']);
         $this->assertSame('Aturan Kehadiran November 2026', $data['scoring_rule']['name']);
 
@@ -314,6 +319,43 @@ class AttendanceInputOutputTest extends TestCase
         $this->putJson('/api/v1/attendances/'.$attendance->id, ['work_days' => 20, 'sick_days' => 1])->assertOk();
         $this->assertSame(['cuti_tahunan' => 2, 'izin' => 2], $attendance->refresh()->component_counts);
         $this->assertSame(1, (int) $attendance->sick_days);
+    }
+
+    public function test_api_warns_when_components_scored_by_the_rule_of_the_periode_are_not_sent(): void
+    {
+        Sanctum::actingAs($this->admin);
+        $izinWarning = 'components.izin tidak dikirim sehingga Izin dihitung 0 untuk periode November 2026 (Penalti 5 poin/hari). '
+            .'Pada aturan periode ini sick_days hanya berisi sakit: kirim jumlah izin di components.izin.';
+        $mangkirWarning = 'components.mangkir tidak dikirim sehingga Mangkir (tanpa keterangan) dihitung 0 untuk periode November 2026 (Penalti 5 poin/hari).';
+
+        // Klien lama (hanya field lama) untuk periode aturan baru: tetap disimpan, tetapi diberi peringatan.
+        $response = $this->postJson('/api/v1/attendances', [
+            'user_id' => $this->alpha->id, 'periode' => '2026-11', 'work_days' => 22, 'sick_days' => 3,
+        ])->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('warnings', [$izinWarning, $mangkirWarning]);
+        $attendance = Attendance::query()->findOrFail($response->json('data.id'));
+
+        // Update yang tidak menyentuh hitungan atau periode: tanpa peringatan.
+        $this->putJson('/api/v1/attendances/'.$attendance->id, ['work_days' => 21])
+            ->assertOk()
+            ->assertJsonPath('warnings', []);
+        // Update hitungan lama: komponen bernilai 0 yang tidak dikirim disebut; yang tersimpan > 0 atau dikirim tidak.
+        $this->putJson('/api/v1/attendances/'.$attendance->id, ['sick_days' => 1, 'components' => ['izin' => 2]])
+            ->assertOk()
+            ->assertJsonPath('warnings', [$mangkirWarning]);
+        $this->putJson('/api/v1/attendances/'.$attendance->id, ['sick_days' => 1])
+            ->assertOk()
+            ->assertJsonPath('warnings', [$mangkirWarning]);
+
+        // Semua komponen yang dinilai dikirim (0 pun boleh), atau periode aturan lama: tanpa peringatan.
+        $this->postJson('/api/v1/attendances', [
+            'user_id' => $this->bravo->id, 'periode' => '2026-11', 'work_days' => 22, 'sick_days' => 1,
+            'components' => ['izin' => 0, 'mangkir' => 0],
+        ])->assertCreated()->assertJsonPath('warnings', []);
+        $this->postJson('/api/v1/attendances', [
+            'user_id' => $this->bravo->id, 'periode' => '2026-10', 'work_days' => 22, 'sick_days' => 3,
+        ])->assertCreated()->assertJsonPath('warnings', []);
     }
 
     public function test_api_validates_components_and_periode(): void
@@ -402,6 +444,117 @@ class AttendanceInputOutputTest extends TestCase
             ->assertJsonPath('data.0.components.izin.count', 0)
             ->assertJsonPath('data.0.late_less_30', 1)
             ->assertJsonPath('data.0.metrics.penalty_points', 1);
+    }
+
+    public function test_api_accepts_the_get_body_sent_back_to_put_and_post(): void
+    {
+        Sanctum::actingAs($this->admin);
+        $december = Attendance::query()->create([
+            'user_id' => $this->alpha->id,
+            'periode' => '2026-12',
+            'work_days' => 22,
+            'late_less_30' => 2,
+            'sick_days' => 1,
+            'component_counts' => ['izin' => 2],
+        ]);
+        // Aturan lama dengan izin tersimpan (tidak dinilai): echo izin 3 tidak boleh ditolak sebagai komponen tak dipakai.
+        $october = Attendance::query()->create([
+            'user_id' => $this->alpha->id,
+            'periode' => '2026-10',
+            'work_days' => 22,
+            'sick_days' => 1,
+            'component_counts' => ['izin' => 3],
+        ]);
+        $mangkirWarning = 'components.mangkir tidak dikirim sehingga Mangkir (tanpa keterangan) dihitung 0 untuk periode Desember 2026 (Penalti 5 poin/hari).';
+
+        // Klien yang mengubah satu field di salinan respons GET lalu mengirim semuanya balik (seperti di main).
+        $body = $this->getJson('/api/v1/attendances/'.$december->id)->assertOk()->json('data');
+        $this->assertSame(['name' => 'Izin', 'unit' => 'hari', 'count' => 2], $body['components']['izin']);
+        $body['work_days'] = 20;
+        $this->putJson('/api/v1/attendances/'.$december->id, $body)
+            ->assertOk()
+            ->assertJsonPath('data.work_days', 20)
+            ->assertJsonPath('data.components.izin.count', 2)
+            ->assertJsonPath('warnings', [$mangkirWarning]);
+        $december->refresh();
+        $this->assertSame([20, 2, 1], [(int) $december->work_days, (int) $december->late_less_30, (int) $december->sick_days]);
+        $this->assertSame(['izin' => 2], $december->component_counts);
+
+        $body = $this->getJson('/api/v1/attendances/'.$october->id)->assertOk()->json('data');
+        $body['sick_days'] = 2;
+        $this->putJson('/api/v1/attendances/'.$october->id, $body)
+            ->assertOk()
+            ->assertJsonPath('data.sick_days', 2)
+            ->assertJsonPath('warnings', []);
+        $this->assertSame(['izin' => 3], $october->refresh()->component_counts);
+
+        // Salinan components.izin bukan pemisahan Sakit/Izin yang disengaja: pindah ke aturan baru tetap ditolak.
+        $body['periode'] = '2026-11';
+        $this->putJson('/api/v1/attendances/'.$october->id, $body)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['periode']);
+        $this->assertSame('2026-10', $october->refresh()->periode);
+
+        // Count yang diubah di salinan respons tidak dipakai (bentuk input = angka), tetapi disebut di warnings.
+        $body = $this->getJson('/api/v1/attendances/'.$december->id)->assertOk()->json('data');
+        $body['components']['izin']['count'] = 5;
+        $this->putJson('/api/v1/attendances/'.$december->id, $body)
+            ->assertOk()
+            ->assertJsonPath('data.components.izin.count', 2)
+            ->assertJsonPath('warnings', [
+                'components.izin dikirim sebagai objek (bentuk respons GET) sehingga diabaikan; tersimpan 2. Kirim jumlahnya sebagai angka: "components": {"izin": 5}.',
+                $mangkirWarning,
+            ]);
+
+        // Entri angka tetap dipakai walau entri lain berbentuk objek.
+        $body['components']['mangkir'] = 1;
+        $this->putJson('/api/v1/attendances/'.$december->id, $body)
+            ->assertOk()
+            ->assertJsonPath('data.components.mangkir.count', 1);
+        $this->assertSame(['izin' => 2, 'mangkir' => 1], $december->refresh()->component_counts);
+
+        // Body GET dipakai ulang untuk data baru (POST): tidak ada hitungan tersimpan yang bisa menggantikan
+        // komponen berbentuk objek, jadi ditolak (422) alih-alih izin/mangkir tersimpan 0 diam-diam.
+        $body = $this->getJson('/api/v1/attendances/'.$december->id)->assertOk()->json('data');
+        $this->postJson('/api/v1/attendances', ['user_id' => $this->bravo->id] + $body)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['components.izin']);
+        $this->assertFalse(Attendance::query()->where('user_id', $this->bravo->id)->where('periode', $december->periode)->exists());
+
+        // Objek tanpa count bukan salinan respons: tetap ditolak seperti nilai bukan angka lainnya.
+        $this->putJson('/api/v1/attendances/'.$december->id, ['components' => ['izin' => ['jumlah' => 1]]])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['components.izin']);
+    }
+
+    public function test_api_update_accepts_the_unchanged_stored_periode_of_junk_rows(): void
+    {
+        Sanctum::actingAs($this->admin);
+        $payload = ['work_days' => 3, 'late_less_30' => 0, 'late_more_30' => 0, 'sick_days' => 0];
+
+        foreach (['1900-01' => $this->alpha, '1970-01' => $this->bravo] as $periode => $user) {
+            $junk = Attendance::query()->create(['user_id' => $user->id, 'periode' => $periode, 'work_days' => 20]);
+
+            // Form yang selalu mengirim periode: periode tersimpan yang tidak diubah sama dengan tidak dikirim.
+            $this->putJson('/api/v1/attendances/'.$junk->id, ['periode' => $periode] + $payload)
+                ->assertOk()
+                ->assertJsonPath('data.periode', $periode)
+                ->assertJsonPath('data.work_days', 3);
+            $body = $this->getJson('/api/v1/attendances/'.$junk->id)->assertOk()->json('data');
+            $body['work_days'] = 4;
+            $this->putJson('/api/v1/attendances/'.$junk->id, $body)->assertOk()->assertJsonPath('data.work_days', 4);
+            $this->assertSame($periode, $junk->refresh()->periode);
+
+            // Mengganti periode ke nilai di luar rentang tetap ditolak; ke periode valid diterima.
+            $other = $periode === '1900-01' ? '1970-01' : '1900-01';
+            $this->putJson('/api/v1/attendances/'.$junk->id, ['periode' => $other] + $payload)
+                ->assertStatus(422)
+                ->assertJsonPath('success', false)
+                ->assertJsonValidationErrors(['periode']);
+            $this->putJson('/api/v1/attendances/'.$junk->id, ['periode' => '2026-01'] + $payload)
+                ->assertOk()
+                ->assertJsonPath('data.periode', '2026-01');
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -947,7 +1100,8 @@ class AttendanceInputOutputTest extends TestCase
 
         $this->postJson('/api/v1/attendances', $payload + ['late_less_30' => 3000000000])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['late_less_30']);
+            ->assertJsonValidationErrors(['late_less_30'])
+            ->assertJsonPath('errors.late_less_30.0', 'late_less_30 maksimal '.AttendanceCountInput::MAX_COUNT.'.');
         $this->postJson('/api/v1/attendances', $payload + ['components' => ['izin' => 1000]])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['components.izin']);
@@ -992,6 +1146,24 @@ class AttendanceInputOutputTest extends TestCase
             $withCounts->flatMap(fn (Attendance $attendance): array => array_keys($attendance->component_counts))->unique()->all(),
             ['izin', 'mangkir', 'cuti_tahunan', 'cuti_lainnya'],
         ));
+    }
+
+    public function test_load_test_seeder_only_fills_components_the_current_month_rule_uses(): void
+    {
+        // Oktober 2026 memakai aturan lama: izin, mangkir, dan cuti belum dipakai, sehingga form, import, dan API
+        // menolak hitungannya. Seeder tidak boleh membuat data yang ditolak aplikasinya sendiri.
+        $this->travelTo(Date::create(2026, 10, 18, 9));
+
+        $this->seed(LoadTestSeeder::class);
+
+        $rule = ScoringRuleService::forPeriode('2026-10');
+        $attendances = Attendance::query()->where('periode', '2026-10')->get();
+        $this->assertGreaterThan(80, $attendances->count());
+        $this->assertTrue($attendances->every(fn (Attendance $attendance): bool => $attendance->component_counts === null));
+        $this->assertTrue($attendances->every(
+            fn (Attendance $attendance): bool => AttendanceCountInput::unusedCodes($attendance->componentCounts(), $rule) === [],
+        ));
+        $this->assertTrue($attendances->contains(fn (Attendance $attendance): bool => $attendance->sick_days > 0));
     }
 
     /**

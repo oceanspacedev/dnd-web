@@ -21,8 +21,11 @@ use Maatwebsite\Excel\Events\AfterSheet;
  * "Sakit or Izin" menjadi "Sakit" karena sejak November 2026 izin punya kolom sendiri. Lalu satu kolom per
  * komponen kehadiran lain berjudul "Nama [kode]" (AttendanceCountInput::exportComponents(), termasuk komponen
  * nonaktif agar tidak ada hitungan yang hilang). Susunan kolomnya dikenali AttendanceImport, sehingga file
- * hasil export bisa diimport kembali. Nilai 0 ditulis sebagai 0, bukan sel kosong (WithStrictNullComparison), agar
- * isi file sama dengan tabel Kehadiran dan Hari Kerja 0 tidak terbaca sebagai baris template yang belum diisi.
+ * hasil export bisa diimport kembali (data yang masih ada dilaporkan "sudah ada", tidak ditimpa). Pengecualian:
+ * baris Hari Kerja 0, yang hanya bisa dibuat lewat API; import (seperti form Kehadiran) hanya menerima Hari Kerja
+ * 1-31, jadi baris itu dilewati dengan alasannya bila datanya sudah tidak ada. Nilai 0 ditulis sebagai 0, bukan sel
+ * kosong (WithStrictNullComparison), agar isi file sama dengan tabel Kehadiran dan Hari Kerja 0 tidak terbaca sebagai
+ * baris template yang belum diisi.
  */
 class AttendanceExport implements FromCollection, ShouldAutoSize, WithEvents, WithHeadings, WithMapping, WithStrictNullComparison, WithTitle
 {

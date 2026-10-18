@@ -421,11 +421,79 @@ class ScoreSurfacesTest extends TestCase
         $this->assertEqualsWithDelta(16.0, $december['review']['weighted_score_15pct'], self::DELTA);
         $this->assertEqualsWithDelta(33.6, $december['total_performance']['final_score_100pct'], self::DELTA);
 
-        // Periode tidak berbentuk 'Y-m' (mis. '2026-1') dinormalisasi untuk memilih aturan; pencocokan data tetap LIKE.
+        // Periode tidak berbentuk 'Y-m' (mis. '2026-1') dinormalisasi untuk memilih aturan dan mencocokkan data:
+        // Januari 2026 tidak punya data kehadiran/penilaian (LIKE '2026-1%' dulu memilih baris Oktober-Desember).
         $this->getJson('/api/v1/evaluations/user/'.$this->alpha->id.'/score?periode=2026-1')
             ->assertOk()
             ->assertJsonPath('data.periode', '2026-1')
-            ->assertJsonPath('data.scoring_rule.name', 'Aturan Lama');
+            ->assertJsonPath('data.scoring_rule.name', 'Aturan Lama')
+            ->assertJsonPath('data.attendance.has_data', false)
+            ->assertJsonPath('data.attendance.penalty_points', 0)
+            ->assertJsonPath('data.review.has_data', false);
+    }
+
+    public function test_integrated_evaluation_score_matches_the_normalized_month_instead_of_a_like_prefix(): void
+    {
+        Sanctum::actingAs($this->boss);
+        // Januari 2026 (aturan lama): telat ≤30 2 dan sakit 1 => dasar 85%, penalti 2 + 5 = 7 => 78%.
+        $this->attendance($this->alpha, '2026-01', [20, 2, 0, 1], null);
+        $this->review($this->alpha, '2026-01', 2);
+        $this->kpi($this->alpha, '2026-01-12 10:00:00', [0.5]);
+
+        foreach (['2026-1', '2026-01', '2026-01-15'] as $periode) {
+            $data = $this->getJson('/api/v1/evaluations/user/'.$this->alpha->id.'/score?periode='.$periode)
+                ->assertOk()
+                ->assertJsonPath('data.periode', $periode)
+                ->assertJsonPath('data.scoring_rule.name', 'Aturan Lama')
+                ->assertJsonPath('data.kpi.kpis_count', 1)
+                ->assertJsonPath('data.attendance.has_data', true)
+                ->assertJsonPath('data.attendance.work_days', 20)
+                ->assertJsonPath('data.attendance.penalty_points', 7)
+                ->assertJsonPath('data.review.has_data', true)
+                ->assertJsonPath('data.review.total_points', 8)
+                ->json('data');
+            $this->assertEqualsWithDelta(78.0, $data['attendance']['achievement_pct'], self::DELTA, $periode);
+            $this->assertEqualsWithDelta(11.7, $data['attendance']['weighted_score_15pct'], self::DELTA, $periode);
+        }
+
+        // Periode hanya tahun tetap dicocokkan dengan prefix (perilaku lama).
+        $this->getJson('/api/v1/evaluations/user/'.$this->alpha->id.'/score?periode=2026')
+            ->assertOk()
+            ->assertJsonPath('data.attendance.has_data', true)
+            ->assertJsonPath('data.review.has_data', true);
+    }
+
+    public function test_fractional_penalties_are_rounded_in_api_responses(): void
+    {
+        Sanctum::actingAs($this->boss);
+        ScoringRule::query()->create([
+            'name' => 'Aturan Uji Penalti Pecahan',
+            'effective_from' => '2027-01',
+            'kpi_weight' => 70,
+            'attendance_weight' => 15,
+            'review_weight' => 15,
+            'review_max_points' => 20,
+            'attendance_rules' => [
+                ['component' => 'late_less_30', 'reduces_base' => true, 'penalty_points' => 0.1],
+                ['component' => 'late_more_30', 'reduces_base' => true, 'penalty_points' => 0.2],
+                ['component' => 'sick_days', 'reduces_base' => true, 'penalty_points' => 0],
+            ],
+        ]);
+        // Dasar (20 - 2) / 20 = 90%, penalti 0,1 + 0,2 (floating point: 0.30000000000000004) => 89,7%.
+        $this->attendance($this->bravo, '2027-01', [20, 1, 1, 0], null);
+        $attendanceId = (int) Attendance::query()->where('user_id', $this->bravo->id)->where('periode', '2027-01')->value('id');
+
+        $detail = $this->getJson('/api/v1/attendances/'.$attendanceId)
+            ->assertOk()
+            ->assertJsonPath('data.metrics.final_achievement_pct', 89.7);
+        $this->assertStringContainsString('"penalty_points":0.3,', $detail->getContent());
+        $this->assertSame(0.3, $detail->json('data.metrics.penalty_points'));
+
+        $evaluation = $this->getJson('/api/v1/evaluations/user/'.$this->bravo->id.'/score?periode=2027-01')
+            ->assertOk()
+            ->assertJsonPath('data.attendance.achievement_pct', 89.7);
+        $this->assertStringContainsString('"penalty_points":0.3}', $evaluation->getContent());
+        $this->assertSame(0.3, $evaluation->json('data.attendance.penalty_points'));
     }
 
     public function test_employee_review_resource_uses_scale_and_weight_of_its_own_periode_without_per_row_queries(): void
@@ -459,6 +527,44 @@ class ScoreSurfacesTest extends TestCase
             $this->assertEqualsWithDelta(9.0, $data[2]['metrics']['review_score_15pct'], self::DELTA);
         });
         $this->assertSame(1, $this->countQueriesOn($queries, 'scoring_rules'));
+    }
+
+    /**
+     * Kunci 'scoring_rule' punya satu bentuk di semua endpoint (LeaderboardScoreService::ruleSummary), dan semua
+     * kuncinya juga ada dengan nilai yang sama di resource master /master/scoring-rules/resolve.
+     */
+    public function test_every_scoring_rule_summary_has_one_shape_that_matches_the_master_resource(): void
+    {
+        $this->createCustomVersion();
+        Sanctum::actingAs($this->boss);
+        $keys = ['id', 'name', 'effective_from', 'kpi_weight', 'attendance_weight', 'review_weight', 'review_max_points'];
+
+        foreach (['2026-10', '2026-11', '2026-12'] as $periode) {
+            [$year, $month] = explode('-', $periode);
+            $attendanceId = Attendance::query()->where('user_id', $this->alpha->id)->where('periode', $periode)->value('id');
+            $summaries = [
+                'attendance' => $this->getJson('/api/v1/attendances/'.$attendanceId)->assertOk()->json('data.scoring_rule'),
+                'review' => $this->getJson('/api/v1/employee-reviews/'.$this->alphaReviewIds[$periode])->assertOk()->json('data.scoring_rule'),
+                'evaluation' => $this->getJson('/api/v1/evaluations/user/'.$this->alpha->id.'/score?periode='.$periode)->assertOk()->json('data.scoring_rule'),
+                'kpi_summary' => $this->getJson('/api/v1/kpis/user/'.$this->alpha->id.'/summary?year='.$year.'&month='.((int) $month))->assertOk()->json('data.scoring_rule'),
+                'kpi_checklist' => $this->getJson('/api/v1/analytics/kpi-checklist?user_id='.$this->alpha->id.'&periode='.$periode)->assertOk()->json('scoring_rule'),
+            ];
+            $master = $this->getJson('/api/v1/master/scoring-rules/resolve?periode='.$periode)->assertOk()->json('data');
+            $expected = array_intersect_key($master, array_flip($keys));
+
+            $this->assertSame($keys, array_keys($expected), $periode);
+            $this->assertSame($this->ruleId($periode === '2026-10' ? '2000-01' : $periode), $expected['id'], $periode);
+
+            foreach ($summaries as $surface => $summary) {
+                $this->assertSame($keys, array_keys($summary), $surface.' '.$periode);
+                $this->assertEquals($expected, $summary, $surface.' '.$periode);
+            }
+        }
+
+        // Review tetap mengirim scoring_rule_id lama.
+        $this->getJson('/api/v1/employee-reviews/'.$this->alphaReviewIds['2026-12'])
+            ->assertJsonPath('data.scoring_rule_id', $this->ruleId('2026-12'))
+            ->assertJsonPath('data.scoring_rule.kpi_weight', 60);
     }
 
     public function test_kpi_summary_and_checklist_use_the_kpi_weight_of_the_requested_periode(): void

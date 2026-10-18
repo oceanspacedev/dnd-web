@@ -58,6 +58,22 @@ class DataAccessService
     }
 
     /**
+     * Ada super admin lain selain $user. Minimal satu super admin harus tersisa: hanya super admin yang bisa memberi
+     * role ADMIN / akses seluruh badan usaha dan membuka pengaturan penilaian. Dipakai form Karyawan, API, dan import
+     * Excel sebelum role ADMIN super admin dilepas.
+     */
+    public static function anotherGlobalAdminExists(User $user): bool
+    {
+        return User::query()
+            ->whereKeyNot($user->getKey())
+            ->whereHas('role', fn (Builder $roleQuery) => $roleQuery->where('name', User::ROLE_ADMIN))
+            ->where(fn (Builder $access) => $access
+                ->whereNull('data_access')
+                ->orWhere('data_access', '!=', User::DATA_ACCESS_SELECTED))
+            ->exists();
+    }
+
+    /**
      * ADMIN yang dibatasi ke badan usaha tertentu.
      */
     public static function isAreaScopedAdmin(?User $user): bool
@@ -192,6 +208,50 @@ class DataAccessService
     }
 
     /**
+     * Seluruh anggota tim approval target (bawahan langsung + satu level) terlihat oleh actor.
+     * Bila tidak, akun target menjangkau karyawan di luar cakupan actor, jadi actor tidak boleh
+     * mengambil alih akun tersebut (mis. mengubah data login-nya).
+     */
+    public static function coversTeamOf(?User $actor, User|int $target): bool
+    {
+        if (self::hasGlobalAccess($actor)) {
+            return true;
+        }
+
+        $teamIds = ApprovalScopeService::getManagedUserIdsOneLevelDown($target instanceof User ? (int) $target->getKey() : $target);
+
+        if ($teamIds === []) {
+            return true;
+        }
+
+        if (! $actor instanceof User) {
+            return false;
+        }
+
+        // Anggota tim target yang juga tim actor atau actor sendiri tetap terlihat; sisanya harus di badan usaha actor.
+        $outsideActorTeam = array_diff(
+            $teamIds,
+            ApprovalScopeService::getManagedUserIdsOneLevelDown((int) $actor->getKey()),
+            [(int) $actor->getKey()],
+        );
+
+        if ($outsideActorTeam === []) {
+            return true;
+        }
+
+        $allowedAreaIds = self::allowedAreaIds($actor);
+
+        if ($allowedAreaIds === []) {
+            return false;
+        }
+
+        return ! DB::table('users')
+            ->whereIn('id', $outsideActorTeam)
+            ->where(fn (QueryBuilder $area) => $area->whereNull('area_id')->orWhereNotIn('area_id', $allowedAreaIds))
+            ->exists();
+    }
+
+    /**
      * Batasi query tabel users ke karyawan di badan usaha actor (menu Karyawan).
      *
      * @template TModel of \Illuminate\Database\Eloquent\Model
@@ -255,6 +315,57 @@ class DataAccessService
                 $scoped->orWhere($column, $actorId);
             }
         });
+    }
+
+    /**
+     * Batasi query tabel users ke karyawan yang datanya boleh diubah actor (sama dengan canWriteForUser):
+     * scopeOwnedRecords, tanpa akun ADMIN lain untuk admin badan usaha tertentu. Pakai untuk target
+     * pembuatan data (mis. KPI per posisi, copy KPI), bukan untuk daftar yang hanya dibaca.
+     *
+     * @param  Builder<User>  $usersQuery
+     * @return Builder<User>
+     */
+    public static function scopeWritableUsers(Builder $usersQuery, ?User $actor, bool $includeTeam = true, bool $includeSelf = true): Builder
+    {
+        $column = $usersQuery->qualifyColumn('id');
+        self::scopeOwnedRecords($usersQuery, $actor, $column, $includeTeam, $includeSelf);
+
+        if (! self::isAreaScopedAdmin($actor)) {
+            return $usersQuery;
+        }
+
+        // Akun dirinya sendiri tetap boleh bila sudah termasuk cakupan di atas (sama dengan canWriteForUser).
+        return $usersQuery->where(fn (Builder $writable) => $writable
+            ->whereDoesntHave('role', fn (Builder $role) => $role->where('name', User::ROLE_ADMIN))
+            ->orWhere($column, (int) $actor->getKey()));
+    }
+
+    /**
+     * Id user yang datanya boleh diubah actor (canWriteForUser), untuk validasi target. null = semua user.
+     *
+     * @return array<int>|null
+     */
+    public static function writableUserIds(?User $actor, bool $includeTeam = true, bool $includeSelf = true): ?array
+    {
+        $ids = self::visibleUserIds($actor, $includeTeam, $includeSelf);
+
+        if ($ids === null || $ids === [] || ! self::isAreaScopedAdmin($actor)) {
+            return $ids;
+        }
+
+        $actorId = (int) $actor->getKey();
+        $adminIds = DB::table('users')
+            ->join('roles', 'roles.id', '=', 'users.role_id')
+            ->whereIn('users.id', $ids)
+            ->where('roles.name', User::ROLE_ADMIN)
+            ->pluck('users.id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        return array_values(array_filter(
+            $ids,
+            static fn (int $id): bool => $id === $actorId || ! in_array($id, $adminIds, true),
+        ));
     }
 
     /**

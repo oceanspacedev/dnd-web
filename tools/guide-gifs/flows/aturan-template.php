@@ -22,10 +22,16 @@ chdir($repo);
 require $repo.'/vendor/autoload.php';
 $app = require $repo.'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+require dirname(__DIR__).'/demo_db.php';
 
-// The template lists every employee: with a cached config DB_DATABASE is ignored and real names would end up in the GIF.
+// The template lists every employee: with a cached config DB_DATABASE is ignored, and a DB_URL would replace it when the
+// connection opens, so real names would end up in the GIF. demo_db.php checks the config, DB_URL and the live connection.
 if (config('database.connections.'.config('database.default').'.database') !== 'dnd_demo_aturan') {
     fwrite(STDERR, "refusing: app is not connected to dnd_demo_aturan\n");
+    exit(1);
+}
+if (($problem = guideGifsDemoDatabaseProblem(['dnd_demo_aturan'])) !== null) {
+    fwrite(STDERR, "refusing: $problem\n");
     exit(1);
 }
 if (config('services.whatsapp.api_url') !== getenv('WAG_URL')

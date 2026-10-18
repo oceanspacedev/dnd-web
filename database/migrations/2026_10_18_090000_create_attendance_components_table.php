@@ -101,8 +101,9 @@ return new class extends Migration
             ]);
         }
 
-        // 2. Hitungan komponen tanpa kolom lama, mis. {"izin": 1, "mangkir": 0}.
-        if (Schema::hasTable('attendances') && ! Schema::hasColumn('attendances', 'component_counts')) {
+        // 2. Hitungan komponen tanpa kolom lama, mis. {"izin": 1, "mangkir": 0}. Hanya dijaga hasColumn: saat
+        // `migrate --pretend` introspeksi schema selalu kosong, sehingga ALTER ini tetap tampil di pratinjau.
+        if (! Schema::hasColumn('attendances', 'component_counts')) {
             Schema::table('attendances', function (Blueprint $table) {
                 $table->json('component_counts')->nullable()->after('sick_days');
             });
@@ -114,7 +115,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'component_counts')) {
+        // Saat `migrate:rollback --pretend` introspeksi schema selalu kosong; tampilkan DROP kolomnya di pratinjau.
+        if (DB::pretending() || Schema::hasColumn('attendances', 'component_counts')) {
             Schema::table('attendances', function (Blueprint $table) {
                 $table->dropColumn('component_counts');
             });

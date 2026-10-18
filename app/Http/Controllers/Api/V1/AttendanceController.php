@@ -90,6 +90,13 @@ class AttendanceController extends Controller
 
     /**
      * Store a new attendance record.
+     *
+     * - periode: 'Y-m' (juga diterima 'Y-n', 'Y-m-d', dan tanggal-jam ISO-8601, dinormalisasi ke 'Y-m'), tahun 2000-2100.
+     * - work_days: 0-31; late_less_30 / late_more_30 / sick_days: 0-999 (null = 0).
+     * - components: objek opsional {kode: jumlah 0-999} untuk kode di /master/attendance-components. Entri berbentuk
+     *   objek seperti di respons ({name, unit, count}) diabaikan, sehingga body GET bisa dikirim ulang.
+     * - Sejak November 2026 sick_days hanya berisi sakit; izin dikirim di components.izin. Komponen yang dinilai
+     *   aturan periode tetapi tidak dikirim disebut di 'warnings' (data tetap disimpan).
      */
     public function store(StoreAttendanceRequest $request): JsonResponse
     {
@@ -123,11 +130,17 @@ class AttendanceController extends Controller
             'success' => true,
             'message' => 'Data presensi berhasil dicatat.',
             'data' => new AttendanceResource($attendance),
+            // Komponen yang dinilai aturan periode ini tetapi tidak dikirim (dihitung 0); data tetap disimpan.
+            'warnings' => $request->countWarnings($attendance),
         ], 201);
     }
 
     /**
      * Update an attendance record.
+     *
+     * Field sama dengan store (semua opsional). Periode tersimpan yang dikirim balik tanpa diubah tidak diperiksa
+     * ulang (data lama dengan periode di luar rentang tetap bisa dikoreksi); mengganti periode ke nilai tidak valid
+     * ditolak (422).
      */
     public function update(UpdateAttendanceRequest $request, int $id): JsonResponse
     {
@@ -167,6 +180,7 @@ class AttendanceController extends Controller
             'success' => true,
             'message' => 'Data presensi berhasil diperbarui.',
             'data' => new AttendanceResource($attendance),
+            'warnings' => $request->countWarnings($attendance),
         ]);
     }
 

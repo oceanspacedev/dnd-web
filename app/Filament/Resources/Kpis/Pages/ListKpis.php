@@ -217,14 +217,15 @@ class ListKpis extends ListRecords
                                         if (DataAccessService::hasGlobalAccess($actor)) {
                                             $positions = Position::with('user')->get();
                                         } elseif (DataAccessService::isAreaScopedAdmin($actor)) {
-                                            // Hanya karyawan yang terlihat oleh admin badan usaha tertentu.
+                                            // Copy per posisi menulis KPI pemiliknya sendiri: hanya karyawan yang boleh
+                                            // diubah datanya oleh admin badan usaha tertentu (tanpa akun ADMIN lain).
                                             $positions = Position::with([
                                                 'user' => function ($q) use ($actor) {
-                                                    DataAccessService::scopeOwnedRecords($q->getQuery(), $actor, 'users.id');
+                                                    DataAccessService::scopeWritableUsers($q->getQuery(), $actor);
                                                 },
                                             ])
                                                 ->whereHas('user', function ($q) use ($actor) {
-                                                    DataAccessService::scopeOwnedRecords($q, $actor, 'users.id');
+                                                    DataAccessService::scopeWritableUsers($q, $actor);
                                                 })
                                                 ->get();
                                         } else {
@@ -270,7 +271,7 @@ class ListKpis extends ListRecords
                                     ->searchable()
                                     ->multiple()
                                     ->preload()
-                                    ->options(fn (): array => static::copyUserOptions())
+                                    ->options(fn (): array => static::copyUserOptions(forWriting: true))
                                     ->visible(fn ($get) => $get('copy_mode') === 'individual')
                                     ->required(fn ($get) => $get('copy_mode') === 'individual'),
 
@@ -310,13 +311,18 @@ class ListKpis extends ListRecords
                             $copyMode = $data['copy_mode'];
                             $actor = auth()->user();
                             // Hanya super admin yang tidak dibatasi; id dari form selalu divalidasi ulang di sini.
+                            // Sumber cukup terlihat; target (dan pemilik pada copy per posisi) harus boleh diubah:
+                            // admin badan usaha tertentu tidak menulis KPI akun ADMIN lain (KpiPolicy).
                             $hasGlobalAccess = DataAccessService::hasGlobalAccess($actor);
                             $allowedUserIds = [];
+                            $writableUserIds = [];
 
                             if (DataAccessService::isAreaScopedAdmin($actor)) {
                                 $allowedUserIds = DataAccessService::visibleUserIds($actor) ?? [];
+                                $writableUserIds = DataAccessService::writableUserIds($actor) ?? [];
                             } elseif (! $hasGlobalAccess) {
                                 $allowedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
+                                $writableUserIds = $allowedUserIds;
                             }
 
                             $copiedCount = 0;
@@ -326,7 +332,7 @@ class ListKpis extends ListRecords
                                 // Copy berdasarkan posisi (logika lama)
                                 $usersQuery = User::where('position_id', $data['position']);
                                 if (! $hasGlobalAccess) {
-                                    $usersQuery->whereIn('id', $allowedUserIds);
+                                    $usersQuery->whereIn('id', $writableUserIds);
                                 }
                                 $users = $usersQuery->pluck('id');
 
@@ -375,8 +381,9 @@ class ListKpis extends ListRecords
 
                                 if (! $hasGlobalAccess) {
                                     $allowedSet = array_fill_keys($allowedUserIds, true);
+                                    $writableSet = array_fill_keys($writableUserIds, true);
                                     $sourceUsers = $sourceUsers->filter(static fn ($id) => isset($allowedSet[$id]));
-                                    $targetUsers = $targetUsers->filter(static fn ($id) => isset($allowedSet[$id]));
+                                    $targetUsers = $targetUsers->filter(static fn ($id) => isset($writableSet[$id]));
                                 }
 
                                 $sourceUsers = $sourceUsers->unique()->values()->all();
@@ -546,11 +553,12 @@ class ListKpis extends ListRecords
     }
 
     /**
-     * Opsi user untuk Copy KPI (sumber dan target).
+     * Opsi user untuk Copy KPI. Sumber: user yang terlihat; target ($forWriting): user yang KPI-nya boleh
+     * dibuat actor, jadi admin badan usaha tertentu tidak mendapat akun ADMIN lain.
      *
      * @return array<int, string>
      */
-    protected static function copyUserOptions(): array
+    protected static function copyUserOptions(bool $forWriting = false): array
     {
         $options = [];
         $actor = auth()->user();
@@ -558,7 +566,9 @@ class ListKpis extends ListRecords
         if (DataAccessService::hasGlobalAccess($actor)) {
             $users = User::all();
         } elseif (DataAccessService::isAreaScopedAdmin($actor)) {
-            $users = static::visibleUsersQuery()->get();
+            $users = $forWriting
+                ? DataAccessService::scopeWritableUsers(User::query(), $actor)->get()
+                : static::visibleUsersQuery()->get();
         } else {
             $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
             if ($managedUserIds === []) {

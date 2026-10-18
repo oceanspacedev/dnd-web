@@ -39,12 +39,16 @@ final readonly class AttendanceScore
     }
 
     /**
-     * Penalti sebagai int bila bilangan bulat (bentuk JSON lama, mis. 10 bukan 10.0).
+     * Penalti untuk ditampilkan (API, export): dibulatkan 2 desimal seperti metrik lain, agar penalti pecahan tidak
+     * membawa sisa floating point (0.1 + 0.2 = 0.30000000000000004), dan int bila bilangan bulat (bentuk JSON lama,
+     * mis. 10 bukan 10.0). finalPct dan score tetap dihitung dari penalti yang belum dibulatkan.
      */
     public function penaltyPointsNumber(): int|float
     {
-        return floor($this->penaltyPoints) === $this->penaltyPoints && abs($this->penaltyPoints) < PHP_INT_MAX
-            ? (int) $this->penaltyPoints
-            : $this->penaltyPoints;
+        $penalty = round($this->penaltyPoints, 2);
+
+        return floor($penalty) === $penalty && abs($penalty) < PHP_INT_MAX
+            ? (int) $penalty
+            : $penalty;
     }
 }

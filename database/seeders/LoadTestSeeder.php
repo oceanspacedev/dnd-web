@@ -14,6 +14,7 @@ use App\Models\KpiType;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\WorkJournal;
+use App\Services\ScoringRuleService;
 use App\Support\Scoring\AttendanceCountInput;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Date;
@@ -129,6 +130,7 @@ class LoadTestSeeder extends Seeder
         $typeId = (int) (KpiType::query()->orderBy('id')->skip(2)->value('id') ?: KpiType::query()->value('id'));
         $period = Date::now()->format('Y-m');
         $periodStart = Date::now()->startOfMonth();
+        $periodRule = ScoringRuleService::forPeriode($period);
         $users = User::query()
             ->where(function ($query): void {
                 $query->where('username', 'admin')
@@ -172,13 +174,15 @@ class LoadTestSeeder extends Seeder
                     'late_less_30' => $user->id % 4,
                     'late_more_30' => $user->id % 3,
                     'sick_days' => $user->id % 2,
-                ] + AttendanceCountInput::attributes([
-                    // Komponen tanpa kolom lama (component_counts) agar uji beban ikut membaca JSON hitungan.
+                ] + AttendanceCountInput::attributes(array_filter([
+                    // Komponen tanpa kolom lama (component_counts) agar uji beban ikut membaca JSON hitungan. Hanya
+                    // komponen yang dipakai aturan periode ini, seperti yang diterima form, import, dan API
+                    // (sebelum November 2026 aturan lama tidak memakainya, jadi component_counts tetap kosong).
                     'izin' => $user->id % 5 === 0 ? 1 : 0,
                     'mangkir' => $user->id % 7 === 0 ? 1 : 0,
                     'cuti_tahunan' => $user->id % 3 === 0 ? 2 : 0,
                     'cuti_lainnya' => $user->id % 11 === 0 ? 1 : 0,
-                ]),
+                ], static fn (string $code): bool => AttendanceCountInput::isUsedBy($code, $periodRule), ARRAY_FILTER_USE_KEY)),
             );
 
             EmployeeReview::query()->firstOrCreate(

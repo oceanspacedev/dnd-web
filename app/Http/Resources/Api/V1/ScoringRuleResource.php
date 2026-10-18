@@ -12,9 +12,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Satu versi aturan penilaian kinerja. Menerima model ScoringRule (daftar versi) atau ScoringRuleData
- * hasil ScoringRuleService::forPeriode() (resolve; id null = aturan lama tertanam di kode).
- * Kunci notes hanya ada untuk super admin (DataAccessService::hasGlobalAccess).
+ * Satu versi aturan penilaian kinerja. Menerima model ScoringRule (daftar versi dan resolve untuk versi
+ * tersimpan) atau ScoringRuleData (resolve untuk aturan lama tertanam di kode, id null; tanpa notes/timestamp).
+ * Kunci notes hanya ada untuk super admin (DataAccessService::hasGlobalAccess). Semua kunci ringkasan
+ * 'scoring_rule' endpoint lain (LeaderboardScoreService::ruleSummary) juga ada di sini dengan bentuk yang sama.
  *
  * @property ScoringRule|ScoringRuleData $resource
  */
@@ -59,6 +60,11 @@ class ScoringRuleResource extends JsonResource
                 'attendance' => $rule->attendanceWeight,
                 'review' => $rule->reviewWeight,
             ],
+            // Bobot datar seperti ringkasan 'scoring_rule' di endpoint lain (LeaderboardScoreService::ruleSummary),
+            // agar satu model klien bisa membaca ringkasan maupun resource lengkap ini.
+            'kpi_weight' => $rule->kpiWeight,
+            'attendance_weight' => $rule->attendanceWeight,
+            'review_weight' => $rule->reviewWeight,
             'review_max_points' => $rule->reviewMaxPoints,
             'attendance_rules' => $attendanceRules,
             // Catatan internal (dasar keputusan) hanya untuk super admin, bukan seluruh pengguna aplikasi.
