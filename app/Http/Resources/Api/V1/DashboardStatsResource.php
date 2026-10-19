@@ -33,6 +33,8 @@ class DashboardStatsResource extends JsonResource
             'pending_requests_count' => $this->resource['pending_requests_count'],
             'top_performers' => $this->resource['top_performers'],
             'bottom_performers' => $this->resource['bottom_performers'],
+            // Versi aturan penilaian periode ini (bobot KPI/Kehadiran/Penilaian di balik rata-rata skor).
+            'scoring_rule' => $this->resource['scoring_rule'] ?? null,
         ];
     }
 }

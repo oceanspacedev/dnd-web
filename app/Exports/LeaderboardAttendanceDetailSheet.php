@@ -2,11 +2,21 @@
 
 namespace App\Exports;
 
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
+use App\Support\Scoring\AttendanceComponentData;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithTitle;
 
+/**
+ * Detail kehadiran per baris attendances. Skor dihitung dengan versi aturan periode baris itu sendiri
+ * (export tahunan bisa memuat dua versi aturan).
+ *
+ * Kolom lama tetap di posisinya; kolom tambahan ada di belakang: nama versi aturan, lalu satu kolom per
+ * komponen kehadiran tanpa kolom lama (izin, mangkir, cuti, dan komponen baru dari master data).
+ */
 class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, WithHeadings, WithTitle
 {
     protected $attendanceDetails;
@@ -30,25 +40,18 @@ class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, Wit
     public function array(): array
     {
         $rows = [];
+        $extraCodes = array_keys($this->extraComponents());
 
         foreach ($this->attendanceDetails as $attendance) {
             $user = $attendance->user;
-
-            $lateLess30 = $attendance?->late_less_30 ?? 0;
-            $lateMore30 = $attendance?->late_more_30 ?? 0;
-            $sickDays = $attendance?->sick_days ?? 0;
-            $workDays = $attendance?->work_days ?? 0;
 
             $period = $this->periodType === 'year'
                 ? $attendance->periode
                 : $this->selectedPeriod;
 
-            $initialAttendanceAchv = ($workDays > 0)
-                ? ($workDays - $lateLess30 - $lateMore30 - $sickDays) / $workDays * 100
-                : 0;
-            $penalty = ($lateLess30 * 1) + ($lateMore30 * 3) + ($sickDays * 5);
-            $finalAttendanceAchv = max(0, $initialAttendanceAchv - $penalty);
-            $attendanceScore = ($finalAttendanceAchv / 100) * 15;
+            // Aturan dari periode baris ini (memo per request, tanpa query per baris).
+            $rule = ScoringRuleService::forPeriode($attendance->periode);
+            $score = PerformanceScoreCalculator::attendanceFor($attendance, $rule);
 
             $row = [
                 $period,
@@ -56,15 +59,20 @@ class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, Wit
                 $user->nama_lengkap,
                 $user->divisi->name ?? '',
                 $user->area->name ?? '',
-                $workDays,
-                $lateLess30,
-                $lateMore30,
-                $sickDays,
-                $initialAttendanceAchv,
-                $penalty,
-                $finalAttendanceAchv,
-                $attendanceScore,
+                $attendance->scoringWorkDays(),
+                $attendance->countFor('late_less_30'),
+                $attendance->countFor('late_more_30'),
+                $attendance->countFor('sick_days'),
+                $score->basePct,
+                $score->penaltyPointsNumber(),
+                $score->finalPct,
+                $score->score,
+                $rule->name,
             ];
+
+            foreach ($extraCodes as $code) {
+                $row[] = $attendance->countFor($code);
+            }
 
             $rows[] = $row;
         }
@@ -74,7 +82,7 @@ class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, Wit
 
     public function headings(): array
     {
-        return [
+        $headings = [
             'Periode',
             'ID Karyawan',
             'Nama Lengkap',
@@ -88,6 +96,26 @@ class LeaderboardAttendanceDetailSheet implements FromArray, ShouldAutoSize, Wit
             'Penalty',
             'Final Achievement',
             'Attendance Score',
+            'Aturan Penilaian',
         ];
+
+        foreach ($this->extraComponents() as $component) {
+            $headings[] = $component->name;
+        }
+
+        return $headings;
+    }
+
+    /**
+     * Komponen kehadiran yang tidak punya kolom lama di attendances, urut sort_order.
+     *
+     * @return array<string, AttendanceComponentData>
+     */
+    protected function extraComponents(): array
+    {
+        return ScoringRuleService::components()
+            ->reject(static fn (AttendanceComponentData $component): bool => $component->usesLegacyColumn()
+                || AttendanceComponentData::legacyColumnFor($component->code) !== null)
+            ->all();
     }
 }

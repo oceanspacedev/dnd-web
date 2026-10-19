@@ -7,7 +7,8 @@ use App\Filament\Resources\EmployeeReviews\Pages\EditEmployeeReview;
 use App\Filament\Resources\EmployeeReviews\Pages\ListEmployeeReviews;
 use App\Models\EmployeeReview;
 use App\Models\User;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
+use App\Services\DataAccessService;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -46,16 +47,9 @@ class EmployeeReviewResource extends Resource
                                     ->whereNull('deleted_at')
                                     ->orderBy('nama_lengkap');
 
-                                if (auth()->user()->role?->name !== 'ADMIN') {
-                                    $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-                                    if ($managedUserIds === []) {
-                                        return [];
-                                    }
-
-                                    $query->whereIn('id', $managedUserIds);
-                                }
-
-                                return $query->pluck('nama_lengkap', 'id');
+                                // Opsi karyawan = yang boleh dinilai oleh user (Select menolak nilai di luar opsi).
+                                return EmployeeReviewPolicy::scopeWritableUsers($query, auth()->user())
+                                    ->pluck('nama_lengkap', 'id');
                             })
                             ->label('Pengguna')
                             ->required()
@@ -173,7 +167,9 @@ class EmployeeReviewResource extends Resource
                     ->preload()
                     ->searchable()
                     ->options(function () {
-                        return EmployeeReview::distinct('periode')
+                        // Periode hanya dari penilaian yang terlihat oleh user.
+                        return static::getEloquentQuery()
+                            ->distinct()
                             ->pluck('periode', 'periode')
                             ->toArray();
                     }),
@@ -183,7 +179,10 @@ class EmployeeReviewResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Setiap baris dicek dengan EmployeeReviewPolicy::delete: admin per badan usaha melihat
+                    // penilaian akun ADMIN (termasuk dirinya) tetapi tidak boleh menghapusnya.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords(),
                 ]),
             ]);
     }
@@ -206,16 +205,13 @@ class EmployeeReviewResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $user = auth()->user();
+        $query = EmployeeReviewPolicy::scopeVisible(parent::getEloquentQuery(), $user);
 
-        if (auth()->user()->role?->name !== 'ADMIN') {
-            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            if ($managedUserIds === []) {
-                return $query->whereIn('user_id', []);
-            }
-
-            $query->whereIn('user_id', $managedUserIds)
-                ->whereNull('deleted_at');
+        // Hak edit/hapus admin per badan usaha dicek per baris dari badan usaha & role pemilik:
+        // muat sekaligus agar tidak ada query per baris.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            $query->with('user.role');
         }
 
         return $query;

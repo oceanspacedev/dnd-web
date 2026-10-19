@@ -20,10 +20,10 @@ class KpiHelper
         // Detect format
         if (strpos($month, '/') !== false) {
             // Format m/Y
-            return Date::createFromFormat('m/Y', $month)->format($targetFormat);
+            return Date::createFromFormat('!m/Y', $month)->format($targetFormat);
         } elseif (strpos($month, '-') !== false) {
             // Format Y-m
-            return Date::createFromFormat('Y-m', $month)->format($targetFormat);
+            return Date::createFromFormat('!Y-m', $month)->format($targetFormat);
         }
 
         // Default, return as is
@@ -33,7 +33,7 @@ class KpiHelper
     public static function getKpisData($month, $userId = null)
     {
         $month = self::getFormattedMonth($month, 'm/Y');
-        $date = Date::createFromFormat('m/Y', $month);
+        $date = Date::createFromFormat('!m/Y', $month);
 
         $kpisQuery = Kpi::with('kpi_detail', 'kpi_detail.kpi_description', 'kpi_type', 'kpi_category', 'user')
             ->where('kpi_type_id', 3)
@@ -103,7 +103,7 @@ class KpiHelper
     public static function getLeaderboardData($month, $userId = null, $area = null, $division = null)
     {
         $month = self::getFormattedMonth($month, 'Y-m');
-        $date = Date::createFromFormat('Y-m', $month);
+        $date = Date::createFromFormat('!Y-m', $month);
 
         $query = User::query()
             ->with([

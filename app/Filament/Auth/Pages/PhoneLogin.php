@@ -39,13 +39,22 @@ class PhoneLogin extends SimplePage
 
     public bool $awaitingOtp = false;
 
-    public function mount(): void
+    /**
+     * /phone-login sits outside the panel routes, so no panel middleware sets up the admin panel, neither on the first
+     * request nor on the Livewire update requests that follow (send, verify, changePhone). Without a current panel the
+     * re-rendered form uses Filament's default colours (the "Verifikasi dan Masuk" button then looks pale/disabled),
+     * so the panel is set up on every request, not only in mount().
+     */
+    public function boot(): void
     {
         if (Filament::getCurrentPanel() === null) {
             Filament::setCurrentPanel(Filament::getPanel('admin'));
             Filament::bootCurrentPanel();
         }
+    }
 
+    public function mount(): void
+    {
         if (Filament::auth()->check()) {
             $this->redirect(Filament::getUrl());
 

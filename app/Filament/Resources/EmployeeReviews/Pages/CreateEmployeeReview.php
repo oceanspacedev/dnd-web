@@ -4,7 +4,8 @@ namespace App\Filament\Resources\EmployeeReviews\Pages;
 
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
 use App\Models\EmployeeReview;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
+use App\Services\DataAccessService;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -17,21 +18,19 @@ class CreateEmployeeReview extends CreateRecord
         // Get the form data
         $data = $this->form->getState();
 
-        if (auth()->user()->role?->name !== 'ADMIN') {
-            $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-            $isValidSubordinate = in_array((int) $data['user_id'], $managedUserIds, true);
+        // Validasi ulang target di server: jangan percaya state Livewire.
+        if (! EmployeeReviewPolicy::canManageUser(auth()->user(), $data['user_id'] ?? null)) {
+            Notification::make()
+                ->title('User tidak valid')
+                ->body(DataAccessService::isAreaScopedAdmin(auth()->user())
+                    ? 'Anda hanya bisa membuat penilaian untuk karyawan di badan usaha yang diizinkan atau tim approval Anda, selain akun ADMIN (termasuk diri sendiri).'
+                    : 'Anda hanya bisa membuat penilaian untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
+                ->danger()
+                ->send();
 
-            if (! $isValidSubordinate) {
-                Notification::make()
-                    ->title('User tidak valid')
-                    ->body('Anda hanya bisa membuat penilaian untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
-                    ->danger()
-                    ->send();
+            $this->halt();
 
-                $this->halt();
-
-                return;
-            }
+            return;
         }
 
         // Check if a record with the same user_id and periode already exists

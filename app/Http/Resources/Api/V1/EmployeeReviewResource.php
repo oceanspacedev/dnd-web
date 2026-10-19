@@ -3,6 +3,9 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\EmployeeReview;
+use App\Services\LeaderboardScoreService;
+use App\Services\PerformanceScoreCalculator;
+use App\Services\ScoringRuleService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,8 +25,12 @@ class EmployeeReviewResource extends JsonResource
         $init = (int) ($this->initiative ?? 0);
 
         $totalPoints = $resp + $prob + $help + $init;
-        $maxPoints = 20;
-        $score15 = ($totalPoints / $maxPoints) * 15;
+
+        // Poin maksimal & bobot penilaian dari versi aturan periode review ini (memo per request, tanpa
+        // query per baris); kunci review_score_15pct dipertahankan untuk klien lama.
+        $rule = ScoringRuleService::forPeriode($this->periode);
+        $maxPoints = $rule->reviewMaxPoints;
+        $score15 = PerformanceScoreCalculator::review($totalPoints, $rule);
 
         return [
             'id' => $this->id,
@@ -42,9 +49,13 @@ class EmployeeReviewResource extends JsonResource
                 'max_points' => $maxPoints,
             ],
             'metrics' => [
-                'rating_percentage' => round(($totalPoints / $maxPoints) * 100, 2),
+                'rating_percentage' => round(PerformanceScoreCalculator::reviewPercentage($totalPoints, $rule), 2),
                 'review_score_15pct' => round($score15, 2),
+                'review_weight' => $rule->reviewWeight,
             ],
+            'scoring_rule_id' => $rule->id,
+            // Ringkasan aturan dengan bentuk yang sama seperti endpoint lain (scoring_rule_id dipertahankan).
+            'scoring_rule' => LeaderboardScoreService::ruleSummary($rule),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

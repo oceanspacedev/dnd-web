@@ -6,6 +6,11 @@
 #   docker compose -f compose.app.yaml up --detach --build --scale web=2 --scale worker=1
 #
 # Node utama: compose.yaml + compose.data-expose.yaml (satu scheduler, satu release).
+#
+# Urutan update versi baru: perbarui node utama dulu dan tunggu `release` healthy
+# (migrate selesai), baru perbarui node compute. Node compute tidak menjalankan
+# migrate dan tidak menunggu `release` di server lain, sehingga kode baru di atas
+# schema lama gagal (mis. kolom baru belum ada) sampai node utama selesai migrate.
 
 include:
   - path: compose.yaml

@@ -8,7 +8,7 @@ use App\Http\Requests\Api\V1\UpdateAttendanceRequest;
 use App\Http\Resources\Api\V1\AttendanceResource;
 use App\Models\Attendance;
 use App\Models\User;
-use App\Services\ApprovalScopeService;
+use App\Policies\AttendancePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,17 +25,10 @@ class AttendanceController extends Controller
         $this->authorize('viewAny', Attendance::class);
 
         $query = Attendance::with('user');
-        $actor = $request->user();
 
-        if (
-            $actor?->role?->name !== 'ADMIN'
-            && strtolower((string) ($actor?->username ?? '')) !== 'darkini'
-        ) {
-            $query->whereIn(
-                'user_id',
-                ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
-            );
-        }
+        // Super admin / user khusus kehadiran: semua data; admin per badan usaha: badan usaha yang
+        // diizinkan, tim approval, dan dirinya sendiri; atasan: bawahan approval.
+        AttendancePolicy::scopeVisible($query, $request->user());
 
         if ($userId = $request->query('user_id')) {
             $query->where('user_id', $userId);
@@ -97,15 +90,28 @@ class AttendanceController extends Controller
 
     /**
      * Store a new attendance record.
+     *
+     * - periode: 'Y-m' (juga diterima 'Y-n', 'Y-m-d', dan tanggal-jam ISO-8601, dinormalisasi ke 'Y-m'), tahun 2000-2100.
+     * - work_days: 0-31; late_less_30 / late_more_30 / sick_days: 0-999 (null = 0).
+     * - components: objek opsional {kode: jumlah 0-999} untuk kode di /master/attendance-components. Entri berbentuk
+     *   objek seperti di respons ({name, unit, count}) diabaikan, sehingga body GET bisa dikirim ulang.
+     * - Sejak November 2026 sick_days hanya berisi sakit; izin dikirim di components.izin. Komponen yang dinilai
+     *   aturan periode tetapi tidak dikirim disebut di 'warnings' (data tetap disimpan).
      */
     public function store(StoreAttendanceRequest $request): JsonResponse
     {
         $this->authorize('create', Attendance::class);
 
-        $validated = $request->validated();
-        $this->authorize('view', new Attendance(['user_id' => (int) $validated['user_id']]));
+        // Periode sudah dinormalisasi 'Y-m'; hitungan komponen dipetakan ke kolom lama / component_counts.
+        $validated = $request->attendanceAttributes();
 
-        $existing = Attendance::where('user_id', $validated['user_id'])
+        // Satu id yang sama untuk cek akses, cek duplikat, dan simpan. Target dicek dengan hak tulis
+        // (admin per badan usaha tidak boleh mencatat untuk akun ADMIN, termasuk dirinya sendiri).
+        $userId = (int) $validated['user_id'];
+        $validated['user_id'] = $userId;
+        $this->authorize('update', new Attendance(['user_id' => $userId]));
+
+        $existing = Attendance::where('user_id', $userId)
             ->where('periode', $validated['periode'])
             ->first();
 
@@ -124,11 +130,17 @@ class AttendanceController extends Controller
             'success' => true,
             'message' => 'Data presensi berhasil dicatat.',
             'data' => new AttendanceResource($attendance),
+            // Komponen yang dinilai aturan periode ini tetapi tidak dikirim (dihitung 0); data tetap disimpan.
+            'warnings' => $request->countWarnings($attendance),
         ], 201);
     }
 
     /**
      * Update an attendance record.
+     *
+     * Field sama dengan store (semua opsional). Periode tersimpan yang dikirim balik tanpa diubah tidak diperiksa
+     * ulang (data lama dengan periode di luar rentang tetap bisa dikoreksi); mengganti periode ke nilai tidak valid
+     * ditolak (422).
      */
     public function update(UpdateAttendanceRequest $request, int $id): JsonResponse
     {
@@ -143,14 +155,32 @@ class AttendanceController extends Controller
 
         $this->authorize('update', $attendance);
 
-        $validated = $request->validated();
-        $attendance->update($validated);
+        // component_counts digabung dengan nilai yang sudah ada (komponen yang tidak dikirim tetap).
+        $attributes = $request->attendanceAttributes($attendance);
+        $periode = $attributes['periode'] ?? $attendance->periode;
+
+        // Satu data per karyawan + periode (sama dengan store): periode tidak boleh dipindah ke data yang sudah ada.
+        $existing = Attendance::where('user_id', $attendance->user_id)
+            ->where('periode', $periode)
+            ->whereKeyNot($attendance->getKey())
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'success' => false,
+                'message' => "Data presensi untuk karyawan ini pada periode {$periode} sudah ada.",
+                'data' => new AttendanceResource($existing->load('user')),
+            ], 422);
+        }
+
+        $attendance->update($attributes);
         $attendance->load('user');
 
         return response()->json([
             'success' => true,
             'message' => 'Data presensi berhasil diperbarui.',
             'data' => new AttendanceResource($attendance),
+            'warnings' => $request->countWarnings($attendance),
         ]);
     }
 

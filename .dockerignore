@@ -7,8 +7,11 @@
 .env.*
 auth.json
 
-node_modules
+**/node_modules
 vendor
+
+# Tooling lokal (rekam GIF panduan): demo DB, log, dan outbox WhatsApp stub tidak boleh masuk image.
+tools
 
 public/build
 public/hot

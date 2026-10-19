@@ -6,6 +6,7 @@ use App\Filament\Resources\ApprovalRules\ApprovalRuleResource;
 use App\Filament\Resources\ApprovalRules\Pages\ManageApprovalRules;
 use App\Filament\Resources\Divisis\Pages\ManageDivisis;
 use App\Filament\Resources\Roles\Pages\ManageRoles;
+use App\Filament\Resources\TeamMembers\Pages\ListTeamMembers;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\ApprovalRule;
@@ -649,7 +650,9 @@ class ApprovalRuleHierarchyTest extends TestCase
         $this->actingAs($leader);
         Livewire::actingAs($leader);
 
-        Livewire::test(ListUsers::class)
+        // Atasan non-admin tidak membuka menu Karyawan; aksi massal admin juga tersembunyi di Tim Saya.
+        $this->assertFalse(UserResource::canViewAny());
+        Livewire::test(ListTeamMembers::class)
             ->assertTableBulkActionHidden('update_approval_line')
             ->assertTableBulkActionHidden('sync_approval_rules');
 

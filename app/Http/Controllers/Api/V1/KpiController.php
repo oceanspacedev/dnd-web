@@ -16,9 +16,14 @@ use App\Models\KpiDetail;
 use App\Models\KpiType;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Services\KpiScoringService;
+use App\Services\LeaderboardScoreService;
+use App\Services\ScoringRuleService;
+use App\Support\Periode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 /**
  * @tags KPIs & Scoring
@@ -35,7 +40,10 @@ class KpiController extends Controller
         $query = Kpi::with(['user', 'kpi_category', 'kpi_type', 'kpi_detail.kpi_description']);
         $actor = $request->user();
 
-        if ($actor?->role?->name !== 'ADMIN') {
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            // Admin badan usaha tertentu: KPI karyawan di badan usaha yang diizinkan + tim + diri sendiri.
+            DataAccessService::scopeOwnedRecords($query, $actor, 'kpis.user_id');
+        } elseif (! DataAccessService::hasGlobalAccess($actor)) {
             $visibleUserIds = array_merge(
                 [(int) ($actor?->id ?? 0)],
                 ApprovalScopeService::getManagedUserIdsOneLevelDown((int) ($actor?->id ?? 0)),
@@ -104,6 +112,9 @@ class KpiController extends Controller
 
     /**
      * Create a new KPI along with optional initial detail rows.
+     *
+     * details[].parent_id tidak boleh diisi (422): KPI baru belum punya detail. Sub-detail ditambahkan lewat
+     * POST /kpis/{id}/details setelah KPI dibuat.
      */
     public function store(StoreKpiRequest $request): JsonResponse
     {
@@ -111,7 +122,9 @@ class KpiController extends Controller
 
         $validated = $request->validated();
         $target = new Kpi(['user_id' => (int) $validated['user_id']]);
-        $this->authorize('view', $target);
+        $this->authorize('update', $target);
+
+        // details.*.parent_id ditolak StoreKpiRequest (prohibited): KPI baru belum punya detail.
 
         $kpi = Kpi::create([
             'user_id' => $validated['user_id'],
@@ -175,7 +188,7 @@ class KpiController extends Controller
         $validated = $request->validated();
 
         if (array_key_exists('user_id', $validated)) {
-            $this->authorize('view', new Kpi(['user_id' => (int) $validated['user_id']]));
+            $this->authorize('update', new Kpi(['user_id' => (int) $validated['user_id']]));
         }
 
         $kpi->update($validated);
@@ -418,9 +431,15 @@ class KpiController extends Controller
 
     /**
      * Get cumulative KPI performance summary for a specific user.
+     *
+     * Selain super admin, id karyawan yang tidak ada (termasuk yang sudah dihapus) mendapat 403 seperti karyawan di
+     * luar cakupan, bukan 404, agar keberadaan karyawan di luar cakupan tidak terungkap.
      */
     public function userSummary(Request $request, int $userId): JsonResponse
     {
+        // Otorisasi dulu agar keberadaan karyawan di luar cakupan tidak terungkap lewat 404.
+        $this->authorize('view', new Kpi(['user_id' => $userId]));
+
         $user = User::with(['role', 'position'])->find($userId);
 
         if (! $user) {
@@ -429,8 +448,6 @@ class KpiController extends Controller
                 'message' => 'Karyawan tidak ditemukan.',
             ], 404);
         }
-
-        $this->authorize('view', new Kpi(['user_id' => $userId]));
 
         $query = Kpi::with(['kpi_category', 'kpi_type', 'kpi_detail.kpi_description'])
             ->where('user_id', $userId);
@@ -464,7 +481,9 @@ class KpiController extends Controller
             ];
         }
 
-        $finalScore = KpiScoringService::calculateFinalKpiScore($rawScoreSum);
+        // Bobot KPI dari versi aturan periode yang diminta/periode datanya (kunci final_kpi_score_capped dipertahankan).
+        $scoringRule = ScoringRuleService::forPeriode($this->summaryRulePeriode($kpis, $request->query('year'), $request->query('month')));
+        $finalScore = KpiScoringService::calculateFinalKpiScore($rawScoreSum, $scoringRule);
 
         return response()->json([
             'success' => true,
@@ -480,11 +499,37 @@ class KpiController extends Controller
                     'total_kpis' => $kpis->count(),
                     'total_percentage' => $totalPercentage,
                     'raw_kpi_score' => round($rawScoreSum, 2),
-                    'final_kpi_score_capped' => round($finalScore, 2), // capped at 70 (formula leaderboard)
+                    'final_kpi_score_capped' => round($finalScore, 2), // capped at bobot KPI aturan (default 70)
                 ],
                 'kpi_items' => $kpiSummaries,
+                'scoring_rule' => LeaderboardScoreService::ruleSummary($scoringRule),
             ],
         ]);
+    }
+
+    /**
+     * Periode aturan penilaian untuk ringkasan KPI, dipilih dari permintaan/data (bukan dari tanggal hari ini)
+     * agar nilai periode lama tidak berubah seiring waktu:
+     * - tahun + bulan valid => bulan itu;
+     * - lainnya (hanya tahun, hanya bulan, seluruh waktu) => periode KPI terakhir yang ikut dijumlahkan,
+     *   dijepit ke tahun yang diminta; tanpa KPI (nilai akhir 0) => bulan berjalan, dijepit ke tahun itu.
+     *
+     * @param  Collection<int, Kpi>  $kpis
+     */
+    private function summaryRulePeriode(Collection $kpis, mixed $year, mixed $month): string
+    {
+        $year = is_scalar($year) && preg_match('/^\d{4}$/D', (string) $year) === 1 ? (string) $year : null;
+
+        // Sama dengan filter data di atas: bulan hanya dipakai bila nilainya truthy.
+        if ($year !== null && $month && is_scalar($month)) {
+            $periode = Periode::normalize($year.'-'.$month);
+
+            if ($periode !== null) {
+                return $periode;
+            }
+        }
+
+        return LeaderboardScoreService::dataRulePeriode([$kpis->pluck('date')], $year);
     }
 
     private function assertKpiChecklistEditable(Kpi $kpi): void

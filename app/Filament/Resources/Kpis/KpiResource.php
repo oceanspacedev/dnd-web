@@ -9,9 +9,11 @@ use App\Jobs\SendKpiReminderEmailJob;
 use App\Jobs\SendKpiReminderWhatsAppJob;
 use App\Models\Kpi;
 use App\Models\KpiDescription;
+use App\Models\KpiDetail;
 use App\Models\KpiReminderSetting;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use App\Services\KpiCacheService;
 use Exception;
 use Filament\Actions\Action;
@@ -143,7 +145,7 @@ class KpiResource extends Resource
                                             ->createOptionUsing(function (array $data) {
                                                 $description = KpiDescription::create([
                                                     'description' => $data['description'],
-                                                    'kpi_category_id' => $data['kpi_category_id'],
+                                                    'kpi_category_id' => 3, // Kategori tab ditetapkan di server, bukan dari field Hidden klien
                                                     'is_negative' => $data['is_negative'] ?? false,
                                                 ]);
 
@@ -243,7 +245,7 @@ class KpiResource extends Resource
                                             ->createOptionUsing(function (array $data) {
                                                 $description = KpiDescription::create([
                                                     'description' => $data['description'],
-                                                    'kpi_category_id' => $data['kpi_category_id'],
+                                                    'kpi_category_id' => 1, // Kategori tab ditetapkan di server, bukan dari field Hidden klien
                                                     'is_negative' => $data['is_negative'] ?? false,
                                                 ]);
 
@@ -343,7 +345,7 @@ class KpiResource extends Resource
                                             ->createOptionUsing(function (array $data) {
                                                 $description = KpiDescription::create([
                                                     'description' => $data['description'],
-                                                    'kpi_category_id' => $data['kpi_category_id'],
+                                                    'kpi_category_id' => 2, // Kategori tab ditetapkan di server, bukan dari field Hidden klien
                                                     'is_negative' => $data['is_negative'] ?? false,
                                                 ]);
 
@@ -407,11 +409,12 @@ class KpiResource extends Resource
                     ->schema([
                         Select::make('user_id')
                             ->searchable()
-                            ->getSearchResultsUsing(fn (string $search) => User::where('nama_lengkap', 'like', "%{$search}%")
+                            ->getSearchResultsUsing(fn (string $search) => static::visibleUsersQuery()
+                                ->where('nama_lengkap', 'like', "%{$search}%")
                                 ->limit(50)
                                 ->pluck('nama_lengkap', 'id')
                             )
-                            ->getOptionLabelUsing(fn ($value): ?string => User::find($value)?->nama_lengkap
+                            ->getOptionLabelUsing(fn ($value): ?string => static::visibleUsersQuery()->find($value)?->nama_lengkap
                             )
                             ->required()
                             ->disabled(),
@@ -476,7 +479,8 @@ class KpiResource extends Resource
                                     ->createOptionUsing(function (array $data) use ($schema) {
                                         $description = KpiDescription::create([
                                             'description' => $data['description'],
-                                            'kpi_category_id' => $data['kpi_category_id'] ?? $schema->getRecord()?->kpi_category_id,
+                                            // Kategori diambil dari KPI yang diedit di server; field Hidden klien hanya cadangan.
+                                            'kpi_category_id' => $schema->getRecord()?->kpi_category_id ?? $data['kpi_category_id'] ?? null,
                                             'is_negative' => $data['is_negative'] ?? false,
                                         ]);
 
@@ -507,6 +511,10 @@ class KpiResource extends Resource
                                     ->disabled(fn (callable $get) => $get('count_type') !== 'RESULT'),
                                 Actions::make([
                                     Action::make('manage_subtasks')
+                                        // Subtask langsung disimpan (bukan lewat simpan form) dan modal View memuat aksi
+                                        // ini juga, jadi cek policy update KPI induknya: KPI yang hanya boleh dilihat
+                                        // (mis. milik akun ADMIN lain bagi admin badan usaha tertentu) tidak berubah.
+                                        ->authorize(fn ($record): bool => static::canManageSubtasks($record, $schema->getRecord()))
                                         ->hiddenLabel()
                                         ->icon('heroicon-o-clipboard-document-list')
                                         ->color('primary')
@@ -553,7 +561,9 @@ class KpiResource extends Resource
                                                 'subtasks' => $subtasks,
                                             ];
                                         })
-                                        ->action(function (array $data, $record) {
+                                        ->action(function (array $data, $record) use ($schema) {
+                                            abort_unless(static::canManageSubtasks($record, $schema->getRecord()), 403);
+
                                             $record->subtasks = $data['subtasks'] ?? [];
                                             $record->save();
                                         }),
@@ -600,7 +610,7 @@ class KpiResource extends Resource
                     ->label('Kirim Pengingat')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('warning')
-                    ->visible(fn () => auth()->user()?->role?->name === 'ADMIN')
+                    ->visible(fn (Kpi $record): bool => static::canSendReminder($record))
                     ->modalHeading(fn (Kpi $record) => 'Kirim Pengingat Pengisian KPI ke '.($record->user?->nama_lengkap ?? 'Karyawan'))
                     ->modalSubmitActionLabel('Kirim Pengingat')
                     ->form([
@@ -631,7 +641,8 @@ class KpiResource extends Resource
                             ->rows(4),
                     ])
                     ->action(function (Kpi $record, array $data) {
-                        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+                        // Cek ulang di server: admin dan pemilik KPI masih dalam cakupan aktor.
+                        abort_unless(static::canSendReminder($record), 403);
 
                         $user = $record->user;
                         if (! $user) {
@@ -737,9 +748,53 @@ class KpiResource extends Resource
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Cek policy per KPI: admin badan usaha tertentu melihat KPI akun ADMIN lain di badan usahanya
+                    // tetapi tidak boleh menghapusnya.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords(),
                 ]),
             ]);
+    }
+
+    /**
+     * Subtask detail KPI hanya boleh diubah oleh user yang boleh mengubah KPI induknya.
+     * $kpi: record form (KPI induk) agar tidak ada query per baris repeater; selain itu relasi detail.
+     */
+    protected static function canManageSubtasks(mixed $record, mixed $kpi = null): bool
+    {
+        $actor = Auth::user();
+
+        if (! $actor instanceof User || ! $record instanceof KpiDetail) {
+            return false;
+        }
+
+        if (! $kpi instanceof Kpi || (int) $kpi->getKey() !== (int) $record->kpi_id) {
+            $kpi = $record->kpi;
+        }
+
+        return $kpi instanceof Kpi && $actor->can('update', $kpi);
+    }
+
+    /**
+     * Kirim pengingat manual: khusus admin, dan pemilik KPI harus terlihat oleh admin tersebut.
+     */
+    protected static function canSendReminder(Kpi $record): bool
+    {
+        $actor = Auth::user();
+
+        // Relasi user sudah di-eager-load di tabel: tanpa query area per baris.
+        return DataAccessService::isAdmin($actor)
+            && DataAccessService::canWriteForUser($actor, $record->ownerForAccessCheck());
+    }
+
+    /**
+     * User yang terlihat oleh aktor: super admin semua; selain itu badan usaha yang diizinkan + tim + diri sendiri.
+     *
+     * @return Builder<User>
+     */
+    protected static function visibleUsersQuery(): Builder
+    {
+        return DataAccessService::scopeOwnedRecords(User::query(), Auth::user(), 'users.id');
     }
 
     protected static function resolveActiveReminderSetting(
@@ -844,10 +899,15 @@ class KpiResource extends Resource
             ]);
 
         $user = Auth::user();
-        $role = $user->role?->name;
 
-        if ($role === 'ADMIN') {
+        if (DataAccessService::hasGlobalAccess($user)) {
             return $query;
+        }
+
+        // Admin badan usaha tertentu: KPI karyawan di badan usaha yang diizinkan + tim + diri sendiri.
+        // user.role dimuat agar cek akun ADMIN pada aksi per baris tidak menambah query.
+        if (DataAccessService::isAreaScopedAdmin($user)) {
+            return DataAccessService::scopeOwnedRecords($query->with('user.role'), $user, 'kpis.user_id');
         }
 
         $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) Auth::id());

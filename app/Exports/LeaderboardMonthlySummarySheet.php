@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Support\Scoring\ScoringRuleData;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
@@ -13,10 +14,17 @@ class LeaderboardMonthlySummarySheet implements FromArray, ShouldAutoSize, WithH
 
     protected string $year;
 
-    public function __construct(array $rows, string $year)
+    /** @var list<ScoringRuleData> */
+    protected array $scoringRules;
+
+    /**
+     * @param  list<ScoringRuleData>  $scoringRules  versi aturan tiap bulan pada tahun export.
+     */
+    public function __construct(array $rows, string $year, array $scoringRules = [])
     {
         $this->rows = $rows;
         $this->year = $year;
+        $this->scoringRules = $scoringRules;
     }
 
     public function title(): string
@@ -37,10 +45,13 @@ class LeaderboardMonthlySummarySheet implements FromArray, ShouldAutoSize, WithH
             'Nama Lengkap',
             'Division',
             'Area',
-            'KPI Score (70%)',
-            'Attendance Score (15%)',
-            'Activity Score (15%)',
+            ...LeaderboardWeightHeadings::scoreHeadings($this->scoringRules),
             'Total Score',
+            // Kolom tambahan (di belakang): versi aturan dan bobot yang dipakai bulan itu.
+            'Aturan Penilaian',
+            'Bobot KPI (%)',
+            'Bobot Kehadiran (%)',
+            'Bobot Penilaian (%)',
         ];
     }
 }

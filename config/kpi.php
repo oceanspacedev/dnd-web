@@ -25,5 +25,7 @@ return [
         'descriptions' => (int) env('KPI_CACHE_TTL_DESCRIPTIONS_SECONDS', 300),
         'positions' => (int) env('KPI_CACHE_TTL_POSITIONS_SECONDS', 300),
         'leaderboard' => (int) env('KPI_CACHE_TTL_LEADERBOARD_SECONDS', 60),
+        // Versi aturan penilaian & komponen kehadiran; perubahan lewat model langsung menaikkan versi cache.
+        'scoring_rules' => (int) env('KPI_CACHE_TTL_SCORING_RULES_SECONDS', 3600),
     ],
 ];

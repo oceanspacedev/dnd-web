@@ -3,7 +3,8 @@
 namespace App\Filament\Resources\EmployeeReviews\Pages;
 
 use App\Filament\Resources\EmployeeReviews\EmployeeReviewResource;
-use App\Services\ApprovalScopeService;
+use App\Policies\EmployeeReviewPolicy;
+use App\Services\DataAccessService;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -14,18 +15,19 @@ class EditEmployeeReview extends EditRecord
 
     protected function beforeSave(): void
     {
-        if (auth()->user()->role?->name === 'ADMIN') {
+        if (EmployeeReviewPolicy::canManageAllReviews(auth()->user())) {
             return;
         }
 
+        // Validasi ulang target di server: jangan percaya state Livewire.
         $data = $this->form->getState();
-        $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) auth()->id());
-        $isValidSubordinate = in_array((int) $data['user_id'], $managedUserIds, true);
 
-        if (! $isValidSubordinate) {
+        if (! EmployeeReviewPolicy::canManageUser(auth()->user(), $data['user_id'] ?? null)) {
             Notification::make()
                 ->title('User tidak valid')
-                ->body('Anda hanya bisa mengubah penilaian untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
+                ->body(DataAccessService::isAreaScopedAdmin(auth()->user())
+                    ? 'Anda hanya bisa mengubah penilaian untuk karyawan di badan usaha yang diizinkan atau tim approval Anda, selain akun ADMIN (termasuk diri sendiri).'
+                    : 'Anda hanya bisa mengubah penilaian untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
                 ->danger()
                 ->send();
 

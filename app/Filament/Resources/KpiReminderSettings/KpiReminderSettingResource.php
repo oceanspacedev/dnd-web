@@ -6,6 +6,7 @@ use App\Filament\Resources\KpiReminderSettings\Pages\CreateKpiReminderSetting;
 use App\Filament\Resources\KpiReminderSettings\Pages\EditKpiReminderSetting;
 use App\Filament\Resources\KpiReminderSettings\Pages\ListKpiReminderSettings;
 use App\Models\KpiReminderSetting;
+use App\Services\DataAccessService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -25,6 +26,8 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Artisan;
 
 class KpiReminderSettingResource extends Resource
@@ -41,14 +44,34 @@ class KpiReminderSettingResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Pengaturan Pengingat KPI';
 
+    /**
+     * Pengaturan pengingat berlaku global dan uji kirim menjalankan pengingat ke seluruh
+     * badan usaha, jadi hanya super admin (akses seluruh badan usaha) yang boleh mengelolanya.
+     */
+    public static function canManage(): bool
+    {
+        return DataAccessService::hasGlobalAccess(auth()->user());
+    }
+
     public static function canViewAny(): bool
     {
-        return auth()->user()?->role?->name === 'ADMIN';
+        return static::canManage();
     }
 
     public static function shouldRegisterNavigation(): bool
     {
-        return auth()->user()?->role?->name === 'ADMIN';
+        return static::canManage();
+    }
+
+    /**
+     * Tidak ada policy untuk KpiReminderSetting; tanpa override ini Filament (mode non-strict)
+     * mengizinkan create/edit/delete/bulk delete begitu halaman terbuka.
+     */
+    public static function getAuthorizationResponse(string $action, ?Model $record = null): Response
+    {
+        return static::canManage()
+            ? Response::allow()
+            : Response::deny('Hanya admin dengan akses seluruh badan usaha yang dapat mengelola pengingat KPI.');
     }
 
     public static function form(Schema $schema): Schema
@@ -191,11 +214,12 @@ class KpiReminderSettingResource extends Resource
                     ->tooltip(fn (KpiReminderSetting $record): ?string => $record->is_active
                         ? null
                         : 'Aktifkan aturan sebelum menjalankan uji kirim.')
+                    ->authorize(fn (): bool => static::canManage())
                     ->requiresConfirmation()
                     ->modalHeading('Jalankan Pengingat KPI Sekarang?')
                     ->modalDescription('Proses ini akan mengecek user yang belum membuat/mengisi KPI dan memicu pengiriman pengingat saat ini.')
                     ->action(function (KpiReminderSetting $record) {
-                        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403);
+                        abort_unless(static::canManage(), 403);
 
                         $activeRecord = $record->fresh();
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\DataAccessService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class UserApiAuthorizationTest extends TestCase
         DB::purge('sqlite');
         DB::setDefaultConnection('sqlite');
         ApprovalScopeService::clearMemo();
+        DataAccessService::clearMemo();
 
         Schema::create('roles', function (Blueprint $table): void {
             $table->id();
@@ -58,6 +60,7 @@ class UserApiAuthorizationTest extends TestCase
     protected function tearDown(): void
     {
         ApprovalScopeService::clearMemo();
+        DataAccessService::clearMemo();
         $this->clearEloquentGuardableColumns();
 
         parent::tearDown();

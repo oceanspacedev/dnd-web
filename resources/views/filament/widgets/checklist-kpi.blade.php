@@ -15,7 +15,7 @@
                 <!-- Filter Controls -->
                 <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
                     <div class="flex flex-col sm:flex-row gap-3 w-full">
-                        @if (auth()->user()->role_id != 2)
+                        @if ($this->canChooseUser())
                             <label class="sr-only" for="checklist-user">User</label>
                             <x-filament::input.wrapper class="w-full sm:w-52">
                                 <x-filament::input.select id="checklist-user" wire:model.live="user_id" class="w-full">
@@ -120,9 +120,12 @@
                                 </thead>
                                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                     @foreach ($kpis as $kpi)
+                                        @php
+                                            $canUpdateKpi = $this->canUpdateKpi($kpi);
+                                        @endphp
                                         @foreach ($kpi->kpi_detail->where('is_extra_task', 0) as $kpiDetail)
                                             @php
-                                                $canEditKpiDetail = $this->canEditKpiDate($kpi->date);
+                                                $canEditKpiDetail = $canUpdateKpi && $this->canEditKpiDate($kpi->date);
                                             @endphp
                                             <tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors" wire:key="kpi-detail-{{ $kpiDetail->id }}">
                                                 <td class="px-2 sm:px-4 py-2 sm:py-4 flex items-center justify-center">

@@ -9,6 +9,9 @@ use App\Models\User;
 use App\Models\WhatsappOtp;
 use App\Services\WhatsAppOtpNotificationService;
 use App\Services\WhatsAppOtpService;
+use Filament\Facades\Filament;
+use Filament\Support\Colors\ColorManager;
+use Filament\Support\Facades\FilamentColor;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Auth;
@@ -136,6 +139,31 @@ class PhoneOtpLoginTest extends TestCase
         $this->assertTrue(Auth::check());
         $this->assertSame($user->id, Auth::id());
         $this->assertNotNull($otp->fresh()->verified_at);
+    }
+
+    public function test_livewire_updates_keep_the_admin_panel_and_its_button_colours(): void
+    {
+        $this->createUser();
+
+        $component = Livewire::test(PhoneLogin::class)
+            ->assertSee('Kirim OTP WhatsApp')
+            ->assertSeeHtml('fi-color-primary fi-bg-color-600');
+
+        // A Livewire update (/livewire/update) is a new request outside the panel routes: no current panel, nothing
+        // booted, Filament's default colour palette. Without the panel the OTP stage rendered "Verifikasi dan Masuk"
+        // with the default palette's shades (bg 400 + dark text), which looked disabled on the purple theme.
+        $this->simulateRequestWithoutPanel();
+
+        $component
+            ->fillForm(['whatsapp_number' => '081234567890'])
+            ->call('send')
+            ->assertHasNoFormErrors()
+            ->assertSet('awaitingOtp', true)
+            ->assertSee('Verifikasi dan Masuk')
+            ->assertSeeHtml('fi-color-primary fi-bg-color-600')
+            ->assertDontSeeHtml('fi-bg-color-400');
+
+        $this->assertSame('admin', Filament::getCurrentPanel()?->getId());
     }
 
     public function test_wrong_otp_does_not_authenticate_but_the_correct_otp_does(): void
@@ -421,6 +449,20 @@ class PhoneOtpLoginTest extends TestCase
 
         $this->assertNull($routes->getByName('phone-login.verify'));
         $this->assertNull($routes->getByName('phone-login.verify.submit'));
+    }
+
+    /**
+     * Puts Filament back into the state of a fresh request that did not pass through the panel middleware.
+     */
+    private function simulateRequestWithoutPanel(): void
+    {
+        Filament::setCurrentPanel(null);
+        (function (): void {
+            $this->isCurrentPanelBooted = false;
+        })->call(Filament::getFacadeRoot());
+
+        $this->app->instance(ColorManager::class, new ColorManager);
+        FilamentColor::clearResolvedInstance(ColorManager::class);
     }
 
     private function createUser(array $overrides = []): User

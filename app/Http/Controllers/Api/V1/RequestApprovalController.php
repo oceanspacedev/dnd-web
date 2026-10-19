@@ -8,6 +8,7 @@ use App\Http\Requests\Api\V1\UpdateRequestRequest;
 use App\Http\Resources\Api\V1\RequestResource;
 use App\Models\Request as TodoRequest;
 use App\Models\User;
+use App\Services\DataAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -17,9 +18,18 @@ use Illuminate\Support\Facades\Date;
  */
 class RequestApprovalController extends Controller
 {
-    private function actorIsAdmin(): bool
+    /**
+     * Admin per badan usaha boleh meninjau/memodifikasi pengajuan bila pengaju terlihat olehnya
+     * (badan usaha yang diizinkan, tim approval, atau dirinya sendiri).
+     */
+    /**
+     * Admin badan usaha boleh meninjau/mengubah pengajuan karyawan dalam cakupannya,
+     * kecuali pengajuan akun ADMIN lain (hanya super admin).
+     */
+    private function areaScopedAdminCanWrite(User $actor, TodoRequest $todoRequest): bool
     {
-        return (bool) (auth()->user()?->role?->name === 'ADMIN');
+        return DataAccessService::isAreaScopedAdmin($actor)
+            && DataAccessService::canWriteForUser($actor, $todoRequest->user_id);
     }
 
     private function assertCanReview(TodoRequest $todoRequest): void
@@ -28,7 +38,7 @@ class RequestApprovalController extends Controller
 
         abort_if($actor === null, 401);
 
-        if ($actor->role?->name === 'ADMIN') {
+        if (DataAccessService::hasGlobalAccess($actor) || $this->areaScopedAdminCanWrite($actor, $todoRequest)) {
             return;
         }
 
@@ -45,7 +55,7 @@ class RequestApprovalController extends Controller
 
         abort_if($actor === null, 401);
 
-        if ($actor->role?->name === 'ADMIN') {
+        if (DataAccessService::hasGlobalAccess($actor) || $this->areaScopedAdminCanWrite($actor, $todoRequest)) {
             return;
         }
 
@@ -56,14 +66,31 @@ class RequestApprovalController extends Controller
         abort(403, 'Anda tidak memiliki akses untuk memodifikasi pengajuan ini.');
     }
 
+    /**
+     * Pengajuan yang terlihat oleh actor:
+     * - super admin: semua;
+     * - admin per badan usaha: pengaju yang terlihat (badan usaha, tim, diri sendiri) atau approver = dirinya;
+     * - lainnya: milik sendiri atau approver = dirinya.
+     */
     private function scopedRequestQuery()
     {
         $actor = auth()->user();
 
         $query = TodoRequest::with(['user', 'approveId', 'approvedBy']);
 
-        if ($this->actorIsAdmin() || ! $actor) {
+        if (! $actor instanceof User) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if (DataAccessService::hasGlobalAccess($actor)) {
             return $query;
+        }
+
+        if (DataAccessService::isAreaScopedAdmin($actor)) {
+            return $query->where(function ($q) use ($actor) {
+                DataAccessService::scopeOwnedRecords($q, $actor);
+                $q->orWhere('approval_id', $actor->id);
+            });
         }
 
         return $query->where(function ($q) use ($actor) {
@@ -215,9 +242,7 @@ class RequestApprovalController extends Controller
             ], 404);
         }
 
-        if (! $this->actorIsAdmin()) {
-            $this->assertCanModify($todoRequest);
-        }
+        $this->assertCanModify($todoRequest);
 
         if ($todoRequest->status !== 'PENDING') {
             return response()->json([
@@ -244,8 +269,16 @@ class RequestApprovalController extends Controller
         $query = TodoRequest::with(['user', 'approveId'])
             ->where('status', 'PENDING');
 
-        // If not superadmin, filter by approval_id pointing to this user
-        if ($currentUser && $currentUser->role?->name !== 'ADMIN') {
+        if (! $currentUser instanceof User) {
+            $query->whereRaw('1 = 0');
+        } elseif (DataAccessService::isAreaScopedAdmin($currentUser)) {
+            // Admin per badan usaha: pengajuan dari karyawan yang terlihat olehnya, atau yang ditujukan kepadanya.
+            $query->where(function ($q) use ($currentUser) {
+                DataAccessService::scopeOwnedRecords($q, $currentUser);
+                $q->orWhere('approval_id', $currentUser->id);
+            });
+        } elseif (! DataAccessService::hasGlobalAccess($currentUser)) {
+            // Selain super admin: hanya pengajuan yang approval_id-nya mengarah ke user ini.
             $query->where('approval_id', $currentUser->id);
         }
 

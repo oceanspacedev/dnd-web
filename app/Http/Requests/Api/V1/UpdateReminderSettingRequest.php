@@ -2,15 +2,19 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Services\DataAccessService;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
 class UpdateReminderSettingRequest extends FormRequest
 {
+    /**
+     * Khusus super admin (ADMIN dengan akses seluruh badan usaha).
+     */
     public function authorize(): bool
     {
-        return (bool) (auth()->user()?->role?->name === 'ADMIN');
+        return DataAccessService::hasGlobalAccess(auth()->user());
     }
 
     public function rules(): array

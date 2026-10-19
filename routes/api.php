@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\MasterDataController;
 use App\Http\Controllers\Api\V1\OveropenController;
 use App\Http\Controllers\Api\V1\ReminderController;
 use App\Http\Controllers\Api\V1\RequestApprovalController;
+use App\Http\Controllers\Api\V1\ScoringRuleController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\WorkJournalController;
 use Illuminate\Support\Facades\Route;
@@ -73,6 +74,11 @@ Route::prefix('v1')->group(function () {
             // Daily Task Categories & Statuses
             Route::get('task-categories', [MasterDataController::class, 'taskCategories']);
             Route::get('task-statuses', [MasterDataController::class, 'taskStatuses']);
+
+            // Aturan Penilaian Kinerja & Komponen Kehadiran (hanya baca; dikelola super admin di panel)
+            Route::get('scoring-rules', [ScoringRuleController::class, 'index']);
+            Route::get('scoring-rules/resolve', [ScoringRuleController::class, 'resolve']);
+            Route::get('attendance-components', [ScoringRuleController::class, 'components']);
         });
 
         // Modul 3: Manajemen Karyawan (Users)
@@ -164,7 +170,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('{id}', [EmployeeReviewController::class, 'destroy']);
         });
 
-        // Modul 6: Evaluasi Total Performa (KPI 70% + Presensi 15% + Review 15%)
+        // Modul 6: Evaluasi Total Performa (bobot KPI/Presensi/Review mengikuti versi aturan penilaian periode)
         Route::prefix('evaluations')->group(function () {
             Route::get('user/{userId}/score', [EmployeeReviewController::class, 'integratedScore']);
         });

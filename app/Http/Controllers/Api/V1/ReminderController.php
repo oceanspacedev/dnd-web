@@ -11,6 +11,7 @@ use App\Http\Resources\Api\V1\KpiReminderLogResource;
 use App\Http\Resources\Api\V1\KpiReminderSettingResource;
 use App\Models\KpiReminderLog;
 use App\Models\KpiReminderSetting;
+use App\Services\DataAccessService;
 use App\Services\WhatsAppService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,9 +24,17 @@ use Throwable;
  */
 class ReminderController extends Controller
 {
-    private function ensureAdminOnly(): void
+    /**
+     * Pengaturan reminder bersifat global, trigger menjalankan pengiriman ke seluruh badan usaha,
+     * dan log berisi penerima dari semua badan usaha: khusus super admin (akses seluruh badan usaha).
+     */
+    private function ensureSuperAdmin(): void
     {
-        abort_unless(auth()->user()?->role?->name === 'ADMIN', 403, 'Hanya admin yang dapat mengakses pengaturan dan trigger reminder.');
+        abort_unless(
+            DataAccessService::hasGlobalAccess(auth()->user()),
+            403,
+            'Hanya admin dengan akses seluruh badan usaha yang dapat mengakses pengaturan dan trigger reminder.',
+        );
     }
 
     /**
@@ -33,7 +42,7 @@ class ReminderController extends Controller
      */
     public function settings(Request $request): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $query = KpiReminderSetting::query();
 
@@ -60,7 +69,7 @@ class ReminderController extends Controller
      */
     public function showSetting(int $id): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $setting = KpiReminderSetting::find($id);
 
@@ -83,7 +92,7 @@ class ReminderController extends Controller
      */
     public function storeSetting(StoreReminderSettingRequest $request): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $validated = $this->normalizedSettingPayload($request->validated());
         $validated['is_active'] = $validated['is_active'] ?? true;
@@ -102,7 +111,7 @@ class ReminderController extends Controller
      */
     public function updateSetting(UpdateReminderSettingRequest $request, int $id): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $setting = KpiReminderSetting::find($id);
 
@@ -128,7 +137,7 @@ class ReminderController extends Controller
      */
     public function destroySetting(int $id): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $setting = KpiReminderSetting::find($id);
 
@@ -152,7 +161,7 @@ class ReminderController extends Controller
      */
     public function toggleSetting(int $id): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $setting = KpiReminderSetting::find($id);
 
@@ -178,7 +187,7 @@ class ReminderController extends Controller
      */
     public function logs(Request $request): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $query = KpiReminderLog::with(['user', 'setting']);
 
@@ -240,7 +249,7 @@ class ReminderController extends Controller
      */
     public function showLog(int $id): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $log = KpiReminderLog::with(['user', 'setting'])->find($id);
 
@@ -263,7 +272,7 @@ class ReminderController extends Controller
      */
     public function trigger(TriggerReminderRequest $request): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $validated = $request->validated();
         $isDryRun = filter_var($validated['dry_run'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -306,7 +315,7 @@ class ReminderController extends Controller
      */
     public function sendTest(SendTestReminderRequest $request): JsonResponse
     {
-        $this->ensureAdminOnly();
+        $this->ensureSuperAdmin();
 
         $validated = $request->validated();
         $channel = strtolower($validated['channel']);
