@@ -44,4 +44,9 @@ return [
         'otp_message' => env('WA_OTP_MESSAGE', 'Kode OTP {app_name} Anda: {otp}. Berlaku {expires_in}. Jangan bagikan kode ini kepada siapa pun.'),
     ],
 
+    // Login email (kode OTP + magic link) memakai mailer default Laravel (MAIL_*).
+    'email_login' => [
+        'expires_in' => (int) env('EMAIL_LOGIN_EXPIRES_IN', 600),
+    ],
+
 ];
