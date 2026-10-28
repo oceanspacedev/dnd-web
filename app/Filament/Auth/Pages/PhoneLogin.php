@@ -10,48 +10,16 @@ use App\Services\WhatsAppService;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\TextInput;
-use Filament\Pages\SimplePage;
-use Filament\Schemas\Components\Actions;
-use Filament\Schemas\Components\EmbeddedSchema;
-use Filament\Schemas\Components\Form;
 use Filament\Schemas\Schema;
-use Filament\Support\Facades\FilamentIcon;
 use Filament\Support\Icons\Heroicon;
-use Filament\View\PanelsIconAlias;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-/**
- * @property-read Action $loginAction
- * @property-read Schema $form
- */
-class PhoneLogin extends SimplePage
+class PhoneLogin extends OtpLoginPage
 {
     use InteractsWithWhatsAppLogin;
-
-    /**
-     * @var array<string, mixed>|null
-     */
-    public ?array $data = [];
-
-    public bool $awaitingOtp = false;
-
-    /**
-     * /phone-login sits outside the panel routes, so no panel middleware sets up the admin panel, neither on the first
-     * request nor on the Livewire update requests that follow (send, verify, changePhone). Without a current panel the
-     * re-rendered form uses Filament's default colours (the "Verifikasi dan Masuk" button then looks pale/disabled),
-     * so the panel is set up on every request, not only in mount().
-     */
-    public function boot(): void
-    {
-        if (Filament::getCurrentPanel() === null) {
-            Filament::setCurrentPanel(Filament::getPanel('admin'));
-            Filament::bootCurrentPanel();
-        }
-    }
 
     public function mount(): void
     {
@@ -150,10 +118,7 @@ class PhoneLogin extends SimplePage
             ]);
         }
 
-        Filament::auth()->login($verifiedUser);
-        session()->regenerate();
-
-        $this->redirect('/admin');
+        $this->completeLogin($verifiedUser);
     }
 
     public function submit(WhatsAppOtpService $otpService): void
@@ -171,11 +136,6 @@ class PhoneLogin extends SimplePage
     {
         $this->awaitingOtp = false;
         $this->form->fill();
-    }
-
-    public function defaultForm(Schema $schema): Schema
-    {
-        return $schema->statePath('data');
     }
 
     public function form(Schema $schema): Schema
@@ -202,18 +162,6 @@ class PhoneLogin extends SimplePage
         ]);
     }
 
-    public function loginAction(): Action
-    {
-        return Action::make('login')
-            ->link()
-            ->label('Kembali ke halaman masuk')
-            ->icon(match (__('filament-panels::layout.direction')) {
-                'rtl' => FilamentIcon::resolve(PanelsIconAlias::PAGES_PASSWORD_RESET_REQUEST_PASSWORD_RESET_ACTIONS_LOGIN_RTL) ?? Heroicon::ArrowRight,
-                default => FilamentIcon::resolve(PanelsIconAlias::PAGES_PASSWORD_RESET_REQUEST_PASSWORD_RESET_ACTIONS_LOGIN) ?? Heroicon::ArrowLeft,
-            })
-            ->url(filament()->getLoginUrl());
-    }
-
     public function getTitle(): string|Htmlable
     {
         return 'Masuk dengan WhatsApp';
@@ -224,14 +172,9 @@ class PhoneLogin extends SimplePage
         return 'Masuk dengan WhatsApp';
     }
 
-    /**
-     * @return array<Action>
-     */
-    protected function getFormActions(): array
+    public function getHeaderIcon(): Heroicon
     {
-        return [
-            $this->getSubmitFormAction(),
-        ];
+        return Heroicon::DevicePhoneMobile;
     }
 
     protected function getSubmitFormAction(): Action
@@ -239,11 +182,6 @@ class PhoneLogin extends SimplePage
         return Action::make('submit')
             ->label(fn (): string => $this->awaitingOtp ? 'Verifikasi dan Masuk' : 'Kirim OTP WhatsApp')
             ->submit('submit');
-    }
-
-    protected function hasFullWidthFormActions(): bool
-    {
-        return true;
     }
 
     public function getSubheading(): string|Htmlable|null
@@ -260,31 +198,6 @@ class PhoneLogin extends SimplePage
         }
 
         return $this->loginAction;
-    }
-
-    public function content(Schema $schema): Schema
-    {
-        return $schema->components([
-            Form::make([EmbeddedSchema::make('form')])
-                ->id('form')
-                ->livewireSubmitHandler('submit')
-                ->footer([
-                    Actions::make($this->getFormActions())
-                        ->alignment($this->getFormActionsAlignment())
-                        ->fullWidth($this->hasFullWidthFormActions())
-                        ->key('form-actions'),
-                ]),
-        ]);
-    }
-
-    public function getView(): string
-    {
-        return 'filament.auth.phone-login';
-    }
-
-    public function hasLogo(): bool
-    {
-        return false;
     }
 
     protected function throttleOtpSend(string $number): void
@@ -308,23 +221,5 @@ class PhoneLogin extends SimplePage
             ["whatsapp-verify:filament:number:5m:{$numberKey}", 15, 300],
             ["whatsapp-verify:filament:ip:1m:{$ipKey}", 20, 60],
         ], 'data.otp', 'Terlalu banyak percobaan OTP. Coba lagi sebentar lagi.');
-    }
-
-    /**
-     * @param  array<int, array{0: string, 1: int, 2: int}>  $limits
-     */
-    protected function consumeRateLimits(array $limits, string $field, string $message): void
-    {
-        $limited = false;
-
-        foreach ($limits as [$key, $maxAttempts, $decaySeconds]) {
-            if (RateLimiter::hit($key, $decaySeconds) > $maxAttempts) {
-                $limited = true;
-            }
-        }
-
-        if ($limited) {
-            throw ValidationException::withMessages([$field => $message]);
-        }
     }
 }

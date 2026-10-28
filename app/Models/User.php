@@ -79,6 +79,17 @@ class User extends Authenticatable implements FilamentUser, HasName
                 ->whereNull('verified_at')
                 ->update(['expires_at' => now()]);
         });
+
+        static::updated(function (User $user): void {
+            if (! $user->wasChanged('email') || ! Schema::hasTable('email_otps')) {
+                return;
+            }
+
+            EmailOtp::query()
+                ->where('user_id', $user->getKey())
+                ->whereNull('verified_at')
+                ->update(['expires_at' => now()]);
+        });
     }
 
     /** @return Attribute<never, mixed> */

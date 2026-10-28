@@ -447,7 +447,8 @@ Jangan commit `.env` atau credential apa pun ke Git.
 | `OCTANE_MAX_REQUESTS` | Tidak | Daur ulang worker untuk membatasi pertumbuhan memori; default `500` request |
 | `KPI_CHECKLIST_LOCK_DAYS` | Tidak | Grace period pengisian KPI setelah akhir bulan; default `5` |
 | `KPI_CACHE_TTL_*` | Tidak | TTL cache master kategori/deskripsi/posisi (`300` dtk), skor leaderboard (`60` dtk), dan aturan penilaian/komponen kehadiran (`KPI_CACHE_TTL_SCORING_RULES_SECONDS`, `3600` dtk) |
-| `MAIL_*` | Untuk email | SMTP dan identitas pengirim |
+| `MAIL_*` | Untuk email | SMTP dan identitas pengirim; tombol login **Email** (kode OTP + magic link) di `/admin/login` hanya muncul bila `MAIL_MAILER` bukan `log`/`array` |
+| `EMAIL_LOGIN_EXPIRES_IN` | Tidak | Masa berlaku kode dan magic link login email; default `600` detik |
 | `WAG_URL` | Untuk WhatsApp | Endpoint gateway WhatsApp |
 | `WAG_TOKEN` | Untuk WhatsApp | Bearer credential gateway WhatsApp |
 | `WA_CONNECT_TIMEOUT` | Tidak | Timeout koneksi gateway; default `5` detik |

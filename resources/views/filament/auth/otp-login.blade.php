@@ -1,5 +1,4 @@
 @php
-    use Filament\Support\Icons\Heroicon;
     use Illuminate\View\ComponentAttributeBag;
 
     use function Filament\Support\generate_icon_html;
@@ -10,7 +9,7 @@
         <div class="flex items-center justify-center space-y-2 rounded-lg bg-white p-2 shadow ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700/80">
             {{
                 generate_icon_html(
-                    Heroicon::DevicePhoneMobile,
+                    $this->getHeaderIcon(),
                     attributes: (new ComponentAttributeBag)->class(['size-5']),
                 )
             }}
@@ -27,7 +26,7 @@
         @endif
     </header>
 
-    <div class="mt-8">
+    <div class="mt-8" @if (filled($initAction = $this->getInitAction())) wire:init="{{ $initAction }}" @endif>
         {{ $this->content }}
     </div>
 </x-mekaya::auth-card>

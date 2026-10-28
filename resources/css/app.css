@@ -4,3 +4,7 @@
 .whatsapp-login-icon {
     fill: #25d366;
 }
+
+.email-login-icon {
+    color: var(--primary-500);
+}
