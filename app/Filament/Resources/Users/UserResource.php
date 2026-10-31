@@ -166,7 +166,7 @@ class UserResource extends Resource
 
             if (($nameCounts[$normalize($divisi)] ?? 0) > 1) {
                 $areaName = $divisi->area?->name;
-                $label .= ' ('.(filled($areaName) ? $areaName : 'tanpa badan usaha').')';
+                $label .= ' ('.(filled($areaName) ? $areaName : 'tanpa area').')';
             }
 
             $options[(int) $divisi->getKey()] = $label;
@@ -179,7 +179,7 @@ class UserResource extends Resource
 
     /**
      * Jabatan diubah ke ADMIN untuk karyawan baru atau yang belum ADMIN: default fail closed ke
-     * 'Badan Usaha Tertentu' dengan badan usaha karyawan itu sendiri. Admin yang sudah ada tidak tersentuh.
+     * 'Area Tertentu' dengan Area karyawan itu sendiri. Admin yang sudah ada tidak tersentuh.
      *
      * @param  callable(string): mixed  $get
      * @param  callable(string, mixed): void  $set
@@ -544,14 +544,14 @@ class UserResource extends Resource
 
                 // Akses data per badan usaha hanya berlaku untuk role ADMIN dan hanya diatur super admin.
                 Section::make('Akses Data')
-                    ->description('Tentukan badan usaha yang datanya dapat dilihat dan dikelola admin ini.')
+                    ->description('Tentukan area yang datanya dapat dilihat dan dikelola admin ini.')
                     ->visible(fn (Get $get): bool => static::canManageDataAccess() && static::isAdminRoleId($get('role_id')))
                     ->schema([
                         ToggleButtons::make('data_access')
-                            ->label('Cakupan Badan Usaha')
+                            ->label('Cakupan Area')
                             ->options([
-                                User::DATA_ACCESS_ALL => 'Semua Badan Usaha',
-                                User::DATA_ACCESS_SELECTED => 'Badan Usaha Tertentu',
+                                User::DATA_ACCESS_ALL => 'Semua Area',
+                                User::DATA_ACCESS_SELECTED => 'Area Tertentu',
                             ])
                             // Fail closed: admin baru dibatasi ke badan usaha tertentu kecuali dipilih lain.
                             ->default(User::DATA_ACCESS_SELECTED)
@@ -576,26 +576,26 @@ class UserResource extends Resource
                         // Konfirmasi hanya saat karyawan yang belum super admin akan dijadikan super admin.
                         Checkbox::make('confirm_global_access')
                             ->label('Saya yakin menjadikan karyawan ini super admin')
-                            ->helperText('Super admin melihat dan mengelola data karyawan di semua badan usaha, membuka menu Settings termasuk Aturan Penilaian, dan dapat memberikan role ADMIN kepada karyawan lain. Pilih Badan Usaha Tertentu bila admin cukup mengelola badan usaha tertentu.')
+                            ->helperText('Super admin melihat dan mengelola data karyawan di semua area, membuka menu Settings termasuk Aturan Penilaian, dan dapat memberikan role ADMIN kepada karyawan lain. Pilih Area Tertentu bila admin cukup mengelola area tertentu.')
                             ->visible(fn (Get $get, ?User $record): bool => $get('data_access') === User::DATA_ACCESS_ALL
                                 && ! static::isGlobalAdminRecord($record))
                             ->required()
                             ->accepted()
                             ->validationMessages([
-                                'accepted' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
-                                'required' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
+                                'accepted' => 'Centang konfirmasi ini untuk memberi akses Semua Area.',
+                                'required' => 'Centang konfirmasi ini untuk memberi akses Semua Area.',
                             ]),
                         Select::make('dataAccessAreas')
-                            ->label('Badan Usaha')
+                            ->label('Area yang Dikelola')
                             ->relationship('dataAccessAreas', 'name')
                             ->multiple()
                             ->preload()
                             ->searchable()
                             ->helperText(fn (?User $record): string => static::isExistingAdminRecord($record)
-                                ? 'Admin melihat karyawan di badan usaha ini, ditambah anggota timnya sendiri.'
+                                ? 'Admin melihat karyawan di area ini, ditambah anggota timnya sendiri.'
                                 // Admin baru/promosi: daftar terisi otomatis dari Area (lihat applyAdminDataAccessDefaults).
-                                : 'Admin melihat karyawan di badan usaha ini, ditambah anggota timnya sendiri. '
-                                    .'Terisi otomatis dengan Area karyawan ini; hapus bila admin tidak perlu mengelola badan usaha tersebut.')
+                                : 'Admin melihat karyawan di area ini, ditambah anggota timnya sendiri. '
+                                    .'Terisi otomatis dengan Area karyawan ini; hapus bila admin tidak perlu mengelola area tersebut.')
                             ->visible(fn (Get $get): bool => $get('data_access') === User::DATA_ACCESS_SELECTED)
                             ->required(fn (Get $get): bool => $get('data_access') === User::DATA_ACCESS_SELECTED),
                     ])
@@ -659,7 +659,7 @@ class UserResource extends Resource
             && ! static::canManageDataAccess($actor)
         ) {
             throw ValidationException::withMessages([
-                'data.role_id' => 'Hanya admin dengan akses seluruh badan usaha yang dapat memberikan role ADMIN.',
+                'data.role_id' => 'Hanya admin dengan akses seluruh area yang dapat memberikan role ADMIN.',
             ]);
         }
 
@@ -724,7 +724,7 @@ class UserResource extends Resource
     public static function lockedCredentialsMessage(): string
     {
         return 'Akses akun ini melampaui cakupan data Anda, jadi data login-nya (username, password, No. HP) '
-            .'hanya dapat diubah admin dengan akses seluruh badan usaha.';
+            .'hanya dapat diubah admin dengan akses seluruh area.';
     }
 
     /**
@@ -746,7 +746,7 @@ class UserResource extends Resource
             && ! ($actor instanceof User && (new UserPolicy)->useGlobalAttendanceUsername($actor))
         ) {
             throw ValidationException::withMessages([
-                'data.username' => 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh badan usaha.',
+                'data.username' => 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh area.',
             ]);
         }
 
@@ -821,7 +821,7 @@ class UserResource extends Resource
         // Menjadikan karyawan super admin harus dikonfirmasi; state Livewire tanpa konfirmasi ditolak.
         if ($data['data_access'] === User::DATA_ACCESS_ALL && ! $isGlobalAdminRecord && ! $confirmedGlobalAccess) {
             throw ValidationException::withMessages([
-                'data.confirm_global_access' => 'Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.',
+                'data.confirm_global_access' => 'Centang konfirmasi ini untuk memberi akses Semua Area.',
             ]);
         }
 
@@ -841,7 +841,7 @@ class UserResource extends Resource
 
         if (! DataAccessService::anotherGlobalAdminExists($record)) {
             throw ValidationException::withMessages([
-                'data.role_id' => 'Minimal harus ada satu admin dengan akses seluruh badan usaha.',
+                'data.role_id' => 'Minimal harus ada satu admin dengan akses seluruh area.',
             ]);
         }
     }
@@ -893,7 +893,7 @@ class UserResource extends Resource
         }
 
         throw ValidationException::withMessages([
-            'data.area_id' => 'Badan usaha berada di luar cakupan akses data Anda.',
+            'data.area_id' => 'Area berada di luar cakupan akses data Anda.',
         ]);
     }
 

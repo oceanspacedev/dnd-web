@@ -9,7 +9,7 @@
             <div class="grid gap-4 md:grid-cols-3">
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/40">
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Versi Dokumen</p>
-                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">v1.2</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">v1.3</p>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/40">
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Target Pembaca</p>
@@ -17,16 +17,16 @@
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/40">
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Cakupan</p>
-                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">Login (Username atau WhatsApp OTP) + Pengisian Checklist + Validasi Bulanan</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">Login (Username, WhatsApp OTP, atau Email) + Pengisian Checklist + Validasi Bulanan</p>
                 </div>
             </div>
         </x-filament::section>
 
         <x-filament::section>
             <x-slot name="heading">SOP 1 - Login dan Akses Checklist KPI</x-slot>
-            <x-slot name="description">Pilih salah satu cara masuk: Username dan Kata sandi, atau WhatsApp OTP untuk akun yang No. HP WhatsApp-nya sudah terdaftar.</x-slot>
+            <x-slot name="description">Pilih salah satu cara masuk: Username dan Kata sandi, WhatsApp OTP untuk akun yang No. HP WhatsApp-nya sudah terdaftar, atau Email untuk akun yang alamat Email-nya sudah terdaftar.</x-slot>
 
-            <div class="grid gap-4 md:grid-cols-2">
+            <div class="grid gap-4 md:grid-cols-3">
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Opsi A - Username dan Kata sandi</h3>
                     <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
@@ -44,6 +44,15 @@
                         <li>Buka pesan WhatsApp di HP Anda yang berisi kode OTP 6 digit, isi kode itu di <strong>Kode OTP</strong>, lalu klik <strong>Verifikasi dan Masuk</strong>.</li>
                     </ol>
                 </div>
+                <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Opsi C - Email</h3>
+                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                        <li>Di halaman login, klik tombol <strong>Email</strong> di bawah tulisan <strong>Atau masuk dengan</strong>.</li>
+                        <li>Di halaman <strong>Masuk dengan Email</strong>, isi <strong>Email</strong> yang terdaftar di data karyawan Anda.</li>
+                        <li>Klik <strong>Kirim Kode ke Email</strong>. Kolom Email terkunci dan kolom <strong>Kode OTP</strong> muncul.</li>
+                        <li>Buka email <strong>Kode masuk {{ config('app.name') }}</strong> di kotak masuk Anda. Isi 6 digit kode dari email itu di <strong>Kode OTP</strong>, lalu klik <strong>Verifikasi dan Masuk</strong>. Atau klik tombol <strong>Masuk ke {{ config('app.name') }}</strong> di email tersebut.</li>
+                    </ol>
+                </div>
             </div>
 
             <ol class="mt-4 list-decimal space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
@@ -54,11 +63,22 @@
             <div class="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-100">
                 <p class="font-semibold">Catatan login WhatsApp:</p>
                 <ul class="mt-2 list-disc space-y-1 pl-5">
-                    <li>Tombol <strong>WhatsApp</strong> hanya tampil saat layanan WhatsApp aktif. Jika tidak tampil, masuk dengan Username dan Kata sandi.</li>
+                    <li>Tombol <strong>WhatsApp</strong> hanya tampil saat layanan WhatsApp aktif. Jika tidak tampil, masuk dengan cara lain.</li>
                     <li>Nomor WhatsApp diambil dari kolom <strong>No. HP</strong> di data <strong>Karyawan</strong> dan hanya dapat diisi atau diubah oleh admin.</li>
                     <li>Kode OTP hanya berlaku singkat (lihat keterangan <em>Berlaku &hellip;</em> di pesan WhatsApp) dan hanya bisa dipakai sekali. Jika kode kedaluwarsa atau nomor salah, klik <strong>Ganti nomor atau kirim ulang OTP</strong>.</li>
-                    <li>Lupa kata sandi? Gunakan WhatsApp OTP bila No. HP sudah terdaftar, atau hubungi admin.</li>
-                    <li>Jangan bagikan kode OTP kepada siapa pun, termasuk atasan atau admin.</li>
+                </ul>
+                <p class="mt-3 font-semibold">Catatan login Email:</p>
+                <ul class="mt-2 list-disc space-y-1 pl-5">
+                    <li>Tombol <strong>Email</strong> hanya tampil saat pengiriman email aktif. Jika tidak tampil, masuk dengan cara lain.</li>
+                    <li>Alamat email diambil dari kolom <strong>Email</strong> di data <strong>Karyawan</strong> dan hanya dapat diisi atau diubah oleh admin. Alamat yang tercatat untuk lebih dari satu karyawan tidak bisa dipakai login.</li>
+                    <li>Satu email berisi kode 6 digit dan tombol masuk. Keduanya berlaku sesuai keterangan di email dan hanya bisa dipakai sekali: memakai salah satunya membuat yang lain tidak berlaku. Jika kedaluwarsa, klik <strong>Ganti email atau kirim ulang kode</strong>.</li>
+                    <li>Tombol di email membuka {{ config('app.name') }} di perangkat tempat email dibuka. Jika email dibuka di HP tetapi Anda ingin masuk di komputer, ketik kodenya di komputer.</li>
+                    <li>Tidak menemukan emailnya? Periksa folder Spam atau Promosi.</li>
+                </ul>
+                <p class="mt-3 font-semibold">Berlaku untuk semua cara masuk:</p>
+                <ul class="mt-2 list-disc space-y-1 pl-5">
+                    <li>Lupa kata sandi? Gunakan WhatsApp OTP atau Email bila sudah terdaftar, atau hubungi admin.</li>
+                    <li>Jangan bagikan kode OTP atau tombol masuk dari email kepada siapa pun, termasuk atasan atau admin.</li>
                 </ul>
             </div>
 
@@ -73,6 +93,18 @@
                     Kartu <em>Pesan WhatsApp di HP Anda (contoh)</em> di GIF hanya ilustrasi pesan yang masuk ke WhatsApp di HP Anda, bukan bagian halaman login.
                 </p>
             </div>
+
+            <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-white/10 dark:bg-gray-900/40">
+                <img src="{{ asset('images/kpi-guides/staff-email-login-flow.gif') }}"
+                    alt="GIF login personel operasional dengan Email: kirim kode, isi kode dari email, lalu tab Checklist KPI"
+                    class="w-full rounded-lg border border-gray-200 dark:border-white/10" />
+                <p class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                    GIF 2. Login dengan Email sampai tab Checklist KPI
+                </p>
+                <p class="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+                    Kartu <em>Email di kotak masuk Anda (contoh)</em> di GIF hanya ilustrasi email yang Anda terima, bukan bagian halaman login.
+                </p>
+            </div>
         </x-filament::section>
 
         <x-filament::section>
@@ -81,7 +113,7 @@
 
             <ol class="list-decimal space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
                 <li>Buka tab <strong>Checklist KPI</strong>.</li>
-                <li>Pilih periode di filter bulan (pojok kanan atas kartu <strong>Checklist KPI</strong>). Saat dibuka, filter langsung berisi bulan berjalan, misalnya <strong>Oktober 2026</strong>. Checklist bulan sebelumnya masih bisa diisi sampai tanggal 5 bulan berjalan; setelah itu bertanda <strong>Ditutup sejak &lt;tanggal&gt;</strong> dan hanya bisa dilihat, seperti September 2026 di GIF 2. Jadi pada tanggal 1-5, pilih bulan lalu lebih dulu untuk menyelesaikan checklist yang belum lengkap, lalu kembali ke bulan berjalan.</li>
+                <li>Pilih periode di filter bulan (pojok kanan atas kartu <strong>Checklist KPI</strong>). Saat dibuka, filter langsung berisi bulan berjalan, misalnya <strong>Oktober 2026</strong>. Checklist bulan sebelumnya masih bisa diisi sampai tanggal 5 bulan berjalan; setelah itu bertanda <strong>Ditutup sejak &lt;tanggal&gt;</strong> dan hanya bisa dilihat, seperti September 2026 di GIF 3. Jadi pada tanggal 1-5, pilih bulan lalu lebih dulu untuk menyelesaikan checklist yang belum lengkap, lalu kembali ke bulan berjalan.</li>
                 <li>Pastikan tabel KPI muncul per kategori: <strong>MAIN JOB</strong>, <strong>ADMINISTRATION</strong>, <strong>REPORTING</strong>, masing-masing dengan <strong>Category Percentage</strong>.</li>
                 <li>Baca tiap baris: <strong>Description</strong> beserta keterangan <strong>Skema</strong> (NON, Positif, atau Negatif), <strong>Type</strong>, <strong>Plan</strong>, <strong>Start</strong>, dan <strong>End</strong>.</li>
                 <li>Untuk tipe <strong>NON</strong>, klik ikon centang di kolom Status untuk toggle selesai/belum selesai. Ikon merah berubah menjadi hijau dan Result menjadi <strong>100%</strong>.</li>
@@ -99,7 +131,7 @@
                     <li><strong>NON</strong>: selesai = 1 (100%), belum selesai = 0 (0%).</li>
                     <li><strong>RESULT Positif</strong>: result = actual / plan.</li>
                     <li><strong>RESULT Negatif</strong>: result = plan / actual (actual minimum dihitung 1).</li>
-                    <li><strong>Total Score</strong>: tiap kategori menyumbang Category Percentage &times; rata-rata Result indikatornya. Contoh GIF 2: MAIN JOB 60% &times; rata-rata (100% + 80% + 75%) = 51, ditambah ADMINISTRATION 20 dan REPORTING 20, sehingga Total Score <strong>91.00</strong>.</li>
+                    <li><strong>Total Score</strong>: tiap kategori menyumbang Category Percentage &times; rata-rata Result indikatornya. Contoh GIF 3: MAIN JOB 60% &times; rata-rata (100% + 80% + 75%) = 51, ditambah ADMINISTRATION 20 dan REPORTING 20, sehingga Total Score <strong>91.00</strong>.</li>
                 </ul>
             </div>
 
@@ -108,7 +140,7 @@
                     alt="GIF pengisian checklist KPI bulanan: pilih bulan, centang NON, isi Value Actual Baru untuk RESULT, lalu cek Result dan Total Score"
                     class="w-full rounded-lg border border-gray-200 dark:border-white/10" />
                 <p class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
-                    GIF 2. Mengisi checklist bulanan: pilih bulan, centang NON, isi actual RESULT, lalu cek Result dan Total Score
+                    GIF 3. Mengisi checklist bulanan: pilih bulan, centang NON, isi actual RESULT, lalu cek Result dan Total Score
                 </p>
             </div>
         </x-filament::section>
@@ -278,6 +310,20 @@
                         <li><strong>&ldquo;Terlalu banyak percobaan OTP. Coba lagi sebentar lagi.&rdquo;</strong> Kode OTP terlalu sering dimasukkan (maksimal 15 kali per 5 menit untuk satu nomor). Tunggu beberapa menit, lalu klik <strong>Ganti nomor atau kirim ulang OTP</strong> untuk meminta kode baru.</li>
                         <li><strong>&ldquo;Terlalu banyak permintaan OTP. Coba lagi sebentar lagi.&rdquo;</strong> Permintaan kode dibatasi, maksimal 3 kali per 5 menit dan 10 kali per jam untuk satu nomor. Tunggu beberapa menit; jika masih ditolak, tunggu hingga 1 jam atau masuk dengan Username dan Kata sandi.</li>
                         <li><strong>&ldquo;OTP belum bisa dikirim ke WhatsApp. Coba lagi sebentar lagi.&rdquo;</strong> Layanan WhatsApp sedang bermasalah. Coba lagi nanti atau gunakan Username dan Kata sandi.</li>
+                    </ul>
+                </div>
+
+                <div class="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-400/30 dark:bg-red-500/10">
+                    <h3 class="font-semibold text-red-900 dark:text-red-200">6) Login Email Gagal</h3>
+                    <ul class="mt-2 list-disc space-y-1 pl-5 text-red-900 dark:text-red-200">
+                        <li><strong>&ldquo;Alamat email tidak valid.&rdquo;</strong> Format email salah. Isi alamat lengkap, misalnya nama@perusahaan.co.id.</li>
+                        <li><strong>&ldquo;Email belum terdaftar untuk login.&rdquo;</strong> Email belum diisi di data karyawan, berbeda, atau tercatat untuk lebih dari satu karyawan. Minta admin memperbarui Email, atau masuk dengan cara lain.</li>
+                        <li><strong>&ldquo;Kode tidak valid atau sudah kedaluwarsa.&rdquo;</strong> Kode salah, sudah dipakai, tombol di email sudah diklik, atau masa berlaku habis. Klik <strong>Ganti email atau kirim ulang kode</strong> lalu minta kode baru. Setelah 5 kali salah, kode tidak berlaku lagi.</li>
+                        <li><strong>&ldquo;Link masuk tidak valid atau sudah kedaluwarsa. Minta kode baru di bawah.&rdquo;</strong> Tombol di email sudah dipakai, kodenya sudah dipakai, atau masa berlakunya habis. Isi email Anda lagi di halaman itu dan klik <strong>Kirim Kode ke Email</strong>.</li>
+                        <li><strong>&ldquo;Terlalu banyak percobaan kode. Coba lagi sebentar lagi.&rdquo;</strong> Kode terlalu sering dimasukkan (maksimal 15 kali per 5 menit untuk satu email). Tunggu beberapa menit, lalu minta kode baru.</li>
+                        <li><strong>&ldquo;Terlalu banyak permintaan kode. Coba lagi sebentar lagi.&rdquo;</strong> Permintaan kode dibatasi, maksimal 3 kali per 5 menit dan 10 kali per jam untuk satu email. Tunggu beberapa menit; jika masih ditolak, tunggu hingga 1 jam atau masuk dengan cara lain.</li>
+                        <li><strong>&ldquo;Terlalu banyak percobaan masuk. Coba lagi sebentar lagi.&rdquo;</strong> Tombol masuk dari email dibuka terlalu sering dalam satu menit. Tunggu sebentar lalu klik lagi, atau ketik kodenya.</li>
+                        <li><strong>&ldquo;Email belum bisa dikirim. Coba lagi sebentar lagi.&rdquo;</strong> Layanan email sedang bermasalah. Coba lagi nanti atau gunakan cara masuk lain.</li>
                     </ul>
                 </div>
             </div>

@@ -12,27 +12,9 @@
                         penyelesaian Anda</p>
                 </div>
 
-                <!-- Filter Controls -->
-                <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                    <div class="flex flex-col sm:flex-row gap-3 w-full">
-                        @if ($this->canChooseUser())
-                            <label class="sr-only" for="checklist-user">User</label>
-                            <x-filament::input.wrapper class="w-full sm:w-52">
-                                <x-filament::input.select id="checklist-user" wire:model.live="user_id" class="w-full">
-                                    <option value="">--Choose User--</option>
-                                    @foreach ($kpisData['users'] as $user)
-                                        <option value="{{ $user->id }}">{{ $user->nama_lengkap }}</option>
-                                    @endforeach
-                                </x-filament::input.select>
-                            </x-filament::input.wrapper>
-                        @endif
-
-                        <label class="sr-only" for="checklist-month">Bulan</label>
-                        <x-filament::input.wrapper class="w-full sm:w-40">
-                            <x-filament::input id="checklist-month" type="month" wire:model.live="month"
-                                placeholder="Pilih Bulan" class="w-full" max="{{ now()->format('Y-m') }}" />
-                        </x-filament::input.wrapper>
-                    </div>
+                {{-- Filter user + bulan: Filament schema (Select searchable), lihat ChecklistKPI::filtersForm(). --}}
+                <div @class(['w-full md:w-auto', 'md:min-w-[34rem]' => $this->canChooseUser(), 'md:min-w-[14rem]' => ! $this->canChooseUser()])>
+                    {{ $this->filtersForm }}
                 </div>
             </div>
         </div>

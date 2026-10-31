@@ -17,7 +17,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 WORK=${GUIDE_GIFS_WORK_DIR:-$HERE/.work}
 DB="dnd_demo_$1"
-# WAG_URL/WAG_TOKEN -> local stub, MAIL_MAILER=log, CACHE_STORE=array (overrides .env, see env.sh).
+# WAG_URL/WAG_TOKEN -> local stub, mail -> mail-stub.php, CACHE_STORE=array (overrides .env, see env.sh).
 . "$HERE/env.sh"
 
 if [ -f "$REPO/bootstrap/cache/config.php" ]; then

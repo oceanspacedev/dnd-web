@@ -71,7 +71,7 @@ class KpiReminderSettingResource extends Resource
     {
         return static::canManage()
             ? Response::allow()
-            : Response::deny('Hanya admin dengan akses seluruh badan usaha yang dapat mengelola pengingat KPI.');
+            : Response::deny('Hanya admin dengan akses seluruh area yang dapat mengelola pengingat KPI.');
     }
 
     public static function form(Schema $schema): Schema

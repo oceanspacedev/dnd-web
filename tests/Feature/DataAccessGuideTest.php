@@ -109,12 +109,12 @@ class DataAccessGuideTest extends TestCase
 
         $expectations = [
             'super admin' => [$this->superAdmin, true],
-            'admin badan usaha tertentu' => [$this->scopedAdmin, true],
+            'admin area tertentu' => [$this->scopedAdmin, true],
             'manager dengan tim' => [$this->gmdManager, true],
             'team leader (role atasan) tanpa tim' => [$this->teamLeaderWithoutTeam, true],
             'staf yang punya bawahan' => [$this->staffWithSubordinate, true],
             'staf tanpa tim' => [$this->cooStaff, false],
-            'admin bercakupan tanpa badan usaha dan tanpa tim' => [$this->scopedAdminWithoutArea, false],
+            'admin bercakupan tanpa area dan tanpa tim' => [$this->scopedAdminWithoutArea, false],
         ];
 
         foreach ($expectations as $label => [$user, $expected]) {
@@ -170,9 +170,9 @@ class DataAccessGuideTest extends TestCase
 
         Livewire::test(DataAccessGuide::class)
             ->assertSuccessful()
-            ->assertSee('Super Admin (Semua Badan Usaha)')
-            ->assertSee('Semua badan usaha')
-            ->assertSee('SOP 1 - Memberi Admin Akses ke Badan Usaha Tertentu (Khusus Super Admin)')
+            ->assertSee('Super Admin (Semua Area)')
+            ->assertSee('Semua area')
+            ->assertSee('SOP 1 - Memberi Admin Akses ke Area Tertentu (Khusus Super Admin)')
             ->assertSee('SOP 2 - Mengubah atau Mencabut Akses (Khusus Super Admin)')
             ->assertSee('Kondisi akses admin saat ini')
             ->assertSee('OJAN')
@@ -187,16 +187,16 @@ class DataAccessGuideTest extends TestCase
             ->assertDontSee('Minimal harus ada satu super admin')
             ->assertDontSee('Buka Menu Tim Saya')
             // SOP 1: ADMIN baru gagal tertutup ke badan usaha sendiri; super admin hanya dengan konfirmasi.
-            ->assertSeeHtml('sudah terpilih <strong>Badan Usaha Tertentu</strong>, dan field <strong>Badan Usaha</strong> sudah terisi Area karyawan itu sendiri')
+            ->assertSeeHtml('sudah terpilih <strong>Area Tertentu</strong>, dan field <strong>Area yang Dikelola</strong> sudah terisi Area karyawan itu sendiri')
             ->assertSee('Jabatan ADMIN tidak pernah otomatis menjadi super admin.')
-            ->assertDontSeeHtml('Pada <strong>Cakupan Badan Usaha</strong>, pilih <strong>Badan Usaha Tertentu</strong>.')
-            ->assertSee('Admin Dibatasi ke Badan Usaha Tertentu')
-            ->assertSee('Mengubah Area admin yang sudah ada tidak mengubah daftar Badan Usaha-nya.')
+            ->assertDontSeeHtml('Pada <strong>Cakupan Area</strong>, pilih <strong>Area Tertentu</strong>.')
+            ->assertSee('Admin Dibatasi ke Area Tertentu')
+            ->assertSee('Mengubah Area admin yang sudah ada tidak mengubah daftar Area yang Dikelola.')
             ->assertSee('Saya yakin menjadikan karyawan ini super admin')
-            ->assertSee('Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.')
+            ->assertSee('Centang konfirmasi ini untuk memberi akses Semua Area.')
             ->assertSee('Akun yang sudah super admin tidak diminta konfirmasi.')
-            ->assertSeeHtml('Field <strong>Divisi</strong> tidak menentukan badan usaha')
-            ->assertSee('6. Admin baru hanya melihat badan usahanya sendiri')
+            ->assertSeeHtml('Field <strong>Divisi</strong> tidak menentukan Area')
+            ->assertSee('6. Admin baru hanya melihat area-nya sendiri')
             ->assertSee('7. Pesan saat menyimpan form karyawan');
     }
 
@@ -216,7 +216,7 @@ class DataAccessGuideTest extends TestCase
 
         Livewire::test(DataAccessGuide::class)
             ->assertSuccessful()
-            ->assertSee('Admin Badan Usaha Tertentu')
+            ->assertSee('Admin Area Tertentu')
             ->assertSee('GMD')
             ->assertSee('ULS')
             ->assertSee('Khusus super admin')
@@ -224,8 +224,8 @@ class DataAccessGuideTest extends TestCase
             ->assertSee('Buka Menu Tim Saya')
             ->assertSee('Profil akun ADMIN (form karyawan) hanya dapat diubah oleh super admin.')
             ->assertSee('KPI dan Jurnal Harian miliknya sendiri tetap bisa ia ubah')
-            ->assertSee('anggota tim boleh ditempatkan di badan usaha mana pun')
-            ->assertSee('menambahkan badan usaha tersebut ke Akses Data Anda')
+            ->assertSee('anggota tim boleh ditempatkan di area mana pun')
+            ->assertSee('menambahkan area tersebut ke Akses Data Anda')
             ->assertDontSee('Cek Akses Data admin')
             ->assertDontSee('dan aktivitas anggota tim')
             ->assertDontSee('Belum dipilih')
@@ -235,7 +235,7 @@ class DataAccessGuideTest extends TestCase
             ->assertDontSee('RINA')
             ->assertDontSee('Buka Settings > Area')
             ->assertDontSee('Saya yakin menjadikan karyawan ini super admin')
-            ->assertDontSee('Admin baru hanya melihat badan usahanya sendiri')
+            ->assertDontSee('Admin baru hanya melihat area-nya sendiri')
             ->assertSee('6. Pesan saat menyimpan form karyawan');
     }
 
@@ -254,10 +254,10 @@ class DataAccessGuideTest extends TestCase
 
         Livewire::test(DataAccessGuide::class)
             ->assertSuccessful()
-            ->assertSee('Admin Badan Usaha Tertentu')
+            ->assertSee('Admin Area Tertentu')
             ->assertSee('Belum dipilih')
-            ->assertSee('Badan usaha untuk akun Anda belum dipilih, sehingga menu Karyawan tidak tersedia.')
-            ->assertDontSee('Tidak ada akses badan usaha')
+            ->assertSee('Area untuk akun Anda belum dipilih, sehingga menu Karyawan tidak tersedia.')
+            ->assertDontSee('Tidak ada akses area')
             ->assertDontSee('Data yang Anda kelola mengikuti anggota tim di menu Tim Saya.')
             ->assertDontSee('Buka Menu Karyawan');
     }
@@ -275,7 +275,7 @@ class DataAccessGuideTest extends TestCase
         Livewire::test(DataAccessGuide::class)
             ->assertSuccessful()
             ->assertSee('Atasan (Tim Saya)')
-            ->assertSee('Tidak ada akses badan usaha')
+            ->assertSee('Tidak ada akses area')
             ->assertSee('Data yang Anda kelola mengikuti anggota tim di menu Tim Saya.')
             ->assertSee('Menghapus anggota tim')
             ->assertSee('termasuk akun ADMIN yang tidak tampil di menu Tim Saya')
@@ -325,33 +325,33 @@ class DataAccessGuideTest extends TestCase
         Livewire::test(DataAccessGuide::class)
             ->assertSuccessful()
             ->assertSeeHtmlInOrder([
-                'SOP 1 - Memberi Admin Akses ke Badan Usaha Tertentu (Khusus Super Admin)',
+                'SOP 1 - Memberi Admin Akses ke Area Tertentu (Khusus Super Admin)',
                 'src="'.asset($gifs['atur_admin']).'"',
-                'alt="GIF super admin mengubah Jabatan karyawan COO menjadi ADMIN: Akses Data langsung terisi Badan Usaha Tertentu dengan COO (Area karyawan itu), lalu COO dihapus dan GMD serta ULS dipilih',
-                'GIF 1. Super admin menjadikan karyawan COO sebagai ADMIN: Akses Data otomatis Badan Usaha Tertentu dengan COO, lalu diganti GMD dan ULS',
+                'alt="GIF super admin mengubah Jabatan karyawan COO menjadi ADMIN: Akses Data langsung terisi Area Tertentu dengan COO (Area karyawan itu), lalu COO dihapus dan GMD serta ULS dipilih',
+                'GIF 1. Super admin menjadikan karyawan COO sebagai ADMIN: Akses Data otomatis Area Tertentu dengan COO, lalu diganti GMD dan ULS',
                 'SOP 2 - Mengubah atau Mencabut Akses (Khusus Super Admin)',
-                'Admin Badan Usaha Tertentu: Apa yang Terlihat &amp; Batasannya',
+                'Admin Area Tertentu: Apa yang Terlihat &amp; Batasannya',
                 'src="'.asset($gifs['hasil_admin']).'"',
-                'alt="GIF tampilan admin badan usaha tertentu yang hanya melihat karyawan ULS dan GMD tanpa menu Settings"',
-                'GIF 2. Tampilan admin badan usaha ULS dan GMD',
+                'alt="GIF tampilan admin area tertentu yang hanya melihat karyawan ULS dan GMD tanpa menu Settings"',
+                'GIF 2. Tampilan admin area ULS dan GMD',
                 'Tim Saya untuk Atasan',
                 'src="'.asset($gifs['tim_saya']).'"',
-                'alt="GIF atasan membuka menu Tim Saya dan melihat anggota tim di badan usaha lain yang Approval Line-nya atasan tersebut"',
+                'alt="GIF atasan membuka menu Tim Saya dan melihat anggota tim di area lain yang Approval Line-nya atasan tersebut"',
                 'GIF 3. Atasan membuka Tim Saya: anggota di ULS dan GMD tampil karena Approval Line-nya atasan tersebut',
                 'Siapa Melihat Apa',
             ]);
 
         // Viewer lain tidak melihat SOP super admin, jadi GIF 1 ikut tersembunyi dan penomoran mulai dari 1.
-        foreach (['admin badan usaha tertentu' => $this->scopedAdmin, 'atasan' => $this->gmdManager] as $label => $viewer) {
+        foreach (['admin area tertentu' => $this->scopedAdmin, 'atasan' => $this->gmdManager] as $label => $viewer) {
             $this->actAs($viewer);
             Livewire::test(DataAccessGuide::class)
                 ->assertSuccessful()
                 ->assertDontSeeHtml($gifs['atur_admin'])
                 ->assertDontSee('GIF 3.')
                 ->assertSeeHtmlInOrder([
-                    'Admin Badan Usaha Tertentu: Apa yang Terlihat &amp; Batasannya',
+                    'Admin Area Tertentu: Apa yang Terlihat &amp; Batasannya',
                     'src="'.asset($gifs['hasil_admin']).'"',
-                    'GIF 1. Tampilan admin badan usaha ULS dan GMD',
+                    'GIF 1. Tampilan admin area ULS dan GMD',
                     'Tim Saya untuk Atasan',
                     'src="'.asset($gifs['tim_saya']).'"',
                     'GIF 2. Atasan membuka Tim Saya: anggota di ULS dan GMD tampil karena Approval Line-nya atasan tersebut',
@@ -448,7 +448,7 @@ class DataAccessGuideTest extends TestCase
                 'dataAccessAreas' => [(string) $this->coo->id],
             ])
             ->assertFormFieldHidden('confirm_global_access')
-            // Langkah 6: badan usaha lain ditambahkan di field Badan Usaha.
+            // Langkah 6: badan usaha lain ditambahkan di field Area yang Dikelola.
             ->fillForm(['dataAccessAreas' => [(string) $this->coo->id, (string) $this->gmd->id]])
             ->call('save')
             ->assertHasNoFormErrors();
@@ -465,7 +465,7 @@ class DataAccessGuideTest extends TestCase
             ->assertSee('Saya yakin menjadikan karyawan ini super admin')
             ->call('save')
             ->assertHasFormErrors(['confirm_global_access'])
-            ->assertSee('Centang konfirmasi ini untuk memberi akses Semua Badan Usaha.');
+            ->assertSee('Centang konfirmasi ini untuk memberi akses Semua Area.');
         $this->assertFalse($this->gmdStaff->refresh()->isAdmin());
 
         // Akun yang sudah super admin tidak diminta konfirmasi.

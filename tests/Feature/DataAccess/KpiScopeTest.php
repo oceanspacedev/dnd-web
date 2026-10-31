@@ -623,7 +623,7 @@ class KpiScopeTest extends TestCase
         Livewire::actingAs($this->scopedAdmin);
 
         $component = Livewire::test(ChecklistKPI::class)
-            ->assertSeeHtml('id="checklist-user"')
+            ->assertSeeHtml('for="checklist-user"')
             ->assertSee($this->ulsStaff->nama_lengkap)
             ->assertSee($this->cooTeam->nama_lengkap)
             ->assertDontSee($this->gmdStaff->nama_lengkap)
@@ -646,7 +646,7 @@ class KpiScopeTest extends TestCase
         Livewire::actingAs($this->cooStaff);
 
         Livewire::test(ChecklistKPI::class)
-            ->assertDontSeeHtml('id="checklist-user"')
+            ->assertDontSeeHtml('for="checklist-user"')
             ->set('user_id', $this->ulsStaff->id)
             ->assertSet('user_id', null)
             ->assertDontSee('Tugas uls_staff')
@@ -657,7 +657,7 @@ class KpiScopeTest extends TestCase
         Livewire::actingAs($this->manager);
 
         Livewire::test(ChecklistKPI::class)
-            ->assertSeeHtml('id="checklist-user"')
+            ->assertSeeHtml('for="checklist-user"')
             ->set('user_id', $this->managerTeam->id)
             ->assertSee('Tugas gmd_manager_team');
     }

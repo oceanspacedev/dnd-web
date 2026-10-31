@@ -18,7 +18,7 @@
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/40">
                     <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Cakupan Akses</p>
-                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">Tim Saya (Atasan) & Badan Usaha (Admin)</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">Tim Saya (Atasan) & Area (Admin)</p>
                 </div>
             </div>
         </x-filament::section>
@@ -30,7 +30,7 @@
 
             <ol class="list-decimal space-y-3 pl-5 text-sm text-gray-700 dark:text-gray-300">
                 <li>
-                    Buka menu <strong>Karyawan</strong> (khusus Admin, berisi karyawan di badan usaha yang menjadi cakupan akses datanya) atau menu <strong>Tim Saya</strong> (Atasan, berisi anggota tim sesuai Approval Line).
+                    Buka menu <strong>Karyawan</strong> (khusus Admin, berisi karyawan di area yang menjadi cakupan akses datanya) atau menu <strong>Tim Saya</strong> (Atasan, berisi anggota tim sesuai Approval Line).
                 </li>
                 <li>
                     Temukan karyawan yang akan dipindahkan posisinya menggunakan kolom <strong>Pencarian</strong> atau menu <strong>Filter</strong>.
@@ -134,8 +134,8 @@
                     <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
                         <li><strong>Hirarki Bawahan</strong>: Atasan (Team Leader, Koordinator, Manager, Chief, BOD) berwenang memindahkan posisi karyawan yang berada di bawah struktur timnya.</li>
                         <li><strong>Keamanan Sistem</strong>: Atasan tidak dapat mengutak-atik posisi karyawan di luar struktur bawahannya atau atasan lainnya.</li>
-                        <li><strong>Admin Semua Badan Usaha</strong>: Memiliki hak mutasi untuk seluruh karyawan di semua badan usaha melalui menu <strong>Karyawan</strong>.</li>
-                        <li><strong>Admin Badan Usaha Tertentu</strong>: Menu <strong>Karyawan</strong> hanya berisi karyawan pada badan usaha yang diberikan kepadanya. Anggota timnya sendiri tetap dapat dikelola melalui menu <strong>Tim Saya</strong>.</li>
+                        <li><strong>Admin Semua Area</strong>: Memiliki hak mutasi untuk seluruh karyawan di semua area melalui menu <strong>Karyawan</strong>.</li>
+                        <li><strong>Admin Area Tertentu</strong>: Menu <strong>Karyawan</strong> hanya berisi karyawan pada area yang diberikan kepadanya. Anggota timnya sendiri tetap dapat dikelola melalui menu <strong>Tim Saya</strong>.</li>
                     </ul>
                 </div>
             </div>

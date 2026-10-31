@@ -250,13 +250,13 @@ class AttendanceImportScenariosTest extends TestCase
         $this->resetAccessMemos();
 
         $probes = [
-            ['EMP-GMD-A', 'X'],         // ID karyawan badan usaha lain
+            ['EMP-GMD-A', 'X'],         // ID karyawan area lain
             ['EMP-NOPE', 'X'],          // ID yang tidak ada
-            ['', 'SECRET PERSON'],      // nama karyawan badan usaha lain
+            ['', 'SECRET PERSON'],      // nama karyawan area lain
             ['', 'NOBODY HERE'],        // nama yang tidak ada
-            ['', 'TWIN NAME'],          // nama yang dipakai dua karyawan badan usaha lain
-            ['EMP-GMD-DEL', 'X'],       // ID karyawan badan usaha lain yang sudah dihapus
-            ['EMP-GMD-A', 'ULS STAFF'], // ID badan usaha lain + nama karyawan dalam cakupan
+            ['', 'TWIN NAME'],          // nama yang dipakai dua karyawan area lain
+            ['EMP-GMD-DEL', 'X'],       // ID karyawan area lain yang sudah dihapus
+            ['EMP-GMD-A', 'ULS STAFF'], // ID area lain + nama karyawan dalam cakupan
             ['EMP-NOPE', 'ULS STAFF'],  // ID yang tidak ada + nama karyawan dalam cakupan
         ];
 

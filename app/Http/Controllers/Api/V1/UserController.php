@@ -63,7 +63,7 @@ class UserController extends Controller
             abort_unless(
                 DataAccessService::canAccessEmployees($actor),
                 403,
-                'Anda tidak memiliki akses data karyawan badan usaha.',
+                'Anda tidak memiliki akses data karyawan per area.',
             );
         }
 
@@ -508,7 +508,7 @@ class UserController extends Controller
         abort_if(
             Role::query()->whereKey($validated['role_id'])->value('name') === User::ROLE_ADMIN,
             403,
-            'Hanya admin dengan akses seluruh badan usaha yang dapat memberikan role ADMIN.',
+            'Hanya admin dengan akses seluruh area yang dapat memberikan role ADMIN.',
         );
     }
 }

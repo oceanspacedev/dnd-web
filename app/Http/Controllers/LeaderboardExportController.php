@@ -40,7 +40,7 @@ class LeaderboardExportController extends Controller
         abort_if(
             $scope !== null && filled($areaId) && ! in_array((int) $areaId, LeaderboardScoreService::selectableAreaIds($scope), true),
             403,
-            'Anda tidak memiliki akses ke badan usaha ini.',
+            'Anda tidak memiliki akses ke area ini.',
         );
 
         $leaderboardData = [];

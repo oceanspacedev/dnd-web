@@ -1,7 +1,7 @@
 <?php
 
 // Demo database for guide GIF recordings: fake people only (Faker id_ID, fixed seed), no production data.
-// Two layers, both run with the environment from env.sh (WhatsApp -> local stub, mail -> log, cache -> array):
+// Two layers, both run with the environment from env.sh (WhatsApp -> local stub, mail -> mail-stub.php, cache -> array):
 //   base  setup-db.sh: DB_DATABASE=dnd_demo_panduan php demo_seed.php
 //         migrate:fresh + accounts, employees, attendance and reviews; dumped to .work/demo_base.sql for every guide.
 //   kpi   reset.sh, KPI guides only: DB_DATABASE=dnd_demo_kpimanajerial|dnd_demo_kpioperasional php demo_seed.php kpi
@@ -117,13 +117,13 @@ $make = function (string $username, string $name, string $role, string $area, ?U
 };
 
 // Akun demo per peran. demo_admin_bu mulai sebagai staf COO: GIF 1 Panduan Akses Data menjadikannya ADMIN (Akses
-// Data otomatis Badan Usaha Tertentu = COO, lalu diganti ULS + GMD), GIF 2 login sebagai admin itu.
+// Data otomatis Area Tertentu = COO, lalu diganti ULS + GMD), GIF 2 login sebagai admin itu.
 $superAdmin = $make('demo_superadmin', 'Admin Pusat', 'ADMIN', 'COO', null, 'Staf HRD', ['data_access' => User::DATA_ACCESS_ALL]);
-$scopedAdmin = $make('demo_admin_bu', 'Admin Badan Usaha', 'STAFF', 'COO', null, 'Staf HRD');
+$scopedAdmin = $make('demo_admin_bu', 'Admin Area', 'STAFF', 'COO', null, 'Staf HRD');
 $manager = $make('demo_manager', $faker->name('male'), 'MANAGER', 'COO', null, 'Supervisor Toko');
 $teamLeader = $make('demo_teamleader', $faker->name('female'), 'TEAM LEADER', 'ULS', $manager, 'Kepala Toko');
 
-// Karyawan contoh di setiap badan usaha.
+// Karyawan contoh di setiap area.
 $plan = [
     ['ULS', $teamLeader, 'Kasir'], ['ULS', $teamLeader, 'Pramuniaga'], ['ULS', $teamLeader, 'Pramuniaga'],
     ['ULS', $teamLeader, 'Admin Gudang'], ['GMD', $teamLeader, 'Kasir'],
@@ -267,6 +267,12 @@ function seedKpiLayer(): array
             User::query()->where('username', $username)->firstOrFail()->update(['no_hp' => $phone]);
         }
 
+        // Email palsu (domain example.com, RFC 2606) untuk login Email di Panduan KPI Operasional.
+        $emails = ['demo_staf_1' => 'ifa.purwanti@example.com'];
+        foreach ($emails as $username => $email) {
+            User::query()->where('username', $username)->firstOrFail()->update(['email' => $email]);
+        }
+
         return [
             'db' => DB::connection()->getDatabaseName(),
             'months' => [$month->format('Y-m'), $previous->format('Y-m')],
@@ -276,6 +282,7 @@ function seedKpiLayer(): array
             'kpis' => $kpis,
             'kpi_details' => $details,
             'whatsapp' => User::query()->whereIn('username', array_keys($phones))->pluck('no_hp', 'username'),
+            'email' => User::query()->whereIn('username', array_keys($emails))->pluck('email', 'username'),
         ];
     });
 }

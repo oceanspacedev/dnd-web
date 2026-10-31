@@ -8,7 +8,7 @@ Skrip di folder ini merekam GIF animasi untuk halaman panduan di panel admin. Re
 | Panduan Akses Data | `data-access-guide.blade.php` | `flows/akses.js` | `panduan-akses-data/akses-data-atur-admin.gif`, `akses-data-hasil-admin.gif`, `akses-data-tim-saya.gif` |
 | Panduan Aturan Penilaian | `scoring-rules-guide.blade.php` | `flows/aturan.js` | `panduan-aturan-penilaian/kehadiran-isi-form.gif`, `kehadiran-import.gif`, `aturan-versi-baru.gif`, `komponen-tambah.gif` |
 | Panduan KPI Manajerial | `kpi-supervisor-guide.blade.php` | `flows/kpi-manajerial.js` | `kpi-guides/kpi-flow-lengkap.gif`, `kpi-error-required-fields.gif`, `kpi-error-kpi-description.gif`, `kpi-error-value-plan.gif`, `kpi-error-percentage-total.gif`, `supervisor-review-flow.gif` |
-| Panduan KPI Operasional | `kpi-staff-guide.blade.php` | `flows/kpi-operasional.js` | `kpi-guides/staff-login-flow.gif`, `staff-checklist-flow.gif` |
+| Panduan KPI Operasional | `kpi-staff-guide.blade.php` | `flows/kpi-operasional.js` | `kpi-guides/staff-login-flow.gif`, `staff-email-login-flow.gif`, `staff-checklist-flow.gif` |
 
 ## Keamanan data
 
@@ -23,13 +23,24 @@ Rekaman hanya boleh memakai database demo yang dibuat `demo_seed.php`. Database 
 
 `.env` berisi URL gateway WhatsApp yang asli (`WAG_URL`), dan `config/services.php` juga memakai URL gateway asli sebagai nilai bawaan. Login OTP mengirim pesan WhatsApp sungguhan lewat `App\Services\WhatsAppService::send`. Karena itu tidak ada proses rekaman yang boleh memakai nilai dari `.env`:
 
-- `env.sh` memaksa `WAG_URL=http://127.0.0.1:8019`, `WAG_TOKEN` berisi token dummy, `MAIL_MAILER=log`, `CACHE_STORE=array` dan `DB_URL` kosong (URL database digabung ke config saat koneksi dibuka dan akan mengganti `DB_DATABASE`). Nilainya dipaksa, bukan default, jadi `WAG_URL` yang kebetulan di-export di shell juga tertimpa. `setup-db.sh`, `reset.sh`, `serve.sh` dan `wa-stub.sh` memuat file ini lebih dulu. Flow yang menjalankan `php` sendiri (misalnya `aturan-template.php`) memakai nilai yang sama lewat `rec.SAFE_ENV` dari `lib.js`.
+- `env.sh` memaksa `WAG_URL=http://127.0.0.1:8019`, `WAG_TOKEN` berisi token dummy, mailer `sendmail` ke `mail-stub.php` (lihat bagian Email di bawah), `DEBUGBAR_ENABLED=false`, `KPI_CHECKLIST_LOCK_DAYS=5`, `CACHE_STORE=array` dan `DB_URL` kosong (URL database digabung ke config saat koneksi dibuka dan akan mengganti `DB_DATABASE`). Nilainya dipaksa, bukan default, jadi `WAG_URL` yang kebetulan di-export di shell juga tertimpa. `setup-db.sh`, `reset.sh`, `serve.sh` dan `wa-stub.sh` memuat file ini lebih dulu. Flow yang menjalankan `php` sendiri (misalnya `aturan-template.php`) memakai nilai yang sama lewat `rec.SAFE_ENV` dari `lib.js`.
 - phpdotenv tidak pernah menimpa variabel yang sudah ada di environment proses, jadi nilai dari `env.sh` menang atas `.env`.
-- `guard.php` menyalakan aplikasi dengan environment yang sama lalu menolak kalau database bukan `dnd_demo_*` (dicek lewat `demo_db.php`: `DB_URL` harus kosong, dan koneksi yang benar-benar terbuka, `select database()`, harus database demo dari `DB_DATABASE`), kalau URL WhatsApp bukan `http://127.0.0.1:<port>` dari `env.sh`, kalau token bukan token dummy, atau kalau mailer bukan `log`. `serve.sh` menjalankannya sebelum `php -S`, `reset.sh` setelah setiap restore. `demo_seed.php` dan `aturan-template.php` punya pengecekan URL yang sama, dan memanggil `demo_db.php` sebelum `migrate:fresh` atau sebelum membaca data karyawan. Token tidak pernah dicetak.
+- `guard.php` menyalakan aplikasi dengan environment yang sama lalu menolak kalau database bukan `dnd_demo_*` (dicek lewat `demo_db.php`: `DB_URL` harus kosong, dan koneksi yang benar-benar terbuka, `select database()`, harus database demo dari `DB_DATABASE`), kalau URL WhatsApp bukan `http://127.0.0.1:<port>` dari `env.sh`, kalau token bukan token dummy, atau kalau mailer bukan `sendmail` ke `mail-stub.php` folder ini dengan pengirim `@example.com`. `serve.sh` menjalankannya sebelum `php -S`, `reset.sh` setelah setiap restore. `demo_seed.php` dan `aturan-template.php` punya pengecekan URL yang sama, dan memanggil `demo_db.php` sebelum `migrate:fresh` atau sebelum membaca data karyawan. Token tidak pernah dicetak.
 - `wa-stub.php` (port 8019) hanya menyimpan pesan ke `.work/wa-outbox.jsonl` dan tidak meneruskan apa pun. Kalau stub mati, aplikasi menampilkan "OTP belum bisa dikirim ke WhatsApp. Coba lagi sebentar lagi." dan tidak ada pesan yang keluar.
 - Jangan pernah menyalakan server, tinker atau skrip demo tanpa `env.sh`.
 
-Karena `WAG_TOKEN` dummy selalu terisi, halaman login semua server demo sekarang menampilkan "Atau masuk dengan" dan tombol "WhatsApp". Flow lama login dengan password di luar rekaman, jadi GIF-nya tidak berubah.
+Karena `WAG_TOKEN` dummy selalu terisi dan mailer-nya mengirim (ke stub), halaman login semua server demo menampilkan "Atau masuk dengan" dengan tombol "WhatsApp" dan "Email", sama seperti produksi. Flow yang login dengan password melakukannya di luar rekaman, jadi GIF-nya tidak berubah.
+
+`DEBUGBAR_ENABLED=false` dan `KPI_CHECKLIST_LOCK_DAYS=5` dipaksa supaya rekaman tidak ikut pengaturan `.env` lokal: Laravel Debugbar menyala saat `APP_DEBUG=true`, dan panduan menjelaskan batas pengisian bawaan 5 hari (`config/kpi.php`).
+
+### Email: selalu ke stub lokal
+
+`.env` berisi server SMTP yang asli. Tombol **Email** di halaman login hanya tampil kalau mailer bawaan benar-benar mengirim (bukan `log` atau `array`), jadi rekaman memakai mailer `sendmail` yang diarahkan ke skrip lokal:
+
+- `env.sh` memaksa `MAIL_MAILER=sendmail`, `MAIL_SENDMAIL_PATH="php <folder ini>/mail-stub.php -t -i"` dan `MAIL_FROM_ADDRESS=dnd-demo@example.com`. Skrip yang memuat `env.sh` harus mengisi `HERE` (folder ini) lebih dulu; `lib.js` mengisinya sendiri.
+- `mail-stub.php` hanya menambahkan `{time, time_ms, recipients, raw}` ke `.work/mail-outbox.jsonl` dan tidak meneruskan apa pun.
+- `rec.readEmail(email, { since, timeoutMs })` menunggu email terbaru ke alamat itu dan mengembalikan `{ subject, text, code, link }` (bagian `text/plain`, kode 6 digit, dan link masuk). Link memakai `APP_URL` dari `.env`, jadi flow tidak membukanya; flow mengetik kodenya.
+- Email demo memakai domain `example.com` (RFC 2606), jadi tidak ada alamat asli di database demo.
 
 ## Prasyarat
 
@@ -142,6 +153,7 @@ Lapisan KPI (`seedKpiLayer()` di `demo_seed.php`) tidak memakai Faker dan tidak 
 - KPI Bulanan posisi Kasir untuk IFA PURWANTI (`demo_staf_1`) dan ICHA RAHAYU HANDAYANI S.IP (`demo_staf_5`): MAIN JOB 60% (SOP buka/tutup kasir NON dengan subtask "Hitung modal awal kasir" dan "Setor kas akhir shift"; transaksi member baru RESULT plan 40; selisih kas RESULT plan 3), ADMINISTRATION 20% dan REPORTING 20% (masing-masing satu NON). Bulan berjalan belum diisi; bulan lalu sudah diisi dan periodenya sudah ditutup.
 - Admin Gudang (PRIMA LURHUR HAKIM, `demo_staf_4`) tidak punya KPI, dan belum ada penilaian bulan berjalan untuknya.
 - No. HP WhatsApp palsu: `demo_staf_1` 0812-0000-0101 (login OTP Panduan KPI Operasional) dan `demo_manager` 0812-0000-0003 (login OTP di awal `supervisor-review-flow.gif`, Panduan KPI Manajerial). Keduanya disimpan dalam format `08…` lewat model `User`.
+- Email palsu: `demo_staf_1` ifa.purwanti@example.com (login Email Panduan KPI Operasional, `staff-email-login-flow.gif`).
 
 Rekam di bulan yang sama dengan `reset.sh` terakhir. Flow selalu memanggil `rec.resetDb()` lebih dulu, jadi bulan berjalan otomatis ikut.
 
@@ -156,10 +168,10 @@ node flows/posisi.js perorangan
 | Flow | Perintah | Pilihan |
 | --- | --- | --- |
 | Ubah Posisi | `node flows/posisi.js [massal] [perorangan] [timSaya]` | Tanpa argumen, ketiga GIF direkam. |
-| Akses Data | `node flows/akses.js [1] [2] [3] [--keep-db]` | 1 = atur admin (Jabatan ADMIN, Akses Data otomatis Badan Usaha Tertentu dengan Area sendiri, lalu diganti GMD dan ULS), 2 = hasil admin, 3 = tim saya. GIF 2 menampilkan hasil GIF 1, jadi rekam `1 2` bersamaan, atau tambahkan `--keep-db` setelah GIF 1 direkam. |
+| Akses Data | `node flows/akses.js [1] [2] [3] [--keep-db]` | 1 = atur admin (Jabatan ADMIN, Akses Data otomatis Area Tertentu dengan Area sendiri, lalu diganti GMD dan ULS), 2 = hasil admin, 3 = tim saya. GIF 2 menampilkan hasil GIF 1, jadi rekam `1 2` bersamaan, atau tambahkan `--keep-db` setelah GIF 1 direkam. |
 | Aturan Penilaian | `node flows/aturan.js [kehadiran-isi-form] [kehadiran-import] [aturan-versi-baru] [komponen-tambah] [--keep-db]` | Tanpa argumen, keempat GIF direkam. `kehadiran-isi-form` dan `kehadiran-import` memakai periode bawaan aplikasi, yaitu bulan lalu menurut jam komputer. `kehadiran-import` membuat file import `.work/kehadiran-import.xlsx` dari template bulan lalu lewat `flows/aturan-template.php`, dan hanya mengisi karyawan yang belum punya kehadiran bulan itu (`demo_manager` dan `demo_teamleader`). |
 | KPI Manajerial | `node flows/kpi-manajerial.js [kpi-flow-lengkap] [kpi-error-required-fields] [kpi-error-kpi-description] [kpi-error-value-plan] [kpi-error-percentage-total] [supervisor-review-flow] [--keep-db]` | Tanpa argumen, keenam GIF direkam dengan akun `demo_manager` (GARDA SITOMPUL) untuk posisi Admin Gudang (PRIMA LURHUR HAKIM). Lima GIF KPI login dengan password di luar rekaman; Month dan Periode dipatok Oktober 2026 (`10/2026`, `2026-10`). `kpi-flow-lengkap` menyimpan KPI MAIN JOB 60 / ADMINISTRATION 20 / REPORTING 20 dan membuat indikator "Insiden kritikal" lewat ikon +. Keempat GIF error tidak menyimpan apa pun dan mencetak jumlah request Livewire, pesan browser dan isi notifikasi ke konsol; `kpi-error-required-fields` mulai dari form yang sudah berisi satu baris KPI di setiap tab (tab tanpa baris dilewati aplikasi tanpa error), jadi langkah solusinya menghasilkan form yang benar-benar lengkap. `supervisor-review-flow` login lewat WhatsApp OTP ke nomor palsu 081200000003 (kode dibaca dari stub dengan `rec.readOtp`), lalu membuat penilaian Oktober 2026 untuk PRIMA LURHUR HAKIM. |
-| KPI Operasional | `node flows/kpi-operasional.js [staff-login-flow] [staff-checklist-flow] [--keep-db]` | Tanpa argumen, kedua GIF direkam dengan akun `demo_staf_1` (IFA PURWANTI, Kasir). `staff-login-flow` login lewat WhatsApp OTP ke nomor palsu 081200000101: kode dibaca dari stub (`rec.readOtp`), lalu ditampilkan di kartu "Pesan WhatsApp di HP Anda (contoh)" di samping form (kartu ini hanya ada di rekaman). `staff-checklist-flow` login dengan password di luar rekaman, menampilkan filter yang terbuka di bulan berjalan, pindah ke bulan lalu yang sudah terkunci (Ditutup sejak), kembali ke bulan berjalan, lalu mengisi checklist sampai Total Score 91.00. Jalankan di bulan yang sama dengan reset terakhir (flow selalu reset lebih dulu). |
+| KPI Operasional | `node flows/kpi-operasional.js [staff-login-flow] [staff-email-login-flow] [staff-checklist-flow] [--keep-db]` | Tanpa argumen, ketiga GIF direkam dengan akun `demo_staf_1` (IFA PURWANTI, Kasir). `staff-login-flow` login lewat WhatsApp OTP ke nomor palsu 081200000101: kode dibaca dari stub (`rec.readOtp`), lalu ditampilkan di kartu "Pesan WhatsApp di HP Anda (contoh)" di samping form (kartu ini hanya ada di rekaman). `staff-email-login-flow` login lewat tombol Email ke alamat palsu ifa.purwanti@example.com: kode dibaca dari stub email (`rec.readEmail`), lalu ditampilkan di kartu "Email di kotak masuk Anda (contoh)". `staff-checklist-flow` login dengan password di luar rekaman, menampilkan filter yang terbuka di bulan berjalan, pindah ke bulan lalu yang sudah terkunci (Ditutup sejak), kembali ke bulan berjalan, lalu mengisi checklist sampai Total Score 91.00. Jalankan di bulan yang sama dengan reset terakhir (flow selalu reset lebih dulu). |
 
 Setiap flow mencetak satu baris JSON per GIF, berisi path, jumlah frame, durasi dan ukuran file. `--keep-db` melewati reset database. Gunakan opsi ini hanya untuk melanjutkan dari hasil rekaman sebelumnya.
 
@@ -192,6 +204,8 @@ Hasilnya harus `1100,618`. Frame PNG per langkah tersimpan di `.work/frames/<nam
 | `MYSQL_USER` | `root` | User MySQL untuk `setup-db.sh` dan `reset.sh`. |
 | `SIM_Y` | `190` | Posisi vertikal blok simulasi di GIF `aturan-versi-baru`. |
 | `WAG_URL`, `WAG_TOKEN` | dipaksa oleh `env.sh` | Selalu stub lokal `http://127.0.0.1:8019` dan token dummy. Tidak bisa diubah dari shell. |
+| `MAIL_MAILER`, `MAIL_SENDMAIL_PATH`, `MAIL_FROM_ADDRESS` | dipaksa oleh `env.sh` | Selalu `sendmail` ke `mail-stub.php` dengan pengirim `dnd-demo@example.com`. Tidak bisa diubah dari shell. |
+| `DEBUGBAR_ENABLED`, `KPI_CHECKLIST_LOCK_DAYS` | dipaksa oleh `env.sh` | `false` dan `5`, apa pun isi `.env`. |
 | `DB_URL` | dikosongkan oleh `env.sh` | Tidak bisa diisi dari shell atau `.env`: `demo_db.php` menolak URL database apa pun. |
 
 ## Kalau UI berubah
@@ -208,4 +222,4 @@ Hentikan server dengan Ctrl+C (atau `pkill -f "127.0.0.1:<port>"`), hentikan stu
 mysql -u root -e "DROP DATABASE IF EXISTS dnd_demo_panduan; DROP DATABASE IF EXISTS dnd_demo_posisi; DROP DATABASE IF EXISTS dnd_demo_akses; DROP DATABASE IF EXISTS dnd_demo_aturan; DROP DATABASE IF EXISTS dnd_demo_kpimanajerial; DROP DATABASE IF EXISTS dnd_demo_kpioperasional;"
 ```
 
-`.work/wa-outbox.jsonl` berisi kode OTP demo yang sudah terpakai. File ini ada di `.work` (diabaikan git) dan boleh dihapus kapan saja.
+`.work/wa-outbox.jsonl` dan `.work/mail-outbox.jsonl` berisi kode OTP demo yang sudah terpakai. File ini ada di `.work` (diabaikan git) dan boleh dihapus kapan saja.

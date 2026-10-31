@@ -18,7 +18,7 @@ class UpdateUserRequest extends FormRequest
     /** Dipakai untuk id yang tidak ada maupun di luar akses data. */
     public const APPROVAL_OUT_OF_SCOPE = 'Approval line tidak valid atau berada di luar akses data Anda.';
 
-    public const RESERVED_USERNAME = 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh badan usaha.';
+    public const RESERVED_USERNAME = 'Username ini khusus dan hanya dapat dipakai admin dengan akses seluruh area.';
 
     private ?User $targetUser = null;
 
@@ -111,13 +111,13 @@ class UpdateUserRequest extends FormRequest
             'no_hp.regex' => 'Format No. HP WhatsApp Indonesia tidak valid.',
             'no_hp.unique' => 'No. HP sudah digunakan oleh user lain.',
             'role_id.exists' => 'Role yang dipilih tidak valid.',
-            'area_id.required' => 'Badan usaha wajib dipilih.',
-            'area_id.exists' => 'Badan usaha yang dipilih tidak valid.',
+            'area_id.required' => 'Area wajib dipilih.',
+            'area_id.exists' => 'Area yang dipilih tidak valid.',
             // Pesan sama dengan id di luar akses agar tidak membocorkan id karyawan yang ada.
             'approval_id.exists' => self::APPROVAL_OUT_OF_SCOPE,
             'data_access.in' => 'Akses data harus all atau selected.',
-            'data_access_area_ids.required' => 'Pilih minimal satu badan usaha untuk akses data selected.',
-            'data_access_area_ids.*.exists' => 'Badan usaha akses data tidak valid.',
+            'data_access_area_ids.required' => 'Pilih minimal satu area untuk akses data selected.',
+            'data_access_area_ids.*.exists' => 'Area akses data tidak valid.',
         ];
     }
 
@@ -199,7 +199,7 @@ class UpdateUserRequest extends FormRequest
             $actor = $this->user();
 
             if (! DataAccessService::canAccessArea($actor instanceof User ? $actor : null, is_scalar($value) ? (string) $value : null)) {
-                $fail('Badan usaha berada di luar akses data Anda.');
+                $fail('Area berada di luar akses data Anda.');
             }
         };
     }
@@ -288,7 +288,7 @@ class UpdateUserRequest extends FormRequest
             }
 
             if ($this->resultingDataAccess() === User::DATA_ACCESS_ALL) {
-                $fail('Badan usaha akses data hanya dapat diisi untuk akses data selected.');
+                $fail('Area akses data hanya dapat diisi untuk akses data selected.');
             }
         };
     }
@@ -322,7 +322,7 @@ class UpdateUserRequest extends FormRequest
             }
 
             if (! DataAccessService::anotherGlobalAdminExists($target)) {
-                $fail('Minimal harus ada satu admin dengan akses seluruh badan usaha.');
+                $fail('Minimal harus ada satu admin dengan akses seluruh area.');
             }
         };
     }

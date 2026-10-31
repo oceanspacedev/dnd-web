@@ -1,5 +1,5 @@
 // Records the GIFs for Panduan KPI Operasional (kpi-staff-guide.blade.php).
-// Usage: node kpi-operasional.js [staff-login-flow] [staff-checklist-flow] [--keep-db]   (default: both)
+// Usage: node kpi-operasional.js [staff-login-flow] [staff-email-login-flow] [staff-checklist-flow] [--keep-db]   (default: all)
 //   node kpi-operasional.js rebuild <gif-name>...  rebuilds GIFs from the frames already recorded (no browser, no DB).
 //
 // Actor: demo_staf_1 (IFA PURWANTI, STAFF Kasir, no subordinates, fake WhatsApp number 0812-0000-0101). The KPI layer
@@ -13,6 +13,17 @@ const BASE = rec.baseUrl(GUIDE);
 const OUT_DIR = rec.outDir(GUIDE);
 const USERNAME = 'demo_staf_1';
 const PHONE = '081200000101'; // fake demo number (users.no_hp of demo_staf_1 in the KPI layer)
+const EMAIL = 'ifa.purwanti@example.com'; // fake demo address (users.email of demo_staf_1 in the KPI layer)
+
+// Error texts of EmailLogin / InteractsWithEmailLogin: the recording must never show one of them.
+const EMAIL_ERRORS = [
+  'Alamat email tidak valid.',
+  'Email belum terdaftar untuk login.',
+  'Email belum bisa dikirim. Coba lagi sebentar lagi.',
+  'Kode tidak valid atau sudah kedaluwarsa.',
+  'Terlalu banyak permintaan kode. Coba lagi sebentar lagi.',
+  'Terlalu banyak percobaan kode. Coba lagi sebentar lagi.',
+];
 
 // Error texts of PhoneLogin / InteractsWithWhatsAppLogin: the recording must never show one of them.
 const OTP_ERRORS = [
@@ -273,6 +284,128 @@ async function staffLoginFlow(page, r) {
   await unmark(page);
 }
 
+async function assertNoEmailError(page) {
+  const body = await page.locator('body').innerText();
+  const hit = EMAIL_ERRORS.find((t) => body.includes(t));
+  if (hit) {
+    await page.screenshot({ path: rec.debugPath('email-error-kpioperasional.png') }).catch(() => {});
+    throw new Error('email login shows an error: ' + hit);
+  }
+}
+
+// Card right of the login card with the login e-mail the demo account received (subject, greeting and code taken from
+// the message mail-stub.php captured, so they are exactly what the app sent). The link URL itself is not shown.
+async function showEmailMessage(page, mail) {
+  const greeting = (/^Halo [^\n]+$/m.exec(mail.text) || ['Halo,'])[0];
+  const button = ((/\n(Masuk ke [^\n:]+)[:\s]*https?:/.exec(mail.text) || [])[1] || 'Masuk').trim();
+  await page.evaluate(([subject, greeting, button, code]) => {
+    const card = document.createElement('div');
+    card.className = 'rec-mail';
+    Object.assign(card.style, {
+      position: 'fixed', left: '772px', top: '232px', width: '308px', zIndex: 2147483646, pointerEvents: 'none',
+      background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '14px', boxShadow: '0 10px 30px rgba(0,0,0,.12)',
+      fontFamily: 'inherit', color: '#111827', overflow: 'hidden',
+    });
+    const head = document.createElement('div');
+    Object.assign(head.style, { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#eff6ff', borderBottom: '1px solid #dbeafe', fontSize: '12px', fontWeight: '600', color: '#1e40af' });
+    const dot = document.createElement('span');
+    Object.assign(dot.style, { width: '10px', height: '10px', borderRadius: '9999px', background: '#3b82f6', display: 'inline-block' });
+    head.append(dot, document.createTextNode('Email di kotak masuk Anda (contoh)'));
+    const body = document.createElement('div');
+    Object.assign(body.style, { padding: '12px 14px 14px', fontSize: '13px', lineHeight: '1.5' });
+    const subj = document.createElement('div');
+    Object.assign(subj.style, { fontWeight: '600', marginBottom: '6px' });
+    subj.textContent = subject;
+    const hello = document.createElement('div');
+    hello.textContent = greeting;
+    const btn = document.createElement('div');
+    Object.assign(btn.style, { margin: '10px 0', padding: '7px 10px', borderRadius: '8px', background: '#2d3748', color: '#ffffff', fontWeight: '600', textAlign: 'center' });
+    btn.textContent = button;
+    const or = document.createElement('div');
+    Object.assign(or.style, { color: '#4b5563' });
+    or.textContent = 'Atau masukkan kode berikut:';
+    const codeBox = document.createElement('div');
+    Object.assign(codeBox.style, { marginTop: '6px', padding: '8px', borderRadius: '8px', background: '#f3f4f6', fontSize: '22px', fontWeight: '700', letterSpacing: '6px', textAlign: 'center' });
+    codeBox.textContent = code;
+    body.append(subj, hello, btn, or, codeBox);
+    card.append(head, body);
+    document.body.appendChild(card);
+  }, [mail.subject, greeting, button, mail.code]);
+}
+
+async function hideEmailMessage(page) {
+  await page.evaluate(() => document.querySelectorAll('.rec-mail').forEach((el) => el.remove()));
+}
+
+// GIF 2 (SOP 1, Opsi C): "Atau masuk dengan" > Email, send the code, enter it from the e-mail, land on Checklist KPI.
+async function staffEmailLoginFlow(page, r) {
+  await go(page, '/admin/login', 600);
+  await waitLivewire(page);
+  const emailButton = page.getByRole('link', { name: 'Email', exact: true });
+  await emailButton.waitFor();
+  // Same window scroll as GIF 1: the whole auth card down to the buttons, with the logo still visible.
+  await emailButton.evaluate((a) => {
+    const logo = document.querySelector('img');
+    const card = a.closest('.mky-card') || a;
+    const logoTop = logo ? logo.getBoundingClientRect().top : Infinity;
+    const need = Math.max(a.getBoundingClientRect().bottom + 6, card.getBoundingClientRect().bottom + 1) - innerHeight;
+    window.scrollTo(0, Math.max(0, Math.min(logoTop - 1, need)));
+  });
+  await page.waitForTimeout(300);
+  await parkMouse(page);
+
+  // Frame 1: "Atau masuk dengan" > Email.
+  await clickStep(page, r, emailButton, 1.6);
+  await page.waitForURL(/\/email-login$/);
+  await waitLivewire(page);
+  await rec.settle(page, 500);
+
+  // Frame 2: Masuk dengan Email > Email.
+  const email = page.getByLabel('Email');
+  await email.waitFor();
+  await mark(page, inputWrap(email));
+  await r.snap(page, 1.2);
+  await unmark(page);
+
+  // Frame 3: address filled in, Kirim Kode ke Email.
+  await email.fill(EMAIL);
+  await page.waitForTimeout(200);
+  const since = Date.now();
+  await clickStep(page, r, page.getByRole('button', { name: 'Kirim Kode ke Email' }), 1.3);
+  await parkMouse(page);
+  const otpInput = page.getByLabel('Kode OTP');
+  await otpInput.waitFor({ state: 'visible' }).catch(async (e) => { await assertNoEmailError(page); throw e; });
+  await assertNoEmailError(page);
+  const mail = await rec.readEmail(EMAIL, { since });
+  if (!mail.link) throw new Error('the login e-mail has no login link');
+  await rec.settle(page, 400);
+
+  // Frame 4: code stage (Email locked, Kode OTP field), with the e-mail the demo account received.
+  await showEmailMessage(page, mail);
+  await mark(page, inputWrap(otpInput));
+  await r.snap(page, 2.4);
+  await unmark(page);
+
+  // Frame 5: code filled in, Verifikasi dan Masuk.
+  await otpInput.fill(mail.code);
+  await otpInput.blur();
+  await page.waitForTimeout(200);
+  const verify = page.getByRole('button', { name: 'Verifikasi dan Masuk' });
+  await mark(page, verify);
+  await r.snap(page, 1.3);
+  await unmark(page);
+  await hideEmailMessage(page);
+  await Promise.all([page.waitForURL(/\/admin(\?.*)?$/, { waitUntil: 'commit', timeout: 20000 }), verify.click()]);
+  await rec.settle(page, 900);
+  await parkMouse(page);
+  await page.locator('#checklist-month').waitFor();
+
+  // Frame 6: Dasbor, Checklist KPI tab already active.
+  await mark(page, page.getByRole('button', { name: 'Checklist KPI' }));
+  await r.snap(page, 1.6);
+  await unmark(page);
+}
+
 // Current month as YYYY-MM by the computer clock (the KPI layer seeds the current month the same way).
 function currentMonth() {
   const d = new Date();
@@ -439,6 +572,7 @@ async function staffChecklistFlow(page, r) {
 
 const flows = {
   'staff-login-flow': { run: staffLoginFlow, login: false },
+  'staff-email-login-flow': { run: staffEmailLoginFlow, login: false },
   'staff-checklist-flow': { run: staffChecklistFlow, login: true },
 };
 

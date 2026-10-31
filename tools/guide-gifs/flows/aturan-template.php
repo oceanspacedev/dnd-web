@@ -4,7 +4,7 @@
 // The template is for last month (the app's default periode); only the employees without last-month attendance in the
 // demo seed are filled, the other rows stay empty (ignored as "belum diisi" by the import).
 // Usage: DB_DATABASE=dnd_demo_aturan CACHE_PREFIX=demo_aturan_ php aturan-template.php <out.xlsx>
-// aturan.js also passes rec.SAFE_ENV (env.sh: WhatsApp -> local stub, mail -> log), so the real gateway in .env is never used.
+// aturan.js also passes rec.SAFE_ENV (env.sh: WhatsApp -> local stub, mail -> mail-stub.php), so the real gateway in .env is never used.
 
 use App\Exports\AttendanceImportTemplateExport;
 use App\Models\User;

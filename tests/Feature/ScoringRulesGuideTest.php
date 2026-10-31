@@ -130,7 +130,7 @@ class ScoringRulesGuideTest extends TestCase
         // [bagian Kehadiran, bagian pengaturan super admin]
         $matrix = [
             'super admin' => [$this->superAdmin, true, true],
-            'admin per badan usaha' => [$this->scopedAdmin, true, false],
+            'admin per area' => [$this->scopedAdmin, true, false],
             'atasan' => [$this->manager, true, false],
             'user khusus kehadiran' => [$this->attendanceClerk, true, false],
             'staf' => [$this->staff, false, false],
@@ -174,7 +174,7 @@ class ScoringRulesGuideTest extends TestCase
         // [GIF SOP Kehadiran, GIF SOP super admin]
         $matrix = [
             'super admin' => [$this->superAdmin, true, true],
-            'admin per badan usaha' => [$this->scopedAdmin, true, false],
+            'admin per area' => [$this->scopedAdmin, true, false],
             'atasan' => [$this->manager, true, false],
             'user khusus kehadiran' => [$this->attendanceClerk, true, false],
             'staf' => [$this->staff, false, false],
@@ -215,17 +215,17 @@ class ScoringRulesGuideTest extends TestCase
     public function test_attendance_scope_describes_the_viewers_own_access(): void
     {
         $this->render($this->attendanceClerk)
-            ->assertSee('Seluruh karyawan di semua badan usaha.')
+            ->assertSee('Seluruh karyawan di semua area.')
             ->assertDontSee('Kehadiran akun ADMIN (termasuk akun Anda sendiri) hanya dapat dicatat oleh super admin.');
 
         $this->render($this->scopedAdmin)
-            ->assertSee('Karyawan di badan usaha ULS dan anggota tim Anda menurut Approval Line, kecuali akun ADMIN')
-            ->assertDontSee('Karyawan di badan usaha COO')
+            ->assertSee('Karyawan di area ULS dan anggota tim Anda menurut Approval Line, kecuali akun ADMIN')
+            ->assertDontSee('Karyawan di area COO')
             ->assertSee('Kehadiran akun ADMIN (termasuk akun Anda sendiri) hanya dapat dicatat oleh super admin.');
 
         $this->render($this->manager)
             ->assertSee('Anggota tim Anda menurut Approval Line (bawahan langsung dan satu level di bawahnya).')
-            ->assertDontSee('Seluruh karyawan di semua badan usaha.');
+            ->assertDontSee('Seluruh karyawan di semua area.');
     }
 
     public function test_current_rule_schedule_and_versions_are_read_live(): void
@@ -677,7 +677,7 @@ class ScoringRulesGuideTest extends TestCase
     {
         return [
             'super admin' => $this->superAdmin,
-            'admin per badan usaha' => $this->scopedAdmin,
+            'admin per area' => $this->scopedAdmin,
             'atasan' => $this->manager,
             'staf' => $this->staff,
             'user khusus kehadiran' => $this->attendanceClerk,

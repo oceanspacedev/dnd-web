@@ -12,14 +12,21 @@ use App\Services\PerformanceScoreCalculator;
 use App\Services\ScoringRuleService;
 use App\Support\Periode;
 use App\Support\Scoring\ScoringRuleData;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Forms\Contracts\HasForms;
+use Filament\Schemas\Schema;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Livewire\Attributes\Locked;
 
-class LeaderboardKPI extends Widget
+class LeaderboardKPI extends Widget implements HasForms
 {
+    use InteractsWithForms;
+
     protected static bool $isDiscovered = false;
 
     protected string $view = 'filament.widgets.leaderboard-kpi';
@@ -44,6 +51,41 @@ class LeaderboardKPI extends Widget
         $this->month = $month ?? now()->format('Y-m');
         $this->area = '';
         $this->division = '';
+    }
+
+    /**
+     * Filter leaderboard (bulan, area, divisi) sebagai Filament schema tanpa statePath: state langsung
+     * ke properti Livewire month/area/division, jadi enforceFilterScope() dan updatedArea() tetap berjalan.
+     * Select searchable + preload supaya daftar panjang bisa dicari; opsi divisi mengikuti area terpilih.
+     */
+    public function filtersForm(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                TextInput::make('month')
+                    ->id('leaderboard-month')
+                    ->label('Bulan')
+                    ->type('month')
+                    ->maxValue(now()->format('Y-m'))
+                    ->live(),
+                Select::make('area')
+                    ->id('leaderboard-area')
+                    ->label('Area')
+                    ->placeholder('Semua area')
+                    ->options(fn (): array => $this->getAreas()->pluck('name', 'id')->all())
+                    ->searchable()
+                    ->preload()
+                    ->live(),
+                Select::make('division')
+                    ->id('leaderboard-division')
+                    ->label('Divisi')
+                    ->placeholder('Semua divisi')
+                    ->options(fn (): array => $this->getDivisions()->pluck('name', 'id')->all())
+                    ->searchable()
+                    ->preload()
+                    ->live(),
+            ])
+            ->columns(['default' => 1, 'sm' => 3]);
     }
 
     protected function getAreas()

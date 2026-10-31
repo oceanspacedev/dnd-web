@@ -111,7 +111,7 @@ class ScoringRulePolicy
     private function manageUnlocked(User $user, ScoringRule $scoringRule): Response
     {
         if (! $this->canManage($user)) {
-            return Response::deny('Hanya admin dengan akses seluruh badan usaha yang dapat mengelola aturan penilaian.');
+            return Response::deny('Hanya admin dengan akses seluruh area yang dapat mengelola aturan penilaian.');
         }
 
         return $scoringRule->isLocked() ? Response::deny(self::LOCKED_MESSAGE) : Response::allow();

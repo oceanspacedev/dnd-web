@@ -166,7 +166,7 @@ class User extends Authenticatable implements FilamentUser, HasName
 
     /**
      * Ringkasan daftar badan usaha tersimpan untuk catatan import ADMIN Badan Usaha Tertentu,
-     * mis. "ULS" atau "GMD; daftar badan usaha lama dipertahankan" bila bukan badan usaha sendiri.
+     * mis. "ULS" atau "GMD; daftar area lama dipertahankan" bila bukan Area sendiri.
      */
     public function restrictedAccessSummary(): string
     {
@@ -175,13 +175,13 @@ class User extends Authenticatable implements FilamentUser, HasName
             ->get(['areas.id', 'areas.name']);
 
         if ($areas->isEmpty()) {
-            return 'belum ada badan usaha';
+            return 'belum ada area';
         }
 
         $names = $areas->pluck('name')->implode(', ');
         $isOwnAreaOnly = $areas->count() === 1 && (int) $areas->first()->getKey() === (int) $this->area_id;
 
-        return $isOwnAreaOnly ? $names : "{$names}; daftar badan usaha lama dipertahankan";
+        return $isOwnAreaOnly ? $names : "{$names}; daftar area lama dipertahankan";
     }
 
     public function getFilamentName(): string
