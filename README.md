@@ -628,9 +628,9 @@ Jangan menjalankan `kpi:clean-duplicates` tanpa `--dry-run` sebelum backup dan r
 
 Konvensi branch repository saat README ini diperbarui:
 
-- `staging`: branch integrasi development aktif.
-- `main`: branch tujuan promosi/release setelah review.
-- Branch pekerjaan: buat dari `staging` dengan pola `feat/<scope>`, `fix/<scope>`, atau `docs/<scope>`.
+- `staging`: branch integrasi development aktif; setiap push di-deploy otomatis ke server staging (lihat [VitoDeploy](#vitodeploy)).
+- `main`: branch release; setiap merge di-deploy otomatis ke production. `main` diproteksi: tidak menerima push langsung, dan hanya menerima pull request **dari `staging`** (check GitHub Actions `PR dari staging` di [`.github/workflows/pr-to-main.yml`](.github/workflows/pr-to-main.yml) wajib hijau, berlaku juga untuk admin). Fitur tidak pernah masuk `main` tanpa lewat staging dulu.
+- Branch pekerjaan: buat dari `staging` dengan pola `feat/<scope>`, `fix/<scope>`, atau `docs/<scope>`; PR ke `staging`, bukan ke `main`.
 
 ### Memulai pekerjaan
 
@@ -950,6 +950,29 @@ Perbarui aplikasi dengan rebuild image dari folder yang sama, bukan dengan runti
 ```bash
 docker compose -f compose.1panel.yaml up --detach --build
 ```
+
+### VitoDeploy
+
+VitoDeploy bukan runtime PHP untuk DnD; stack tetap Docker Compose. Vito dipakai untuk dua hal: menerima webhook push GitHub (**Auto Deployment**) dan menjalankan [`docker/vito-deploy.sh`](docker/vito-deploy.sh) di server lewat SSH. Dua situs Vito, satu script:
+
+| Situs Vito | Branch | Deploy saat |
+|---|---|---|
+| staging | `staging` | push/merge ke `staging` |
+| production | `main` | merge PR `staging -> main` |
+
+1. Buat dua situs di Vito dari repository `oceanspacedev/dnd-web`, masing-masing dengan branch di tabel. Pilih tipe situs paling sederhana (tanpa framework/PHP runtime); reverse proxy dan TLS mengikuti setup server yang sudah ada (Caddy overlay VPS, 1Panel, atau Nginx Vito ke port `web`).
+2. Di folder situs, buat `.env` production seperti bagian [VPS kosong](#vps-kosong-hanya-docker) atau [Environment production](#environment-production). Bila server memakai overlay, tambahkan `COMPOSE_FILE`, misalnya `COMPOSE_FILE=compose.yaml:compose.vps.yaml`; tanpa itu script memakai `compose.yaml`. `.env` staging dan production harus berbeda (database, `APP_URL`, `APP_KEY`).
+3. Isi **Deployment Script** kedua situs dengan:
+
+   ```bash
+   bash docker/vito-deploy.sh
+   ```
+
+   Script menolak checkout selain `staging`/`main`, `git pull --ff-only`, lalu `docker compose up --detach --build`. Migration tetap dijalankan service `release` seperti deploy Compose lainnya.
+4. Nyalakan **Auto Deployment** pada kedua situs; Vito membuat webhook push di repository GitHub. Vito memfilter per branch situs, jadi push ke `staging` hanya men-deploy situs staging.
+5. Deploy pertama jalankan manual dari Vito (tombol Deploy), lalu ikuti [Checklist setelah deploy](#checklist-setelah-deploy).
+
+Dengan proteksi branch `main` (lihat [Workflow development](#workflow-development)), urutan rilis selalu: branch kerja -> `staging` (teruji di server staging) -> PR `staging -> main` -> production.
 
 ### Satu server, beberapa aplikasi
 
