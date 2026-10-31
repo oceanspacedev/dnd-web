@@ -33,7 +33,9 @@ class ObservabilityPackagesTest extends TestCase
         $this->assertStringContainsString("'queue' => ['notifications', 'default', 'exports']", $horizon);
         $this->assertStringNotContainsString('supervisor-notifications', $horizon);
         $this->assertStringNotContainsString('supervisor-exports', $horizon);
-        $this->assertStringContainsString('exec php artisan horizon --no-interaction', (string) file_get_contents($root.'/docker/entrypoint.sh'));
-        $this->assertStringNotContainsString('queue:work', (string) file_get_contents($root.'/docker/entrypoint.sh'));
+        // Deploy script (VitoDeploy) memuat ulang worker Horizon, bukan queue:work.
+        $deploy = (string) file_get_contents($root.'/deploy.sh');
+        $this->assertStringContainsString('php artisan horizon:terminate', $deploy);
+        $this->assertStringNotContainsString('queue:work', $deploy);
     }
 }
