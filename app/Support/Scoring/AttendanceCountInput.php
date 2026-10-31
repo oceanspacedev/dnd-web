@@ -112,6 +112,25 @@ final class AttendanceCountInput
     }
 
     /**
+     * Kode komponen yang tercantum di attendance_rules minimal satu versi aturan (penalti 0 ikut, mis. cuti yang
+     * hanya dicatat): kolomnya di tabel panel tampil secara default, karena memang bagian dari aturan penilaian.
+     *
+     * @return array<string, true>
+     */
+    public static function listedComponentCodes(): array
+    {
+        $codes = [];
+
+        foreach (ScoringRuleService::rules() as $rule) {
+            foreach ($rule->componentCodes() as $code) {
+                $codes[$code] = true;
+            }
+        }
+
+        return $codes;
+    }
+
+    /**
      * Komponen kolom template import: tiga komponen lama selalu di kolom 5-7 (urutan template lama, walaupun
      * komponennya dinonaktifkan), lalu komponen lain dari inputComponents() urut sort_order. Dengan $rule (versi
      * aturan periode template), komponen lain hanya yang dipakai versi itu (isUsedBy()).

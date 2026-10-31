@@ -205,20 +205,28 @@ class AttendanceInputOutputTest extends TestCase
             'user_id' => $this->bravo->id, 'periode' => '2026-11', 'work_days' => 20,
             'late_less_30' => 2, 'sick_days' => 2, 'component_counts' => ['izin' => 2, 'mangkir' => 1],
         ]);
+        // Komponen aktif yang belum dicantumkan di versi aturan mana pun: kolomnya hanya lewat toggle.
+        AttendanceComponent::query()->create(['code' => 'dinas_luar', 'name' => 'Dinas luar', 'unit' => 'hari', 'sort_order' => 8]);
         $this->actingAs($this->admin);
 
         $legacyScore = ((20 - 2 - 2) / 20 * 100 - (2 + 10)) / 100 * 15;
         $newScore = ((20 - 2 - 2) / 20 * 100 - (2 + 0 + 10 + 5)) / 100 * 15;
 
+        // Kolom mengikuti aturan penilaian: komponen yang tercantum di salah satu versi aturan (izin, mangkir,
+        // cuti sejak November 2026) tampil langsung bersama tiga komponen lama, bukan disembunyikan di toggle.
         Livewire::test(ListAttendances::class)
             ->loadTable()
             ->assertCanSeeTableRecords([$october, $november])
             ->assertTableColumnExists('sick_days', fn ($column): bool => $column->getLabel() === 'Sakit')
             ->assertTableColumnExists('late_less_30', fn ($column): bool => $column->getLabel() === 'Terlambat ≤ 30 menit')
-            ->assertTableColumnExists('component_izin', fn ($column): bool => $column->getLabel() === 'Izin' && $column->isToggledHiddenByDefault())
-            ->assertTableColumnExists('component_mangkir')
+            ->assertTableColumnExists('component_izin', fn ($column): bool => $column->getLabel() === 'Izin' && ! $column->isToggledHiddenByDefault())
+            ->assertTableColumnExists('component_mangkir', fn ($column): bool => ! $column->isToggledHiddenByDefault())
+            ->assertTableColumnExists('component_cuti_tahunan', fn ($column): bool => ! $column->isToggledHiddenByDefault())
+            ->assertTableColumnExists('component_dinas_luar', fn ($column): bool => $column->isToggledHiddenByDefault())
             ->assertCanRenderTableColumn('sick_days')
-            ->assertCanNotRenderTableColumn('component_izin')
+            ->assertCanRenderTableColumn('component_izin')
+            ->assertCanRenderTableColumn('component_mangkir')
+            ->assertCanNotRenderTableColumn('component_dinas_luar')
             ->assertTableColumnStateSet('component_izin', 2, $october)
             ->assertTableColumnStateSet('component_mangkir', 1, $november)
             ->assertTableColumnStateSet('attendance_score', $legacyScore, $october)

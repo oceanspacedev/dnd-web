@@ -25,10 +25,12 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\TextSize;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -58,6 +60,8 @@ class AttendanceResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        // Dua bagian: identitas data (pengguna, periode, hari kerja) lalu hitungan per komponen dalam 3 kolom,
+        // agar label, keterangan aturan, dan teks bantuan tiap komponen tidak berdesakan.
         return $schema
             ->components([
                 Section::make()
@@ -87,8 +91,7 @@ class AttendanceResource extends Resource
                                 // Konfirmasi pemisahan Sakit/Izin selalu dicentang ulang setelah periode diganti.
                                 $set('confirm_sick_split', false);
                             })
-                            ->helperText(fn (Get $get): ?string => static::ruleDescription($get('periode')))
-                            ->columnSpan(2),
+                            ->helperText(fn (Get $get): ?string => static::ruleDescription($get('periode'))),
 
                         TextInput::make('work_days')
                             ->label('Jumlah Hari Kerja')
@@ -98,12 +101,16 @@ class AttendanceResource extends Resource
                             ->minValue(1)
                             ->maxValue(AttendanceCountInput::MAX_WORK_DAYS)
                             ->placeholder('Masukkan jumlah hari kerja'),
+                    ])->columns(['md' => 2, 'xl' => 4]),
 
+                Section::make('Komponen Kehadiran')
+                    ->description('Perlakuan tiap komponen (penalti, pengurang hari kerja) mengikuti aturan penilaian periode di atas.')
+                    ->schema([
                         // Satu field per komponen kehadiran (master data): komponen baru tidak butuh perubahan kode.
                         ...static::componentFields(),
 
                         static::sickIzinSplitConfirmation(),
-                    ])->columns(4),
+                    ])->columns(['md' => 2, 'xl' => 3]),
             ]);
     }
 
@@ -225,7 +232,9 @@ class AttendanceResource extends Resource
                 ->label(fn (Get $get): string => AttendanceCountInput::componentLabel($component, AttendanceCountInput::ruleFor($get('periode')))
                     ." ({$component->unit})".($component->isActive ? '' : ' - nonaktif'))
                 ->helperText(fn (Get $get, ?Attendance $record): ?string => static::componentHelperText($component, $get('periode'), $record))
-                ->hint(fn (Get $get, ?Attendance $record): ?string => static::componentRuleHint($component, $get('periode'), $record))
+                // Perlakuan di aturan periode ("Penalti 5 poin/hari") di bawah label, bukan hint di samping label
+                // yang berdesakan dengan label panjang.
+                ->belowLabel(fn (Get $get, ?Attendance $record): ?Text => static::componentRuleNote($component, $get('periode'), $record))
                 ->disabled(fn (Get $get, ?Attendance $record): bool => ! static::isComponentUsedBy($component->code, $get('periode'))
                     && static::storedCount($record, $component->code) === 0)
                 ->integer()
@@ -308,15 +317,19 @@ class AttendanceResource extends Resource
     }
 
     /**
-     * Kolom tabel per komponen yang bisa diisi (sama dengan field form): komponen lama tampil seperti
-     * sebelumnya, komponen lain bisa ditampilkan lewat toggle kolom.
+     * Kolom tabel per komponen yang bisa diisi (sama dengan field form), urut sort_order. Kolom mengikuti aturan
+     * penilaian: komponen yang tercantum di salah satu versi aturan (izin, mangkir, cuti, ... sejak November 2026)
+     * tampil langsung seperti tiga komponen lama; komponen aktif yang belum dicantumkan di aturan mana pun hanya
+     * lewat toggle kolom.
      *
      * @return list<TextColumn>
      */
     public static function componentColumns(): array
     {
+        $listed = AttendanceCountInput::listedComponentCodes();
+
         return AttendanceCountInput::inputComponents()
-            ->map(function (AttendanceComponentData $component): TextColumn {
+            ->map(function (AttendanceComponentData $component) use ($listed): TextColumn {
                 $column = AttendanceCountInput::storageColumn($component->code);
 
                 return TextColumn::make($column ?? "component_{$component->code}")
@@ -329,7 +342,7 @@ class AttendanceResource extends Resource
                     // Kolom Sakit pada periode yang izinnya dicatat bersama sakit berisi sakit + izin.
                     ->headerTooltip(fn (): ?string => static::componentHeaderTooltip($component))
                     ->tooltip(fn (Attendance $record): ?string => static::componentCellTooltip($component, $record))
-                    ->toggleable(isToggledHiddenByDefault: $column === null);
+                    ->toggleable(isToggledHiddenByDefault: $column === null && ! isset($listed[$component->code]));
             })
             ->values()
             ->all();
@@ -432,7 +445,17 @@ class AttendanceResource extends Resource
     }
 
     /**
-     * Hint isian komponen: perlakuan komponen di versi aturan periode form, atau UNUSED_COMPONENT_HINT bila
+     * Teks kecil di bawah label isian komponen berisi componentRuleHint(); null bila periode belum valid.
+     */
+    public static function componentRuleNote(AttendanceComponentData $component, mixed $periode, ?Attendance $record = null): ?Text
+    {
+        $hint = static::componentRuleHint($component, $periode, $record);
+
+        return $hint === null ? null : Text::make($hint)->size(TextSize::ExtraSmall)->color('gray');
+    }
+
+    /**
+     * Keterangan perlakuan komponen: perlakuan komponen di versi aturan periode form, atau UNUSED_COMPONENT_HINT bila
      * versi itu tidak memakainya ("Tersimpan N, tidak dihitung untuk periode ini" bila data yang diubah masih
      * menyimpan hitungannya); null bila periode belum valid.
      */
