@@ -453,7 +453,7 @@ class UserFixesTest extends TestCase
         Livewire::test(EditUser::class, ['record' => $this->ulsStaff->getRouteKey()])
             ->fillForm(['role_id' => $adminRoleId])
             ->assertFormSet(['dataAccessAreas' => [(string) $this->uls->id]])
-            ->assertSee('Terisi otomatis dengan Area karyawan ini; hapus bila admin tidak perlu mengelola badan usaha tersebut.')
+            ->assertSee('Terisi otomatis dengan Area karyawan ini; hapus bila admin tidak perlu mengelola area tersebut.')
             ->fillForm(['area_id' => $this->gmd->id])
             ->assertFormSet(['dataAccessAreas' => [(string) $this->gmd->id]]);
     }
@@ -655,7 +655,7 @@ class UserFixesTest extends TestCase
         $this->assertSame([$this->gmd->id], $exAdmin->dataAccessAreas()->pluck('areas.id')->all());
 
         // Catatan menyebut akses yang benar-benar tersimpan, bukan Area karyawan (ULS).
-        $this->assertSame(['Baris 3: EX ADMIN (GMD; daftar badan usaha lama dipertahankan)'], $import->getNotices());
+        $this->assertSame(['Baris 3: EX ADMIN (GMD; daftar area lama dipertahankan)'], $import->getNotices());
     }
 
     public function test_users_import_keeps_the_last_global_admin(): void
@@ -666,7 +666,7 @@ class UserFixesTest extends TestCase
         // Satu-satunya super admin (ojan dibatasi badan usaha tertentu) tidak bisa diturunkan lewat file import.
         $import->model($this->importRow(['nama_lengkap' => 'BOSS', 'username' => 'boss', 'role' => 'STAFF', 'area' => 'COO']));
         $this->assertSame(
-            ['Baris 2: Role "STAFF" tidak dapat diberikan kepada BOSS: minimal harus ada satu admin dengan akses seluruh badan usaha.'],
+            ['Baris 2: Role "STAFF" tidak dapat diberikan kepada BOSS: minimal harus ada satu admin dengan akses seluruh area.'],
             $import->getErrors(),
         );
         $this->assertTrue(DataAccessService::hasGlobalAccess($this->superAdmin->refresh()));
@@ -708,15 +708,15 @@ class UserFixesTest extends TestCase
         $page = Livewire::test(ListUsers::class)->call('processImport', ['file' => 'imports/users/admin.xlsx']);
         // Dibaca sebelum assertNotified (yang mengambil notifikasi dari session).
         $notifications = collect(session()->get('filament.claimed_notifications') ?? session()->get('filament.notifications', []));
-        $page->assertNotified('2 Admin Dibatasi ke Badan Usaha Tertentu');
+        $page->assertNotified('2 Admin Dibatasi ke Area Tertentu');
 
         $created = User::query()->where('username', 'admin_excel')->firstOrFail();
         $this->assertSame(User::DATA_ACCESS_SELECTED, $created->data_access);
         $this->assertSame([$this->uls->id], $created->dataAccessAreas()->pluck('areas.id')->all());
 
         // Satu admin per baris (body notifikasi = HTML tersanitasi), nama di-escape, petunjuk hanya sekali.
-        $body = (string) data_get($notifications->firstWhere('title', '2 Admin Dibatasi ke Badan Usaha Tertentu'), 'body');
-        $instruction = 'Bila perlu akses semua badan usaha, ubah Cakupan Badan Usaha di form karyawan.';
+        $body = (string) data_get($notifications->firstWhere('title', '2 Admin Dibatasi ke Area Tertentu'), 'body');
+        $instruction = 'Bila perlu akses semua area, ubah Cakupan Area di form karyawan.';
         $this->assertStringStartsWith('Baris 2: ADMIN DARI EXCEL (ULS)<br>Baris 3: ADMIN &lt;B&gt;DUA&lt;/B&gt; &amp; CO (GMD)<br><br>', $body);
         $this->assertSame(1, substr_count($body, $instruction));
         $this->assertStringNotContainsString('<b>', $body);

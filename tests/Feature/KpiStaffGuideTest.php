@@ -9,6 +9,7 @@ use App\Models\KpiCategory;
 use App\Models\KpiDescription;
 use App\Models\KpiType;
 use App\Models\User;
+use App\Services\EmailOtpService;
 use App\Services\WhatsAppOtpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -19,9 +20,10 @@ use Tests\TestCase;
 /**
  * Panduan KPI Operasional (/admin/panduan-kpi-bawahan).
  *
- * - SOP 1 menjelaskan dua cara masuk: Username + Kata sandi, dan WhatsApp OTP (halaman /phone-login).
+ * - SOP 1 menjelaskan tiga cara masuk: Username + Kata sandi, WhatsApp OTP (halaman /phone-login), dan Email
+ *   (halaman /email-login: kode 6 digit atau tombol masuk di email).
  * - Label yang dikutip panduan harus sama dengan label aplikasi (login WhatsApp, Checklist KPI, Update KPI,
- *   Extra Task), jadi teks panduan dicocokkan dengan sumber tampilannya.
+ *   Extra Task, login Email), jadi teks panduan dicocokkan dengan sumber tampilannya.
  * - GIF di public/images/kpi-guides direkam ulang lewat tools/guide-gifs/flows/kpi-operasional.js (1100x618).
  */
 class KpiStaffGuideTest extends TestCase
@@ -34,12 +36,13 @@ class KpiStaffGuideTest extends TestCase
     /** GIF => keterangan di bawahnya, sesuai urutan di halaman. */
     private const GIFS = [
         'staff-login-flow.gif' => 'GIF 1. Login dengan WhatsApp OTP sampai tab Checklist KPI',
-        'staff-checklist-flow.gif' => 'GIF 2. Mengisi checklist bulanan: pilih bulan, centang NON, isi actual RESULT, lalu cek Result dan Total Score',
+        'staff-email-login-flow.gif' => 'GIF 2. Login dengan Email sampai tab Checklist KPI',
+        'staff-checklist-flow.gif' => 'GIF 3. Mengisi checklist bulanan: pilih bulan, centang NON, isi actual RESULT, lalu cek Result dan Total Score',
     ];
 
     /** Teks yang dikutip panduan, per file sumber tampilan aplikasi yang memuatnya. */
     private const QUOTED_UI_TEXT = [
-        'resources/views/auth/login-extra.blade.php' => ['Atau masuk dengan', 'WhatsApp'],
+        'resources/views/auth/login-extra.blade.php' => ['Atau masuk dengan', 'WhatsApp', '>Email</span>'],
         'app/Filament/Auth/Pages/PhoneLogin.php' => [
             'Masuk dengan WhatsApp',
             'Nomor WhatsApp',
@@ -55,6 +58,24 @@ class KpiStaffGuideTest extends TestCase
             'Terlalu banyak percobaan OTP. Coba lagi sebentar lagi.',
         ],
         'app/Filament/Auth/Concerns/InteractsWithWhatsAppLogin.php' => ['No. HP belum terdaftar untuk login WhatsApp.'],
+        'app/Filament/Auth/Pages/EmailLogin.php' => [
+            'Masuk dengan Email',
+            "->label('Email')",
+            'Kirim Kode ke Email',
+            'Kode OTP',
+            'Verifikasi dan Masuk',
+            'Ganti email atau kirim ulang kode',
+            'Alamat email tidak valid.',
+            'Kode tidak valid atau sudah kedaluwarsa.',
+            'Link masuk tidak valid atau sudah kedaluwarsa. Minta kode baru di bawah.',
+            'Terlalu banyak permintaan kode. Coba lagi sebentar lagi.',
+            'Terlalu banyak percobaan kode. Coba lagi sebentar lagi.',
+            'Terlalu banyak percobaan masuk. Coba lagi sebentar lagi.',
+            'Email belum bisa dikirim. Coba lagi sebentar lagi.',
+        ],
+        'app/Filament/Auth/Concerns/InteractsWithEmailLogin.php' => ['Email belum terdaftar untuk login.'],
+        'app/Mail/EmailLoginMail.php' => ["'Kode masuk '.config('app.name')"],
+        'resources/views/mail/email-login.blade.php' => ["Masuk ke {{ config('app.name') }}"],
         'resources/views/filament/widgets/checklist-kpi.blade.php' => [
             'Category Percentage',
             'Skema: NON',
@@ -75,7 +96,7 @@ class KpiStaffGuideTest extends TestCase
             'label="Hapus Extra Task"',
             'Total',
         ],
-        'app/Filament/Resources/Users/UserResource.php' => ["->label('No. HP')", "navigationLabel = 'Karyawan'"],
+        'app/Filament/Resources/Users/UserResource.php' => ["->label('No. HP')", "TextInput::make('email')\n                            ->label('Email')", "navigationLabel = 'Karyawan'"],
     ];
 
     /** Label lama yang tidak ada di aplikasi. */
@@ -118,7 +139,7 @@ class KpiStaffGuideTest extends TestCase
         $this->assertSame('panduan-kpi-bawahan', KpiStaffGuide::getSlug());
     }
 
-    public function test_guest_is_redirected_and_staff_sees_both_login_options(): void
+    public function test_guest_is_redirected_and_staff_sees_every_login_option(): void
     {
         $this->get(self::URL)->assertRedirect();
 
@@ -126,7 +147,7 @@ class KpiStaffGuideTest extends TestCase
 
         $this->get(self::URL)
             ->assertOk()
-            ->assertSee('Login (Username atau WhatsApp OTP) + Pengisian Checklist + Validasi Bulanan')
+            ->assertSee('Login (Username, WhatsApp OTP, atau Email) + Pengisian Checklist + Validasi Bulanan')
             ->assertSeeInOrder([
                 'SOP 1 - Login dan Akses Checklist KPI',
                 'Opsi A - Username dan Kata sandi',
@@ -141,12 +162,25 @@ class KpiStaffGuideTest extends TestCase
                 'Kirim OTP WhatsApp',
                 'Kode OTP',
                 'Verifikasi dan Masuk',
+                'Opsi C - Email',
+                'Atau masuk dengan',
+                'Masuk dengan Email',
+                'Email',
+                'Kirim Kode ke Email',
+                'Kode OTP',
+                'Kode masuk DnD',
+                'Verifikasi dan Masuk',
+                'Masuk ke DnD',
                 'Dasbor',
                 'Checklist KPI',
                 'Catatan login WhatsApp:',
                 'No. HP',
                 'Karyawan',
                 'Ganti nomor atau kirim ulang OTP',
+                'Catatan login Email:',
+                'Email',
+                'Karyawan',
+                'Ganti email atau kirim ulang kode',
             ])
             ->assertSeeInOrder([
                 '4) Ikon Extra Task Tidak Muncul',
@@ -157,7 +191,10 @@ class KpiStaffGuideTest extends TestCase
                 'Terlalu banyak percobaan OTP. Coba lagi sebentar lagi.',
                 'Terlalu banyak permintaan OTP. Coba lagi sebentar lagi.',
                 'OTP belum bisa dikirim ke WhatsApp. Coba lagi sebentar lagi.',
+                '6) Login Email Gagal',
             ])
+            // GIF 2 menampilkan email login sebagai kartu di samping form.
+            ->assertSee('Email di kotak masuk Anda (contoh)')
             // GIF 1 menampilkan pesan OTP sebagai kartu di samping form: panduan menjelaskan bahwa itu pesan di HP.
             ->assertSee('Pesan WhatsApp di HP Anda (contoh)')
             ->assertSee('bukan bagian halaman login');
@@ -182,6 +219,28 @@ class KpiStaffGuideTest extends TestCase
 
         foreach ($messages as $message) {
             $this->assertStringContainsString(e($message), $kendala, "Kendala 5 belum menjelaskan \"{$message}\".");
+        }
+    }
+
+    public function test_every_email_login_error_message_is_explained_in_kendala_6(): void
+    {
+        $emailLogin = file_get_contents(base_path('app/Filament/Auth/Pages/EmailLogin.php'));
+        $concern = file_get_contents(base_path('app/Filament/Auth/Concerns/InteractsWithEmailLogin.php'));
+
+        // ValidationException::withMessages(['data.x' => '...']) dan consumeRateLimits(..., 'data.x', '...').
+        preg_match_all("/'data\\.\w+'\s*(?:=>|,)\s*'([^']+)'/", $emailLogin, $direct);
+        preg_match("/function unavailableEmailMessage\(\)[^{]*\{\s*return '([^']+)';/", $concern, $unavailable);
+
+        $messages = array_values(array_unique([...$direct[1], $unavailable[1] ?? '']));
+        $this->assertNotContains('', $messages, 'Pesan unavailableEmailMessage() tidak ditemukan.');
+        $this->assertCount(8, $messages, 'Jumlah pesan error login Email berubah: perbarui Kendala 6 di Panduan KPI Operasional.');
+
+        $this->actingAs($this->staff);
+        $html = $this->get(self::URL)->assertOk()->getContent();
+        $kendala = substr($html, strpos($html, '6) Login Email Gagal'));
+
+        foreach ($messages as $message) {
+            $this->assertStringContainsString(e($message), $kendala, "Kendala 6 belum menjelaskan \"{$message}\".");
         }
     }
 
@@ -289,6 +348,13 @@ class KpiStaffGuideTest extends TestCase
         $this->assertMatchesRegularExpression('/whatsapp-otp:filament:number:1h:\{\$numberKey\}", 10, 3600\]/', $phoneLogin);
         $this->assertMatchesRegularExpression('/whatsapp-verify:filament:number:5m:\{\$numberKey\}", 15, 300\]/', $phoneLogin);
         $this->assertSame(5, (int) config('kpi.checklist_lock_days', 5));
+
+        // Login Email: 5 kali salah, 3 permintaan per 5 menit dan 10 per jam, 15 percobaan per 5 menit, tombol masuk 20 per menit.
+        $this->assertSame(5, EmailOtpService::MAX_ATTEMPTS);
+        $emailLogin = file_get_contents(base_path('app/Filament/Auth/Pages/EmailLogin.php'));
+        $this->assertMatchesRegularExpression('/email-otp:filament:email:5m:\{\$emailKey\}", 3, 300\]/', $emailLogin);
+        $this->assertMatchesRegularExpression('/email-otp:filament:email:1h:\{\$emailKey\}", 10, 3600\]/', $emailLogin);
+        $this->assertMatchesRegularExpression('/email-verify:filament:email:5m:\{\$emailKey\}", 15, 300\]/', $emailLogin);
     }
 
     private function makeKpi(string $description, string $date): Kpi

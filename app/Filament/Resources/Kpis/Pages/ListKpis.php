@@ -147,7 +147,7 @@ class ListKpis extends ListRecords
                         if ($exportByUser && $isAdmin && ! $hasGlobalAccess && $userId && ! in_array($userId, $allowedUserIds ?? [], true)) {
                             Notification::make()
                                 ->title('User tidak valid untuk export')
-                                ->body('Anda hanya dapat export KPI karyawan di badan usaha yang Anda kelola atau tim Anda.')
+                                ->body('Anda hanya dapat export KPI karyawan di area yang Anda kelola atau tim Anda.')
                                 ->warning()
                                 ->send();
 
@@ -159,7 +159,7 @@ class ListKpis extends ListRecords
                         if (filled($requestedDivisiId) && ! $hasGlobalAccess && ! array_key_exists((int) $requestedDivisiId, static::exportDivisionOptions())) {
                             Notification::make()
                                 ->title('Divisi tidak valid untuk export')
-                                ->body('Anda hanya dapat export divisi yang berisi karyawan di badan usaha yang Anda kelola.')
+                                ->body('Anda hanya dapat export divisi yang berisi karyawan di area yang Anda kelola.')
                                 ->warning()
                                 ->send();
 
@@ -392,7 +392,7 @@ class ListKpis extends ListRecords
                                 if ($sourceUsers === [] || $targetUsers === []) {
                                     Notification::make()
                                         ->title('User tidak valid untuk copy KPI')
-                                        ->body('Pastikan source dan target user berada dalam cakupan Anda (badan usaha yang dikelola atau bawahan langsung + satu level).')
+                                        ->body('Pastikan source dan target user berada dalam cakupan Anda (area yang dikelola atau bawahan langsung + satu level).')
                                         ->warning()
                                         ->send();
 

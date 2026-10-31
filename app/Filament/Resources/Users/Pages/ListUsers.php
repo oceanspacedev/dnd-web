@@ -195,11 +195,11 @@ class ListUsers extends ListRecords
         }
 
         $lines[] = '';
-        $lines[] = e('Admin di atas hanya dapat mengelola badan usaha yang tercantum, bukan semua badan usaha. '
-            .'Bila perlu akses semua badan usaha, ubah Cakupan Badan Usaha di form karyawan.');
+        $lines[] = e('Admin di atas hanya dapat mengelola area yang tercantum, bukan semua area. '
+            .'Bila perlu akses semua area, ubah Cakupan Area di form karyawan.');
 
         Notification::make()
-            ->title("{$count} Admin Dibatasi ke Badan Usaha Tertentu")
+            ->title("{$count} Admin Dibatasi ke Area Tertentu")
             ->body(implode('<br>', $lines))
             ->warning()
             ->persistent()

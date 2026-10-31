@@ -23,13 +23,14 @@ const GUIDES = {
 };
 
 // Environment that every php process of a recording must run with (WhatsApp -> local stub with a dummy token,
-// mail -> log, cache -> array, empty DB_URL so DB_DATABASE is the database). Read from env.sh so the shell scripts and the flows share one source; spread it into
+// mail -> mail-stub.php, cache -> array, empty DB_URL so DB_DATABASE is the database). Read from env.sh so the shell scripts and the flows share one source; spread it into
 // the env of any php child process: execFileSync('php', [...], { env: { ...process.env, ...rec.SAFE_ENV, DB_DATABASE } }).
 const SAFE_ENV = (() => {
   // Source env.sh in a clean shell and keep only its exports.
-  const out = execFileSync('sh', ['-c', '. "$1" && env', 'sh', path.join(TOOL_DIR, 'env.sh')], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+  const out = execFileSync('sh', ['-c', '. "$1" && env', 'sh', path.join(TOOL_DIR, 'env.sh')], { encoding: 'utf8', env: { PATH: process.env.PATH, HERE: TOOL_DIR } });
   const all = Object.fromEntries(out.split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
-  const env = Object.fromEntries(['WAG_URL', 'WAG_TOKEN', 'MAIL_MAILER', 'CACHE_STORE', 'DB_URL'].map((k) => [k, all[k]]));
+  const env = Object.fromEntries(['WAG_URL', 'WAG_TOKEN', 'MAIL_MAILER', 'MAIL_SENDMAIL_PATH', 'MAIL_FROM_ADDRESS', 'DEBUGBAR_ENABLED', 'KPI_CHECKLIST_LOCK_DAYS', 'CACHE_STORE', 'DB_URL'].map((k) => [k, all[k]]));
+  if (env.MAIL_MAILER !== 'sendmail' || env.MAIL_SENDMAIL_PATH !== `php ${path.join(TOOL_DIR, 'mail-stub.php')} -t -i`) throw new Error('env.sh must point the mailer at mail-stub.php');
   if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(env.WAG_URL || '') || !env.WAG_TOKEN) throw new Error('env.sh must point WAG_URL at the local stub');
   if (env.DB_URL !== '') throw new Error('env.sh must export an empty DB_URL');
   return env;
@@ -88,6 +89,46 @@ async function readOtp(phone, { since = 0, timeoutMs = 15000 } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no WhatsApp OTP for ${phone} reached the stub at ${WA_STUB} within ${timeoutMs} ms` + (lastError ? ` (${lastError.message})` : ''));
+}
+
+// Messages the app "sent" through the sendmail stub (mail-stub.php), oldest first: { time_ms, recipients, raw }.
+function mailOutbox() {
+  const file = path.join(WORK_DIR, 'mail-outbox.jsonl');
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+}
+
+// Decode one MIME part body by its Content-Transfer-Encoding (quoted-printable, base64 or plain).
+function decodePart(headers, body) {
+  const enc = (/content-transfer-encoding:\s*([^\s;]+)/i.exec(headers) || [])[1] || '';
+  if (/quoted-printable/i.test(enc)) {
+    return Buffer.from(body.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))), 'latin1').toString('utf8');
+  }
+  if (/base64/i.test(enc)) return Buffer.from(body.replace(/\s+/g, ''), 'base64').toString('utf8');
+  return body;
+}
+
+// Latest e-mail sent to `email` at or after `since` (ms since epoch), parsed: { subject, text, code, link }.
+// `text` is the text/plain part; `code` the 6-digit login code; `link` the magic login link. Waits up to `timeoutMs`.
+async function readEmail(email, { since = 0, timeoutMs = 15000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const want = email.toLowerCase();
+  while (Date.now() < deadline) {
+    const msg = mailOutbox().filter((m) => m.time_ms >= since && m.recipients.some((r) => r.toLowerCase().includes(want))).pop();
+    if (msg) {
+      const raw = msg.raw.replace(/\r\n/g, '\n');
+      const subject = ((/^subject:\s*(.*)$/im.exec(raw) || [])[1] || '').trim();
+      const parts = raw.split(/\n--[^\n]+\n/).map((p) => { const i = p.indexOf('\n\n'); return i < 0 ? null : [p.slice(0, i), p.slice(i + 2)]; }).filter(Boolean);
+      const plain = parts.find(([h]) => /content-type:\s*text\/plain/i.test(h));
+      const text = plain ? decodePart(plain[0], plain[1]).replace(/\n--\s*$/, '').trim() : '';
+      const code = (/(?:^|\s)(\d{6})(?:\s|$)/.exec(text) || [])[1];
+      const link = (/https?:\/\/\S+\/email-login\/[A-Za-z0-9]+/.exec(text) || [])[0];
+      if (!code) throw new Error(`e-mail to ${email} has no 6-digit code`);
+      return { subject, text, code, link };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`no e-mail for ${email} reached mail-stub.php within ${timeoutMs} ms (is the guide server running with env.sh?)`);
 }
 
 function playwrightCacheDir() {
@@ -229,5 +270,5 @@ class Recorder {
 module.exports = {
   open, login, settle, highlight, unhighlight, Recorder, buildGif, framesDir,
   baseUrl, outDir, debugPath, resetDb, chromiumPath, readOtp, lastWaMessage,
-  REPO, TOOL_DIR, WORK_DIR, PASSWORD, GUIDES, SAFE_ENV, WA_STUB,
+  REPO, TOOL_DIR, WORK_DIR, PASSWORD, GUIDES, SAFE_ENV, WA_STUB, readEmail,
 };

@@ -100,8 +100,8 @@ class DataAccessGuide extends Page
         $viewer = $this->viewer();
 
         [$role, $status, $color] = match (true) {
-            DataAccessService::hasGlobalAccess($viewer) => ['super_admin', 'Super Admin (Semua Badan Usaha)', 'success'],
-            DataAccessService::isAreaScopedAdmin($viewer) => ['scoped_admin', 'Admin Badan Usaha Tertentu', 'warning'],
+            DataAccessService::hasGlobalAccess($viewer) => ['super_admin', 'Super Admin (Semua Area)', 'success'],
+            DataAccessService::isAreaScopedAdmin($viewer) => ['scoped_admin', 'Admin Area Tertentu', 'warning'],
             DataAccessService::isTeamSupervisor($viewer) => ['supervisor', 'Atasan (Tim Saya)', 'info'],
             default => ['staff', 'Staf', 'gray'],
         };
@@ -179,49 +179,49 @@ class DataAccessGuide extends Page
             [
                 'module' => 'Menu Karyawan',
                 'super_admin' => 'Seluruh karyawan, termasuk akun ADMIN dan tab Arsip.',
-                'scoped_admin' => 'Karyawan yang Area-nya termasuk badan usaha yang diberikan (tanpa akun ADMIN), termasuk tab Arsip.',
+                'scoped_admin' => 'Karyawan yang Area-nya termasuk area yang diberikan (tanpa akun ADMIN), termasuk tab Arsip.',
                 'supervisor' => 'Tidak tersedia.',
                 'staff' => 'Tidak tersedia.',
             ],
             [
                 'module' => 'Menu Tim Saya',
                 'super_admin' => 'Anggota timnya sendiri (jika punya bawahan).',
-                'scoped_admin' => 'Anggota timnya sendiri (jika punya bawahan), di badan usaha mana pun (tanpa akun ADMIN).',
+                'scoped_admin' => 'Anggota timnya sendiri (jika punya bawahan), di area mana pun (tanpa akun ADMIN).',
                 'supervisor' => 'Bawahan langsung + satu level di bawahnya (tanpa akun ADMIN).',
                 'staff' => 'Tidak tersedia.',
             ],
             [
                 'module' => 'KPI',
                 'super_admin' => 'Semua karyawan.',
-                'scoped_admin' => 'Badan usaha yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. KPI akun ADMIN lain hanya bisa dilihat.',
+                'scoped_admin' => 'Area yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. KPI akun ADMIN lain hanya bisa dilihat.',
                 'supervisor' => 'Bawahan langsung + satu level di bawahnya (sesuai Approval Line), termasuk akun ADMIN yang tidak tampil di menu Tim Saya, + KPI miliknya. KPI milik sendiri hanya tampil di menu KPI jika Anda punya bawahan; selain itu lihat Checklist KPI di Dashboard.',
                 'staff' => 'KPI miliknya lewat Checklist KPI di Dashboard.',
             ],
             [
                 'module' => 'Kehadiran & Penilaian',
                 'super_admin' => 'Semua karyawan.',
-                'scoped_admin' => 'Badan usaha yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Data akun ADMIN, termasuk miliknya sendiri, hanya bisa dilihat.',
+                'scoped_admin' => 'Area yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Data akun ADMIN, termasuk miliknya sendiri, hanya bisa dilihat.',
                 'supervisor' => 'Bawahan langsung + satu level di bawahnya (sesuai Approval Line), termasuk akun ADMIN yang tidak tampil di menu Tim Saya.',
                 'staff' => 'Tidak tersedia.',
             ],
             [
                 'module' => 'Cutpoint',
                 'super_admin' => 'Semua karyawan.',
-                'scoped_admin' => 'Badan usaha yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Data akun ADMIN, termasuk miliknya sendiri, hanya bisa dilihat.',
+                'scoped_admin' => 'Area yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Data akun ADMIN, termasuk miliknya sendiri, hanya bisa dilihat.',
                 'supervisor' => 'Milik sendiri (lihat saja).',
                 'staff' => 'Milik sendiri (lihat saja).',
             ],
             [
                 'module' => 'Jurnal Harian',
                 'super_admin' => 'Semua karyawan.',
-                'scoped_admin' => 'Badan usaha yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Jurnal akun ADMIN lain hanya bisa dilihat.',
+                'scoped_admin' => 'Area yang diberikan + bawahan sesuai Approval Line + dirinya sendiri. Jurnal akun ADMIN lain hanya bisa dilihat.',
                 'supervisor' => 'Milik sendiri + melihat jurnal bawahan langsung dan satu level di bawahnya (sesuai Approval Line), termasuk akun ADMIN yang tidak tampil di menu Tim Saya. Jurnal mereka tidak bisa diubah.',
                 'staff' => 'Milik sendiri.',
             ],
             [
                 'module' => 'Leaderboard KPI (Dashboard) & export-nya',
                 'super_admin' => 'Seluruh perusahaan.',
-                'scoped_admin' => 'Badan usaha yang diberikan + bawahan sesuai Approval Line + dirinya sendiri.',
+                'scoped_admin' => 'Area yang diberikan + bawahan sesuai Approval Line + dirinya sendiri.',
                 'supervisor' => 'Seluruh perusahaan.',
                 'staff' => 'Seluruh perusahaan.',
             ],
@@ -234,7 +234,7 @@ class DataAccessGuide extends Page
             ],
             [
                 'module' => 'Memberi Jabatan ADMIN & mengatur Akses Data',
-                'super_admin' => 'Ya. ADMIN baru otomatis Badan Usaha Tertentu dengan Area-nya sendiri; Semua Badan Usaha perlu centang konfirmasi.',
+                'super_admin' => 'Ya. ADMIN baru otomatis Area Tertentu dengan Area-nya sendiri; Semua Area perlu centang konfirmasi.',
                 'scoped_admin' => 'Tidak.',
                 'supervisor' => 'Tidak.',
                 'staff' => 'Tidak.',

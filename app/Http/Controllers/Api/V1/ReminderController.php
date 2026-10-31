@@ -33,7 +33,7 @@ class ReminderController extends Controller
         abort_unless(
             DataAccessService::hasGlobalAccess(auth()->user()),
             403,
-            'Hanya admin dengan akses seluruh badan usaha yang dapat mengakses pengaturan dan trigger reminder.',
+            'Hanya admin dengan akses seluruh area yang dapat mengakses pengaturan dan trigger reminder.',
         );
     }
 

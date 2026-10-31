@@ -23,7 +23,7 @@ class CreateEmployeeReview extends CreateRecord
             Notification::make()
                 ->title('User tidak valid')
                 ->body(DataAccessService::isAreaScopedAdmin(auth()->user())
-                    ? 'Anda hanya bisa membuat penilaian untuk karyawan di badan usaha yang diizinkan atau tim approval Anda, selain akun ADMIN (termasuk diri sendiri).'
+                    ? 'Anda hanya bisa membuat penilaian untuk karyawan di area yang diizinkan atau tim approval Anda, selain akun ADMIN (termasuk diri sendiri).'
                     : 'Anda hanya bisa membuat penilaian untuk bawahan dalam scope approval_id (bawahan langsung + satu level).')
                 ->danger()
                 ->send();

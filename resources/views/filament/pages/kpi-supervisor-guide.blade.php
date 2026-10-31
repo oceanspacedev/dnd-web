@@ -27,7 +27,7 @@
             <x-slot name="description">Urutan komprehensif dari pembuatan KPI sampai validasi akhir sebelum dipakai tim.</x-slot>
 
             <ol class="list-decimal space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
-                <li>Masuk ke sistem dengan akun atasan yang memiliki anggota tim (atau akun Admin), lewat <strong>Username</strong> dan <strong>Kata sandi</strong> atau tombol <strong>WhatsApp</strong> dengan kode OTP. Langkah masuk lewat WhatsApp ada di awal GIF 2.</li>
+                <li>Masuk ke sistem dengan akun atasan yang memiliki anggota tim (atau akun Admin), lewat <strong>Username</strong> dan <strong>Kata sandi</strong>, tombol <strong>WhatsApp</strong> dengan kode OTP, atau tombol <strong>Email</strong> dengan kode dari email. Langkah masuk lewat WhatsApp ada di awal GIF 2; langkah masuk lewat Email ada di Panduan KPI Operasional (SOP 1, Opsi C).</li>
                 <li>Buka menu <strong>KPI</strong>, lalu klik tombol <strong>Buat kpi</strong> di kanan atas.</li>
                 <li>Pilih <strong>Job Position</strong> (ketik nama posisi untuk mencari). Setiap opsi berisi nama posisi dan anggota tim yang memegangnya; KPI dibuat sekaligus untuk semua nama tersebut (termasuk Anda bila posisi Anda sama).</li>
                 <li>Klik <strong>Month</strong>, lalu klik tanggal mana saja di bulan periode KPI. Kolom menampilkan bulan/tahun, misalnya <strong>10/2026</strong>.</li>
@@ -271,8 +271,9 @@
             <x-slot name="description">Proses ini dilakukan setiap bulan untuk melengkapi komponen penilaian tim.</x-slot>
 
             <ol class="list-decimal space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
-                <li>Masuk ke sistem dengan <strong>Username</strong> dan <strong>Kata sandi</strong>, atau klik tombol <strong>WhatsApp</strong> di bawah tulisan <strong>Atau masuk dengan</strong>.</li>
+                <li>Masuk ke sistem dengan <strong>Username</strong> dan <strong>Kata sandi</strong>, atau klik tombol <strong>WhatsApp</strong> atau <strong>Email</strong> di bawah tulisan <strong>Atau masuk dengan</strong>.</li>
                 <li>Untuk masuk lewat WhatsApp: isi <strong>Nomor WhatsApp</strong> yang tercatat sebagai No. HP di data karyawan Anda, lalu klik <strong>Kirim OTP WhatsApp</strong>. Kolom nomor kemudian terkunci dan menampilkan nomor dalam format 62 (0812... menjadi 62812...). Isi 6 digit <strong>Kode OTP</strong> yang masuk ke WhatsApp, lalu klik <strong>Verifikasi dan Masuk</strong>. Kode hanya berlaku sebentar (lihat pesan WhatsApp); jika kedaluwarsa, klik <strong>Ganti nomor atau kirim ulang OTP</strong>.</li>
+                <li>Untuk masuk lewat Email: isi <strong>Email</strong> yang tercatat di data karyawan Anda, lalu klik <strong>Kirim Kode ke Email</strong>. Isi 6 digit <strong>Kode OTP</strong> dari email itu lalu klik <strong>Verifikasi dan Masuk</strong>, atau klik tombol masuk di email tersebut. Jika kedaluwarsa, klik <strong>Ganti email atau kirim ulang kode</strong>.</li>
                 <li>Buka menu <strong>Penilaian</strong>, lalu klik <strong>Buat employee review</strong>.</li>
                 <li>Pilih personel pada field <strong>Pengguna</strong> (ketik nama untuk mencari); daftar hanya berisi karyawan yang boleh Anda nilai (anggota tim Anda).</li>
                 <li>Periksa <strong>Periode</strong>: otomatis terisi bulan berjalan (contoh: Oktober 2026). Ganti lewat pemilih bulan bila menilai bulan lain.</li>
@@ -322,7 +323,7 @@
                 <ul class="mt-2 list-disc space-y-1 pl-5">
                     <li>Opsi yang tampil pada form export/copy mengikuti role pengguna.</li>
                     <li>Jika opsi tertentu tidak muncul, berarti fitur tersebut dibatasi oleh hak akses akun.</li>
-                    <li>Admin dengan akses badan usaha tertentu hanya melihat data karyawan di badan usaha tersebut, ditambah data timnya dan dirinya sendiri.</li>
+                    <li>Admin dengan akses area tertentu hanya melihat data karyawan di area tersebut, ditambah data timnya dan dirinya sendiri.</li>
                 </ul>
             </div>
         </x-filament::section>

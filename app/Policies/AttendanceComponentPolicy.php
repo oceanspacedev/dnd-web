@@ -65,7 +65,7 @@ class AttendanceComponentPolicy
     public function deactivate(User $user, AttendanceComponent $attendanceComponent): Response
     {
         if (! $this->canManage($user)) {
-            return Response::deny('Hanya admin dengan akses seluruh badan usaha yang dapat mengelola komponen kehadiran.');
+            return Response::deny('Hanya admin dengan akses seluruh area yang dapat mengelola komponen kehadiran.');
         }
 
         $rules = self::rulesStillScoring((string) $attendanceComponent->getOriginal('code'));
@@ -127,7 +127,7 @@ class AttendanceComponentPolicy
     public function delete(User $user, AttendanceComponent $attendanceComponent): Response
     {
         if (! $this->canManage($user)) {
-            return Response::deny('Hanya admin dengan akses seluruh badan usaha yang dapat mengelola komponen kehadiran.');
+            return Response::deny('Hanya admin dengan akses seluruh area yang dapat mengelola komponen kehadiran.');
         }
 
         return $this->usageResponse($attendanceComponent);

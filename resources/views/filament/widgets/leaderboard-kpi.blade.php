@@ -16,63 +16,27 @@
             @endphp
 
             <!-- Header and Filters Section -->
-            <div class="flex flex-col space-y-4 sm:space-y-0 sm:flex-row sm:justify-between sm:items-start">
-                <div>
-                    <h2 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 sm:text-2xl">Leaderboard KPI</h2>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Bandingkan metrik kinerja antar karyawan</p>
-                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Aturan penilaian: {{ $scoringRule->name }}</p>
+            <div class="space-y-4">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <h2 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 sm:text-2xl">Leaderboard KPI</h2>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Bandingkan metrik kinerja antar karyawan</p>
+                        <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Aturan penilaian: {{ $scoringRule->name }}</p>
+                    </div>
+
+                    <x-filament::button
+                        icon="heroicon-m-arrow-down-tray"
+                        color="gray"
+                        class="w-full shrink-0 sm:w-auto"
+                        x-on:click="$dispatch('open-modal', { id: 'leaderboard-export-modal' })"
+                    >
+                        Export KPI
+                    </x-filament::button>
                 </div>
 
-                <!-- Responsive Filters -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 w-full sm:w-auto">
-                    <div class="w-full sm:w-40 md:w-48">
-                        <label class="sr-only" for="leaderboard-month">Bulan</label>
-                        <x-filament::input.wrapper>
-                            <x-filament::input
-                            id="leaderboard-month"
-                            type="month"
-                            wire:model.live="month"
-                            placeholder="Choose Month"
-                            class="w-full"
-                            max="{{ now()->format('Y-m') }}"
-                        />
-                        </x-filament::input.wrapper>
-                    </div>
-
-                    <div class="w-full sm:w-40 md:w-48">
-                        <label class="sr-only" for="leaderboard-area">Area</label>
-                        <x-filament::input.wrapper>
-                            <x-filament::input.select id="leaderboard-area" wire:model.live="area" class="w-full">
-                                <option value="">All Areas</option>
-                                @foreach($areas as $area)
-                                    <option value="{{ $area->id }}">{{ $area->name }}</option>
-                                @endforeach
-                            </x-filament::input.select>
-                        </x-filament::input.wrapper>
-                    </div>
-
-                    <div class="w-full sm:w-40 md:w-48">
-                        <label class="sr-only" for="leaderboard-division">Divisi</label>
-                        <x-filament::input.wrapper>
-                            <x-filament::input.select id="leaderboard-division" wire:model.live="division" class="w-full" searchable>
-                                <option value="">All Divisions</option>
-                                @foreach($divisions as $division)
-                                    <option value="{{ $division->id }}">{{ $division->name }}</option>
-                                @endforeach
-                            </x-filament::input.select>
-                        </x-filament::input.wrapper>
-                    </div>
-                    <div class="w-full sm:w-40 md:w-48 flex items-end">
-                        <x-filament::button
-                            icon="heroicon-m-arrow-down-tray"
-                            color="gray"
-                            class="w-full"
-                            x-on:click="$dispatch('open-modal', { id: 'leaderboard-export-modal' })"
-                        >
-                            Export KPI
-                        </x-filament::button>
-                    </div>
-
+                {{-- Filter bulan/area/divisi: Filament schema (Select searchable), lihat LeaderboardKPI::filtersForm(). --}}
+                <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
+                    {{ $this->filtersForm }}
                 </div>
             </div>
 

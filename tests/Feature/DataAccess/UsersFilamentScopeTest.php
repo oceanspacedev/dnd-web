@@ -639,7 +639,7 @@ class UsersFilamentScopeTest extends TestCase
         Livewire::test(UserPositionGuide::class)
             ->assertSuccessful()
             ->assertSee('Buka Menu Tim Saya')
-            ->assertSee('Admin Badan Usaha Tertentu');
+            ->assertSee('Admin Area Tertentu');
 
         $this->actAs($this->cooStaff);
         $this->assertFalse(UserPositionGuide::canAccess());

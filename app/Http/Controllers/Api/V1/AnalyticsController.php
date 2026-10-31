@@ -311,7 +311,7 @@ class AnalyticsController extends Controller
         abort_if(
             $scope !== null && $areaId !== null && ! in_array($areaId, LeaderboardScoreService::selectableAreaIds($scope), true),
             403,
-            'Anda tidak memiliki akses ke badan usaha ini.',
+            'Anda tidak memiliki akses ke area ini.',
         );
 
         return $scope;

@@ -12,15 +12,22 @@ use App\Services\KpiScoringService;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Exception;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Schema;
 use Filament\Widgets\Widget;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 
-class ChecklistKPI extends Widget
+class ChecklistKPI extends Widget implements HasForms
 {
+    use InteractsWithForms;
+
     protected static bool $isDiscovered = false;
 
     protected string $view = 'filament.widgets.checklist-kpi';
@@ -43,11 +50,44 @@ class ChecklistKPI extends Widget
 
     public int $updateModalKey = 0;
 
+    /** @var Collection<int, User>|null */
+    protected ?Collection $usersMemo = null;
+
     public function mount($user_id = null, $month = null): void
     {
         $this->user_id = $user_id ?? null;
         // Y-m is the value format of the <input type="month"> filter, so the current month is shown as selected.
         $this->month = $month ?? now()->format('Y-m');
+    }
+
+    /**
+     * Filter widget (user + bulan) sebagai Filament schema tanpa statePath: state langsung ke properti
+     * Livewire user_id/month, jadi validasi di resolveViewedUserId()/getKpis() tetap berlaku.
+     * Select user searchable + preload supaya daftar karyawan yang panjang bisa dicari.
+     */
+    public function filtersForm(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                Select::make('user_id')
+                    ->id('checklist-user')
+                    ->label('Karyawan')
+                    ->placeholder('Pilih karyawan')
+                    ->options(fn (): array => $this->getUsers()->pluck('nama_lengkap', 'id')->all())
+                    ->searchable()
+                    ->preload()
+                    ->live()
+                    ->visible(fn (): bool => $this->canChooseUser())
+                    ->columnSpan(['sm' => 2]),
+                TextInput::make('month')
+                    ->id('checklist-month')
+                    ->label('Bulan')
+                    ->type('month')
+                    ->maxValue(now()->format('Y-m'))
+                    ->live(),
+            ])
+            // Tanpa pilihan karyawan (staf) hanya ada input bulan: satu kolom supaya input tidak menyempit.
+            ->columns(['default' => 1, 'sm' => $this->canChooseUser() ? 3 : 1]);
     }
 
     protected function getKpis()
@@ -230,6 +270,15 @@ class ChecklistKPI extends Widget
     }
 
     protected function getUsers()
+    {
+        // Memo per request: dipakai getKpis() dan opsi Select filter (properti protected tidak ikut state Livewire).
+        return $this->usersMemo ??= $this->queryUsers();
+    }
+
+    /**
+     * @return Collection<int, User>
+     */
+    protected function queryUsers(): Collection
     {
         $actor = auth()->user();
 

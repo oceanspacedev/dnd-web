@@ -492,7 +492,7 @@ class HrModulesScopeTest extends TestCase
         );
         $this->getJson("/api/v1/journals/{$records['outsider']}")->assertForbidden();
         $this->putJson("/api/v1/journals/{$records['outsider']}", ['activity' => 'X'])->assertForbidden();
-        $this->putJson("/api/v1/journals/{$records['uls']}", ['activity' => 'Diedit admin badan usaha'])->assertOk();
+        $this->putJson("/api/v1/journals/{$records['uls']}", ['activity' => 'Diedit admin area'])->assertOk();
 
         // Non-admin tidak berubah: diri sendiri + bawahan.
         Sanctum::actingAs($this->manager);

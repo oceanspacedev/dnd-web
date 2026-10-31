@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-JfLhftSe.css",
+    "file": "assets/app-nHKXyfm9.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -15,7 +15,7 @@
     "isEntry": true
   },
   "vendor/kungfufafa/mekaya-theme/resources/css/theme.css": {
-    "file": "assets/theme-BHAM73YL.css",
+    "file": "assets/theme-wkXdw8bG.css",
     "src": "vendor/kungfufafa/mekaya-theme/resources/css/theme.css",
     "isEntry": true,
     "name": "theme",

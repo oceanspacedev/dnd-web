@@ -25,7 +25,7 @@
             * Atasan hanya dapat mengubah posisi karyawan yang berada di bawah timnya sendiri (menu Tim Saya).
         </p>
         <p class="text-xs text-gray-500 dark:text-gray-400">
-            * Admin badan usaha tertentu hanya dapat mengubah posisi karyawan di badan usaha yang menjadi cakupan akses datanya (menu Karyawan).
+            * Admin area tertentu hanya dapat mengubah posisi karyawan di area yang menjadi cakupan akses datanya (menu Karyawan).
         </p>
     </div>
 </div>

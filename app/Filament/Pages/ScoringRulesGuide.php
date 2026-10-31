@@ -485,7 +485,7 @@ class ScoringRulesGuide extends Page
     private function attendanceScope(?User $user): string
     {
         if (AttendancePolicy::canManageAllAttendance($user)) {
-            return 'Seluruh karyawan di semua badan usaha.';
+            return 'Seluruh karyawan di semua area.';
         }
 
         if (DataAccessService::isAreaScopedAdmin($user)) {
@@ -497,7 +497,7 @@ class ScoringRulesGuide extends Page
 
             return ($areaNames === []
                 ? 'Anggota tim Anda menurut Approval Line'
-                : 'Karyawan di badan usaha '.implode(', ', $areaNames).' dan anggota tim Anda menurut Approval Line')
+                : 'Karyawan di area '.implode(', ', $areaNames).' dan anggota tim Anda menurut Approval Line')
                 .', kecuali akun ADMIN (termasuk akun Anda sendiri) yang hanya dicatat oleh super admin.';
         }
 

@@ -420,7 +420,7 @@ class UsersImport implements ToModel, WithHeadingRow
         if ($isGlobalAdmin && ! DataAccessService::anotherGlobalAdminExists($user)) {
             throw new Exception(
                 'Role "'.$role->name.'" tidak dapat diberikan kepada '.$user->nama_lengkap
-                .': minimal harus ada satu admin dengan akses seluruh badan usaha.',
+                .': minimal harus ada satu admin dengan akses seluruh area.',
             );
         }
     }

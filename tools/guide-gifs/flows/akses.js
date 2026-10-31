@@ -35,8 +35,8 @@ async function openSelect(page, field) {
   return page.locator('#' + (await combo.getAttribute('aria-controls')));
 }
 
-// GIF 1: super admin promotes "Admin Badan Usaha" (a COO staff member in the demo seed) to ADMIN. Akses Data opens on
-// Badan Usaha Tertentu with the employee's own Area (COO) already filled in; COO is replaced by GMD + ULS.
+// GIF 1: super admin promotes "Admin Area" (a COO staff member in the demo seed) to ADMIN. Akses Data opens on
+// Area Tertentu with the employee's own Area (COO) already filled in in Area yang Dikelola; COO is replaced by GMD + ULS.
 async function gifAturAdmin() {
   const { browser, page } = await rec.open(BASE);
   try {
@@ -50,7 +50,7 @@ async function gifAturAdmin() {
     await resetWindow(page);
 
     // 1. Menu Karyawan: search the employee's name (SOP step 3).
-    const search = await searchEmployees(page, 'Admin Badan Usaha');
+    const search = await searchEmployees(page, 'Admin Area');
     await snapHighlighted(r, page, search.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," fi-input-wrp ")][1]'), 1.3);
 
     // 2. Ubah on that row (table scrolled right so the action is visible).
@@ -65,12 +65,12 @@ async function gifAturAdmin() {
     await step(r, page, roles.getByRole('option', { name: 'ADMIN', exact: true }), 1.4, { noReveal: true });
     await rec.settle(page, 600);
 
-    // 4. Akses Data appears: Cakupan Badan Usaha = Badan Usaha Tertentu, Badan Usaha = own Area (COO) (SOP step 5).
+    // 4. Akses Data appears: Cakupan Area = Area Tertentu, Area yang Dikelola = own Area (COO) (SOP step 5).
     const section = page.getByText('Akses Data', { exact: true }).first();
     await reveal(page, section, 75);
     await parkMouse(page);
-    const scope = page.locator('.fi-fo-toggle-buttons-wrp').filter({ hasText: 'Cakupan Badan Usaha' }).first();
-    const field = page.locator('.fi-fo-field', { hasText: 'Admin melihat karyawan di badan usaha ini' }).first();
+    const scope = page.locator('.fi-fo-toggle-buttons-wrp').filter({ hasText: 'Cakupan Area' }).first();
+    const field = page.locator('.fi-fo-field', { hasText: 'Admin melihat karyawan di area ini' }).first();
     await hl(scope);
     await hl(field);
     await page.waitForTimeout(80);
@@ -78,7 +78,7 @@ async function gifAturAdmin() {
     await unhl(scope);
     await unhl(field);
 
-    // 5. Badan Usaha: remove COO (x on its badge), then pick GMD and ULS (SOP step 6). Selected options leave the list.
+    // 5. Area yang Dikelola: remove COO (x on its badge), then pick GMD and ULS (SOP step 6). Selected options leave the list.
     // The x button is tiny: outline the whole COO badge, then click its x.
     const cooBadge = field.locator('.fi-badge', { hasText: 'COO' }).first();
     await parkMouse(page);
@@ -107,12 +107,12 @@ async function gifAturAdmin() {
     // 7. Saved (notification) > back to Karyawan.
     await step(r, page, sideLink(page, 'Karyawan'), 1.3, { noReveal: true });
 
-    // 8. Result: Jabatan ADMIN and column Akses Data shows the chosen badan usaha (SOP step 8).
-    await searchEmployees(page, 'Admin Badan Usaha');
+    // 8. Result: Jabatan ADMIN and column Akses Data shows the chosen areas (SOP step 8).
+    await searchEmployees(page, 'Admin Area');
     await scrollTableRight(page);
     await page.locator('tbody tr').first().locator('.fi-badge', { hasText: 'GMD' }).first().waitFor();
     await parkMouse(page);
-    // One box from Jabatan (ADMIN) to Akses Data (badge with the chosen badan usaha).
+    // One box from Jabatan (ADMIN) to Akses Data (badge with the chosen areas).
     const jabatanCol = await columnIndex(page, 'Jabatan');
     const accessCol = await columnIndex(page, 'Akses Data');
     const clear = await boxOverlay(page, `.fi-ta-table tbody tr:first-child td:nth-child(${jabatanCol}), .fi-ta-table tbody tr:first-child td:nth-child(${accessCol})`);
@@ -151,7 +151,7 @@ async function gifHasilAdmin() {
     await r.snap(page, 2.0);
     await clear();
 
-    // 4. Filter > Area: only the granted badan usaha are offered.
+    // 4. Filter > Area: only the granted areas are offered.
     const filterBtn = page.getByRole('button', { name: 'Filter', exact: true }).first();
     await scrollContentTop(page);
     await step(r, page, filterBtn, 1.0, { noReveal: true });
@@ -181,7 +181,7 @@ async function gifTimSaya() {
     // 1. Sidebar > Tim Saya.
     await step(r, page, sideLink(page, 'Tim Saya'), 1.2, { noReveal: true });
 
-    // 2. Members by Approval Line, across badan usaha (Area ULS and GMD).
+    // 2. Members by Approval Line, across areas (ULS and GMD).
     await reveal(page, page.locator('.fi-ta-table thead').first(), 70);
     await page.evaluate(() => { const tc = document.querySelector('.fi-ta-content-ctn'); if (tc) tc.scrollLeft = 0; });
     await page.waitForTimeout(200);

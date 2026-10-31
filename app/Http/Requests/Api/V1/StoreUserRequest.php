@@ -81,13 +81,13 @@ class StoreUserRequest extends FormRequest
             'no_hp.unique' => 'No. HP sudah digunakan oleh user lain.',
             'role_id.required' => 'Role wajib dipilih.',
             'role_id.exists' => 'Role yang dipilih tidak valid.',
-            'area_id.required' => 'Badan usaha wajib dipilih.',
-            'area_id.exists' => 'Badan usaha yang dipilih tidak valid.',
+            'area_id.required' => 'Area wajib dipilih.',
+            'area_id.exists' => 'Area yang dipilih tidak valid.',
             // Pesan sama dengan id di luar akses agar tidak membocorkan id karyawan yang ada.
             'approval_id.exists' => UpdateUserRequest::APPROVAL_OUT_OF_SCOPE,
             'data_access.in' => 'Akses data harus all atau selected.',
-            'data_access_area_ids.required' => 'Pilih minimal satu badan usaha untuk akses data selected.',
-            'data_access_area_ids.*.exists' => 'Badan usaha akses data tidak valid.',
+            'data_access_area_ids.required' => 'Pilih minimal satu area untuk akses data selected.',
+            'data_access_area_ids.*.exists' => 'Area akses data tidak valid.',
         ];
     }
 
@@ -146,7 +146,7 @@ class StoreUserRequest extends FormRequest
             $actor = $this->user();
 
             if (! DataAccessService::canAccessArea($actor instanceof User ? $actor : null, is_scalar($value) ? (string) $value : null)) {
-                $fail('Badan usaha berada di luar akses data Anda.');
+                $fail('Area berada di luar akses data Anda.');
             }
         };
     }
@@ -184,7 +184,7 @@ class StoreUserRequest extends FormRequest
             $dataAccess = $this->input('data_access');
 
             if (! is_string($dataAccess) || $dataAccess === '' || $dataAccess === User::DATA_ACCESS_ALL) {
-                $fail('Badan usaha akses data hanya dapat diisi untuk akses data selected.');
+                $fail('Area akses data hanya dapat diisi untuk akses data selected.');
             }
         };
     }
