@@ -3,7 +3,7 @@
 # Satu script untuk dua situs: checkout `staging` = server staging, checkout `main` = production.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 git pull --ff-only origin "$BRANCH"
