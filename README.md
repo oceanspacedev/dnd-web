@@ -951,28 +951,15 @@ Perbarui aplikasi dengan rebuild image dari folder yang sama, bukan dengan runti
 docker compose -f compose.1panel.yaml up --detach --build
 ```
 
-### VitoDeploy
+### VitoDeploy (tanpa Docker)
 
-VitoDeploy bukan runtime PHP untuk DnD; stack tetap Docker Compose. Vito dipakai untuk dua hal: menerima webhook push GitHub (**Auto Deployment**) dan menjalankan [`docker/vito-deploy.sh`](docker/vito-deploy.sh) di server lewat SSH. Dua situs Vito, satu script:
+Dua situs Laravel di Vito dari repository yang sama: situs staging di branch `staging`, situs production di branch `main`, masing-masing dengan `.env` sendiri. **Deployment Script** keduanya:
 
-| Situs Vito | Branch | Deploy saat |
-|---|---|---|
-| staging | `staging` | push/merge ke `staging` |
-| production | `main` | merge PR `staging -> main` |
+```bash
+bash deploy.sh
+```
 
-1. Buat dua situs di Vito dari repository `oceanspacedev/dnd-web`, masing-masing dengan branch di tabel. Pilih tipe situs paling sederhana (tanpa framework/PHP runtime); reverse proxy dan TLS mengikuti setup server yang sudah ada (Caddy overlay VPS, 1Panel, atau Nginx Vito ke port `web`).
-2. Di folder situs, buat `.env` production seperti bagian [VPS kosong](#vps-kosong-hanya-docker) atau [Environment production](#environment-production). Bila server memakai overlay, tambahkan `COMPOSE_FILE`, misalnya `COMPOSE_FILE=compose.yaml:compose.vps.yaml`; tanpa itu script memakai `compose.yaml`. `.env` staging dan production harus berbeda (database, `APP_URL`, `APP_KEY`).
-3. Isi **Deployment Script** kedua situs dengan:
-
-   ```bash
-   bash docker/vito-deploy.sh
-   ```
-
-   Script menolak checkout selain `staging`/`main`, `git pull --ff-only`, lalu `docker compose up --detach --build`. Migration tetap dijalankan service `release` seperti deploy Compose lainnya.
-4. Nyalakan **Auto Deployment** pada kedua situs; Vito membuat webhook push di repository GitHub. Vito memfilter per branch situs, jadi push ke `staging` hanya men-deploy situs staging.
-5. Deploy pertama jalankan manual dari Vito (tombol Deploy), lalu ikuti [Checklist setelah deploy](#checklist-setelah-deploy).
-
-Dengan proteksi branch `main` (lihat [Workflow development](#workflow-development)), urutan rilis selalu: branch kerja -> `staging` (teruji di server staging) -> PR `staging -> main` -> production.
+[`deploy.sh`](deploy.sh) menarik branch checkout situs itu, `composer install --no-dev`, `npm ci && npm run build`, `migrate --force`, `optimize`, lalu `horizon:terminate` agar worker memuat kode baru. Nyalakan **Auto Deployment** pada kedua situs, sehingga push ke `staging` men-deploy staging dan merge PR `staging -> main` men-deploy production.
 
 ### Satu server, beberapa aplikasi
 
