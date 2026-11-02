@@ -104,15 +104,15 @@ Role awal dari seeder adalah `ADMIN`, `STAFF`, `TEAM LEADER`, `COORDINATOR`, `MA
 
 | Aktor | Akses utama |
 |---|---|
-| `ADMIN` | Seluruh data, master, konfigurasi, jurnal, mutasi lintas divisi, dan seluruh user |
+| `ADMIN` | Super admin (akses seluruh badan usaha): seluruh data, master, konfigurasi, jurnal, mutasi lintas divisi, dan seluruh user. Admin badan usaha: data karyawan di badan usaha yang diizinkan beserta timnya (lihat `/admin/panduan-akses-data`) |
 | Atasan (`TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`, atau user dengan bawahan) | KPI, kehadiran, penilaian, jurnal tim, serta melihat/mengedit profil dan posisi karyawan dalam scope approval (termasuk aksi massal *Ubah Posisi Massal*) |
 | Semua user panel | Melihat leaderboard; widget Checklist KPI menawarkan KPI sendiri serta KPI user dalam approval scope jika ada |
 | Pemilik jurnal | CRUD jurnal sendiri pada panel web |
 | User yang memiliki bawahan | Dapat melihat jurnal tim sesuai scope |
 
-Semua user aktif dapat masuk ke panel Filament. Resource list umumnya dibatasi oleh policy/scoped query, tetapi custom widget, import, export, dan action harus memiliki guard sendiri. Contohnya, mutasi pada widget `ChecklistKPI` saat ini memeriksa deadline tetapi belum memverifikasi ownership/scope ID yang dikirim oleh Livewire. Jangan menganggap pilihan yang tampil di UI sebagai boundary authorization.
+Semua user aktif dapat masuk ke panel Filament. Resource list umumnya dibatasi oleh policy/scoped query, tetapi custom widget, import, export, dan action harus memiliki guard sendiri. Contohnya, widget `ChecklistKPI` memeriksa cakupan setiap ID detail KPI yang dikirim Livewire lewat `authorizeKpiDetail()` sebelum mutasi; ikuti pola ini untuk custom action baru. Jangan menganggap pilihan yang tampil di UI sebagai boundary authorization.
 
-Role `TEAM LEADER`, `CHIEF`, dan `BOD` tidak otomatis memperoleh semua akses manajerial hanya karena nama role; periksa implementasi policy dan action sebelum menambah atau mengubah kemampuan role.
+Role di `DataAccessService::SUPERVISOR_ROLES` (`TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`) dan user yang memiliki bawahan diperlakukan sebagai atasan oleh policy KPI, kehadiran, penilaian, daily/weekly/monthly activity, overopen, dan user. Pengecualiannya cutpoint: selain admin, `CutpointPolicy` saat ini hanya mengizinkan user ber-ID 3 mengelola cutpoint timnya (lihat technical debt). Periksa policy dan action sebelum menambah atau mengubah kemampuan role.
 
 Source of truth untuk scope hierarchy adalah [`app/Services/ApprovalScopeService.php`](app/Services/ApprovalScopeService.php). Policy resource web berada di [`app/Policies`](app/Policies); custom widget/action tetap harus diaudit terpisah.
 
@@ -121,7 +121,7 @@ Source of truth untuk scope hierarchy adalah [`app/Services/ApprovalScopeService
 ```mermaid
 flowchart LR
     A[Admin menyiapkan master dan user] --> B[Hubungkan user ke atasan]
-    B --> C[ADMIN, MANAGER, atau COORDINATOR membuat KPI]
+    B --> C[Admin atau atasan membuat KPI]
     C --> D[Karyawan mengisi checklist dan realisasi]
     D --> E[Import kehadiran dan penilaian]
     E --> F[Hitung skor dan leaderboard]
@@ -161,13 +161,13 @@ Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tan
 ### 2. Siklus KPI
 
 1. Admin memelihara master kategori dan indikator KPI melalui resource khusus.
-2. `ADMIN`, `MANAGER`, atau `COORDINATOR` membuat KPI bulanan berdasarkan posisi dan scope user.
+2. `ADMIN` atau atasan (role di `SUPERVISOR_ROLES` atau user yang memiliki bawahan) membuat KPI bulanan berdasarkan posisi untuk karyawan dalam scope-nya.
 3. Bobot seluruh kategori KPI dalam satu paket harus berjumlah 100%.
 4. User panel mengisi indikator miliknya atau indikator user yang muncul dalam approval scope melalui Checklist KPI.
 5. Pada widget panel, non-admin dapat mengubah checklist sampai akhir bulan ditambah grace period `KPI_CHECKLIST_LOCK_DAYS`.
 6. Nilai KPI, kehadiran, review, dan cutpoint dirangkum pada leaderboard web.
 
-Deadline tersebut belum ditegakkan oleh endpoint mutasi KPI API. Widget panel juga belum melakukan authorization ulang terhadap ID objek saat mutasi, sehingga keduanya tetap perlu di-hardening sebelum dianggap sebagai boundary keamanan.
+Deadline tersebut (`Kpi::isChecklistLockedFor()`) belum ditegakkan oleh endpoint mutasi KPI API, sehingga API belum bisa dianggap sebagai boundary periode. Widget panel sudah memeriksa deadline dan cakupan setiap ID detail KPI sebelum mutasi.
 
 Jenis indikator KPI:
 
@@ -295,7 +295,7 @@ Admin dapat membuat aturan untuk:
 - `pembuatan_kpi`: mengingatkan atasan bila minimal satu bawahan langsung belum mempunyai record KPI apa pun pada bulan berjalan. Satu record kategori sudah membuat bawahan dianggap “sudah dibuatkan KPI”; command belum memvalidasi kelengkapan seluruh paket/kategori.
 - `pengisian_kpi`: mengingatkan karyawan yang masih memiliki indikator KPI belum lengkap.
 
-Target `pembuatan_kpi` ditentukan dari relasi `approval_id`, bukan dari permission pembuat KPI. Akibatnya `TEAM LEADER`, `CHIEF`, atau `BOD` dapat menerima reminder/link meskipun policy saat ini hanya mengizinkan `ADMIN`, `MANAGER`, dan `COORDINATOR` membuat KPI.
+Target `pembuatan_kpi` ditentukan dari relasi `approval_id`. Atasan yang memiliki bawahan langsung juga diizinkan `KpiPolicy` membuat KPI untuk bawahan tersebut, sehingga setiap penerima reminder dapat menindaklanjuti link-nya.
 
 Setiap aturan menentukan tanggal tenggat, offset hari pengingat, pengiriman setelah tenggat, channel email/WhatsApp, dan template pesan. Placeholder yang tersedia adalah `{nama}`, `{tenggat}`, `{periode}`, dan `{link}`.
 
@@ -616,7 +616,7 @@ Command operasional lain:
 
 | Command | Fungsi |
 |---|---|
-| `php artisan kpi:clear-cache` | Menghapus cache KPI; saat ini juga melakukan global cache flush |
+| `php artisan kpi:clear-cache` | Menghapus cache KPI dengan menaikkan versi kunci cache KPI; cache aplikasi lain tidak ikut terhapus |
 | `php artisan kpi:clean-duplicates --dry-run` | Menganalisis duplikasi deskripsi KPI yang digunakan pada 2025 tanpa mengubah data |
 | `php artisan optimize:clear` | Menghapus cache config, route, event, dan view Laravel |
 
@@ -755,20 +755,18 @@ bash deploy.sh
 
 ## Batasan dan technical debt
 
-Daftar ini adalah batas perilaku aktual, bukan fitur yang dijanjikan:
+Daftar ini adalah batas perilaku aktual, bukan fitur yang dijanjikan. Setiap butir dilacak di proyek Linear [DND (Do and Done)](https://linear.app/oceanspace/project/dnd-do-and-done-6887d5c9b357); hapus butirnya pada PR yang menutup issue terkait.
 
-1. **Authorization API belum setara dengan panel.** KPI, kehadiran, review, cutpoint, activity, overopen, jurnal, request approval, user, dan reminder sudah memiliki guard role/scope pada endpoint utama. Residual audit masih diperlukan untuk leaderboard/export analytics, custom widget, import/export, dan endpoint domain lama lainnya.
-2. **Guard custom panel belum seragam.** Widget `ChecklistKPI` belum meng-authorize ID objek ketika mutasi. Form user memungkinkan `MANAGER`/`COORDINATOR` membuat user atau mengubah bawahan ke role berprivilege termasuk `ADMIN`; import Excel dapat memperbarui/restore user secara luas dan membuat master organisasi. Nested create pada form KPI/User juga dapat membuat indikator/posisi tanpa mengikuti policy resource master. UI visibility bukan pengganti authorization action.
-3. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service.
-4. **API KPI hanya mendukung sebagian workflow.** API belum membuat relasi `parent_id` untuk roll-up extra task dan belum menegakkan lock periode pada endpoint mutasi.
-5. **Scope export belum konsisten.** Export kehadiran mengambil seluruh tabel, sedangkan export review non-admin hanya mengambil bawahan langsung, bukan seluruh approval scope. Audit sebagai potensi kebocoran data.
-6. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database.
-7. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`.
-8. **Ada rule bisnis berbasis ID/username.** Beberapa policy dan master KPI masih bergantung pada ID atau username tertentu. Jangan mengurutkan ulang seed/master ID tanpa audit.
-9. **Role tidak otomatis berarti permission.** Beberapa role organisasi belum dipetakan ke kemampuan manajerial pada policy.
-10. **CI dan monitoring infra belum dipaketkan penuh.** Horizon dan scheduler dijalankan Vito, tetapi automated quality gate sebelum deployment, alert worker, dan backup off-site tetap harus dikonfigurasi pada platform.
-11. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat.
-12. **Target reminder belum diselaraskan dengan permission.** Reminder pembuatan KPI dapat dikirim kepada user yang menjadi approver tetapi tidak diizinkan oleh `KpiPolicy` untuk membuat KPI.
+1. **Authorization API belum setara dengan panel.** KPI, kehadiran, review, cutpoint, activity, overopen, jurnal, request approval, user, dan reminder sudah memiliki guard role/scope pada endpoint utama. Residual audit masih diperlukan untuk leaderboard/export analytics, custom widget, import/export, dan endpoint domain lama lainnya. Linear: [OCE-36](https://linear.app/oceanspace/issue/OCE-36).
+2. **Guard custom panel belum seragam.** Import Excel user mencari user termasuk yang sudah diarsipkan (`withTrashed()`), lalu me-restore dan memperbaruinya tanpa membatasi ke cakupan pengimpor, serta membuat area/divisi/posisi baru bila belum ada. Nested create pada form KPI/User dapat membuat indikator/posisi tanpa mengikuti policy resource master. Form user hanya menawarkan role `ADMIN` kepada super admin, tetapi role lain (termasuk `CHIEF`/`BOD`) tetap dapat diberikan atasan kepada bawahannya. UI visibility bukan pengganti authorization action. Linear: [OCE-33](https://linear.app/oceanspace/issue/OCE-33), [OCE-34](https://linear.app/oceanspace/issue/OCE-34).
+3. **Scoring belum memiliki satu implementasi lintas surface.** Dashboard web, beberapa endpoint API, dan export masih memiliki perbedaan formula, unit, dan grade; cutpoint juga belum selalu dikurangi di API/export. Jadikan pipeline `LeaderboardKPI` sebagai baseline perilaku saat ini sambil memusatkan agregasi ke service. Linear: [OCE-39](https://linear.app/oceanspace/issue/OCE-39).
+4. **API KPI hanya mendukung sebagian workflow.** API sudah dapat membuat extra task dengan `parent_id` lewat `POST /kpis/{id}/details`, tetapi belum melakukan roll-up nilai extra task ke indikator induk seperti widget Checklist KPI, dan belum menegakkan lock periode (`Kpi::isChecklistLockedFor()`) pada endpoint mutasi. Linear: [OCE-35](https://linear.app/oceanspace/issue/OCE-35), [OCE-44](https://linear.app/oceanspace/issue/OCE-44).
+5. **Constraint keunikan sebagian masih di application layer.** Contohnya jurnal per user/tanggal dan sejumlah data per user/periode belum semuanya memakai unique constraint database. Linear: [OCE-40](https://linear.app/oceanspace/issue/OCE-40).
+6. **Format rekap jurnal bukan file office native.** “PDF” adalah printable HTML dan Word adalah HTML-compatible `.doc`. Linear: [OCE-42](https://linear.app/oceanspace/issue/OCE-42).
+7. **Ada rule bisnis berbasis ID/username.** Contohnya `CutpointPolicy` hanya mengizinkan user ber-ID 3 (selain admin) mengelola cutpoint timnya, dan form KPI memakai ID kategori KPI 1–3 yang ditulis langsung. Jangan mengurutkan ulang seed/master ID tanpa audit. Linear: [OCE-41](https://linear.app/oceanspace/issue/OCE-41).
+8. **CI dan monitoring infra belum dipaketkan penuh.** Horizon dan scheduler dijalankan Vito, tetapi automated quality gate sebelum deployment, alert worker, dan backup off-site tetap harus dikonfigurasi pada platform. Linear: [OCE-30](https://linear.app/oceanspace/issue/OCE-30), [OCE-31](https://linear.app/oceanspace/issue/OCE-31), [OCE-32](https://linear.app/oceanspace/issue/OCE-32).
+9. **API docs production belum dikonfigurasi.** Scramble membatasi docs di luar environment local sampai Gate akses dibuat. Linear: [OCE-38](https://linear.app/oceanspace/issue/OCE-38).
+10. **CORS masih menerima semua origin.** `config/cors.php` memakai `allowed_origins` `*`. Linear: [OCE-37](https://linear.app/oceanspace/issue/OCE-37).
 
 Gunakan bagian ini sebagai checklist pertama ketika mengerjakan hardening dan onboarding teknis.
 
