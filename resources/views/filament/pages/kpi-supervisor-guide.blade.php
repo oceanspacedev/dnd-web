@@ -191,13 +191,13 @@
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">1) RESULT Positif</h3>
                     <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Plan = 40, Actual = 32</p>
                     <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">Result = Actual / Plan = 32 / 40 = <strong>0.80 (80%)</strong></p>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Actual 50 dari plan 40 tetap dihitung <strong>1.00 (100%)</strong>: result dibatasi maksimal 100%.</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Actual 50 dari plan 40 tampil <strong>125%</strong>, tetapi pada skor dihitung <strong>1.00 (100%)</strong>.</p>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">2) RESULT Negatif</h3>
                     <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Plan = 3, Actual = 5</p>
                     <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">Result = Plan / Actual = 3 / 5 = <strong>0.60 (60%)</strong></p>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Semakin kecil actual, semakin baik untuk KPI negatif. Actual 1 dari plan 3 tetap dihitung <strong>1.00 (100%)</strong>: result dibatasi maksimal 100%.</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Semakin kecil actual, semakin baik untuk KPI negatif. Actual 1 dari plan 3 tampil <strong>300%</strong>, tetapi pada skor dihitung <strong>1.00 (100%)</strong>.</p>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">3) NON</h3>

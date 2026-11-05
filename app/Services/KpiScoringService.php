@@ -60,13 +60,25 @@ class KpiScoringService
     }
 
     /**
-     * Calculate the value_result for a KPI detail.
+     * Calculate the value_result for a KPI detail (nilai yang dipakai skor).
      *
      * Hasil dibatasi maksimal RESULT_CAP (100%). Kelebihan pencapaian satu indikator tidak boleh
      * menutupi indikator lain yang belum tercapai pada rata-rata KPI, agar karyawan tidak hanya
-     * mengejar target yang mudah dilampaui.
+     * mengejar target yang mudah dilampaui. Pencapaian mentah (bisa > 100%) untuk tampilan:
+     * calculateRawResultValue().
      */
     public static function calculateResultValue(?float $plan, ?float $actual, bool $isNegative): float
+    {
+        return min(self::RESULT_CAP, self::calculateRawResultValue($plan, $actual, $isNegative));
+    }
+
+    /**
+     * Pencapaian mentah satu indikator RESULT tanpa batas atas, hanya untuk tampilan
+     * (mis. 600% saat negatif plan 2 actual 0). Skor selalu memakai calculateResultValue().
+     *
+     * Positif: actual / plan. Negatif: plan / max(actual, 1). Plan kosong/0 atau actual kosong => 0.
+     */
+    public static function calculateRawResultValue(?float $plan, ?float $actual, bool $isNegative): float
     {
         if ($plan === null || $plan <= 0) {
             return 0;
@@ -79,11 +91,10 @@ class KpiScoringService
         if ($isNegative) {
             // Avoid division by zero and clamp very small actuals to a sane minimum.
             $denominator = $actual >= 1 ? $actual : 1;
-            $ratio = $plan / $denominator;
-        } else {
-            $ratio = $actual / $plan;
+
+            return $plan / $denominator;
         }
 
-        return min(self::RESULT_CAP, $ratio);
+        return $actual / $plan;
     }
 }

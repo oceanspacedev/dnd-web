@@ -7,8 +7,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * value_result satu indikator RESULT dibatasi maksimal 100% (1.0): kelebihan pencapaian satu
- * indikator tidak boleh menutupi indikator lain yang belum tercapai pada rata-rata KPI.
+ * value_result satu indikator RESULT (nilai skor) dibatasi maksimal 100% (1.0): kelebihan pencapaian satu
+ * indikator tidak boleh menutupi indikator lain yang belum tercapai pada rata-rata KPI. Pencapaian mentah
+ * (calculateRawResultValue) tetap tanpa batas untuk tampilan.
  */
 class KpiResultCapTest extends TestCase
 {
@@ -50,5 +51,36 @@ class KpiResultCapTest extends TestCase
 
         $this->assertEqualsWithDelta($expected, $result, self::DELTA);
         $this->assertLessThanOrEqual(KpiScoringService::RESULT_CAP, $result);
+    }
+
+    /**
+     * @return array<string, array{plan: ?float, actual: ?float, negative: bool, raw: float}>
+     */
+    public static function rawCases(): array
+    {
+        return [
+            'positif 12 dari plan 2 = 600% mentah' => ['plan' => 2.0, 'actual' => 12.0, 'negative' => false, 'raw' => 6.0],
+            'positif 10.5 dari plan 10 = 105% mentah' => ['plan' => 10.0, 'actual' => 10.5, 'negative' => false, 'raw' => 1.05],
+            'negatif actual 0 dari plan 6 = 600% mentah' => ['plan' => 6.0, 'actual' => 0.0, 'negative' => true, 'raw' => 6.0],
+            'negatif actual 1 dari plan 2 = 200% mentah' => ['plan' => 2.0, 'actual' => 1.0, 'negative' => true, 'raw' => 2.0],
+            'negatif tepat target = 100%' => ['plan' => 2.0, 'actual' => 2.0, 'negative' => true, 'raw' => 1.0],
+            'di bawah target sama dengan skor' => ['plan' => 6.0, 'actual' => 3.0, 'negative' => false, 'raw' => 0.5],
+            'plan null = 0' => ['plan' => null, 'actual' => 5.0, 'negative' => false, 'raw' => 0.0],
+            'actual null = 0' => ['plan' => 5.0, 'actual' => null, 'negative' => true, 'raw' => 0.0],
+        ];
+    }
+
+    /**
+     * Tampilan memakai pencapaian mentah tanpa batas; skor selalu min(1, mentah).
+     */
+    #[DataProvider('rawCases')]
+    public function test_raw_result_is_uncapped_while_scored_result_is_its_capped_value(?float $plan, ?float $actual, bool $negative, float $raw): void
+    {
+        $this->assertEqualsWithDelta($raw, KpiScoringService::calculateRawResultValue($plan, $actual, $negative), self::DELTA);
+        $this->assertEqualsWithDelta(
+            min(KpiScoringService::RESULT_CAP, $raw),
+            KpiScoringService::calculateResultValue($plan, $actual, $negative),
+            self::DELTA,
+        );
     }
 }
