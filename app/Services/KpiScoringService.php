@@ -7,6 +7,9 @@ use App\Support\Scoring\ScoringRuleData;
 
 class KpiScoringService
 {
+    /** Batas atas value_result satu indikator: 1.0 = 100%. */
+    public const RESULT_CAP = 1.0;
+
     /**
      * Calculate the score for a single KPI based on its details.
      *
@@ -19,7 +22,7 @@ class KpiScoringService
             return $kpiDetail->value_result !== null && $kpiDetail->value_result >= 0;
         });
 
-        // Sum the value_result (which can be > 1.0 for overachievement or negative KPIs)
+        // Sum the value_result (0..1 per detail; capped at 1.0 by calculateResultValue since Nov 2026)
         $actualCount = $kpiDetailWithValue->sum('value_result');
 
         // Use the count of VALID details as the divisor to get the true average
@@ -58,6 +61,10 @@ class KpiScoringService
 
     /**
      * Calculate the value_result for a KPI detail.
+     *
+     * Hasil dibatasi maksimal RESULT_CAP (100%). Kelebihan pencapaian satu indikator tidak boleh
+     * menutupi indikator lain yang belum tercapai pada rata-rata KPI, agar karyawan tidak hanya
+     * mengejar target yang mudah dilampaui.
      */
     public static function calculateResultValue(?float $plan, ?float $actual, bool $isNegative): float
     {
@@ -77,6 +84,6 @@ class KpiScoringService
             $ratio = $actual / $plan;
         }
 
-        return $ratio;
+        return min(self::RESULT_CAP, $ratio);
     }
 }

@@ -172,8 +172,9 @@ Deadline tersebut (`Kpi::isChecklistLockedFor()`) belum ditegakkan oleh endpoint
 Jenis indikator KPI:
 
 - `NON`: checklist selesai/belum selesai dengan hasil 1 atau 0.
-- `RESULT` positif: pencapaian dihitung dari `actual / plan`.
-- `RESULT` negatif atau *lower is better*: pencapaian dihitung dari `plan / max(actual, 1)`.
+- `RESULT` positif: pencapaian dihitung dari `min(1, actual / plan)`.
+- `RESULT` negatif atau *lower is better*: pencapaian dihitung dari `min(1, plan / max(actual, 1))`.
+- Pencapaian satu indikator dibatasi maksimal **100%** (`KpiScoringService::RESULT_CAP`). Kelebihan pencapaian satu indikator tidak menutupi indikator lain yang belum tercapai pada rata-rata KPI, sehingga karyawan tidak hanya mengejar target yang mudah dilampaui. Migration `2026_11_05_090000_cap_kpi_detail_value_result_for_open_periods.php` membatasi nilai tersimpan > 100% pada periode yang masih terbuka saat deploy (bulan berjalan, plus bulan sebelumnya selama masih dalam grace `KPI_CHECKLIST_LOCK_DAYS`); periode yang sudah terkunci tidak dinilai ulang.
 - `Extra Task`: pekerjaan pengganti/child KPI detail yang dapat memperbarui hasil indikator induk. Field ini berbeda dari field teks `subtasks` pada KPI detail.
 
 #### Rumus nilai kinerja dan aturan penilaian berversi
