@@ -74,6 +74,38 @@ class KpiDetail extends Model
         return Attribute::make(get: fn (): bool => $this->raw_result > KpiScoringService::RESULT_CAP);
     }
 
+    /**
+     * Hitung ulang value_result baris RESULT dari value_plan, value_actual, dan is_negative deskripsinya
+     * (KpiScoringService::calculateResultValue, dibatasi 100%), lalu simpan bila nilainya berubah.
+     * Baris NON tidak disentuh: value_result-nya 0/1 dari toggle checklist, bukan hasil rumus.
+     *
+     * @return bool True bila value_result berubah dan tersimpan.
+     */
+    public function syncResultValue(): bool
+    {
+        if ($this->count_type !== 'RESULT') {
+            return false;
+        }
+
+        // Relasi yang sudah dimuat bisa masih menunjuk deskripsi lama setelah kpi_description_id diganti.
+        if ($this->relationLoaded('kpi_description')
+            && (int) ($this->kpi_description?->getKey() ?? 0) !== (int) $this->kpi_description_id) {
+            $this->unsetRelation('kpi_description');
+        }
+
+        $this->value_result = KpiScoringService::calculateResultValue(
+            $this->value_plan !== null ? (float) $this->value_plan : null,
+            $this->value_actual !== null ? (float) $this->value_actual : null,
+            (bool) ($this->kpi_description?->is_negative ?? false),
+        );
+
+        if (! $this->isDirty('value_result')) {
+            return false;
+        }
+
+        return $this->save();
+    }
+
     protected function casts(): array
     {
         return [
