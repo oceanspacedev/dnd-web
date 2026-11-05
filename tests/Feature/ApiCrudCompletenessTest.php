@@ -311,6 +311,18 @@ class ApiCrudCompletenessTest extends TestCase
             ->all();
         $this->assertEqualsWithDelta([2 => 1.0, 3 => 1.0, 6 => 0.5], $resultsByPlan, 1e-9);
 
+        // Tampilan tetap mendapat pencapaian mentah (600%, 300%, 50%) dan penanda melampaui target.
+        $rawByPlan = collect($kpi['details'])
+            ->mapWithKeys(fn (array $detail) => [(int) $detail['value_plan'] => (float) $detail['raw_result']])
+            ->sortKeys()
+            ->all();
+        $this->assertEqualsWithDelta([2 => 6.0, 3 => 3.0, 6 => 0.5], $rawByPlan, 1e-9);
+        $exceedsByPlan = collect($kpi['details'])
+            ->mapWithKeys(fn (array $detail) => [(int) $detail['value_plan'] => $detail['exceeds_target']])
+            ->sortKeys()
+            ->all();
+        $this->assertSame([2 => true, 3 => true, 6 => false], $exceedsByPlan);
+
         $model = Kpi::query()->with('kpi_detail')->findOrFail($kpi['id']);
         $this->assertEqualsWithDelta((1.0 + 1.0 + 0.5) / 3, KpiScoringService::calculateKpiScore($model)['score'], 1e-9);
 
@@ -320,6 +332,8 @@ class ApiCrudCompletenessTest extends TestCase
             ->assertOk()
             ->json('data');
         $this->assertEqualsWithDelta(1.0, (float) $updated['value_result'], 1e-9);
+        $this->assertEqualsWithDelta(500.0, (float) $updated['raw_result'], 1e-9);
+        $this->assertTrue($updated['exceeds_target']);
         $this->assertEqualsWithDelta(1.0, (float) KpiDetail::query()->findOrFail($positiveId)->value_result, 1e-9);
     }
 

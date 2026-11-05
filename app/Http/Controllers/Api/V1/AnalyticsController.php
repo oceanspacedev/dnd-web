@@ -265,6 +265,9 @@ class AnalyticsController extends Controller
                         'value_plan' => $plan,
                         'value_actual' => $actual,
                         'value_result' => $result,
+                        // Pencapaian mentah untuk tampilan (bisa > 1.0); skor tetap memakai value_result (maks 1.0).
+                        'raw_result' => (float) $detail->raw_result,
+                        'exceeds_target' => (bool) $detail->exceeds_target,
                         'status' => $isDone ? 'COMPLETED' : 'PENDING',
                     ];
                 }

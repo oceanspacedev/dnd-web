@@ -31,6 +31,9 @@ class KpiDetailResource extends JsonResource
             'value_plan' => $this->value_plan !== null ? (float) $this->value_plan : null,
             'value_actual' => $this->value_actual !== null ? (float) $this->value_actual : null,
             'value_result' => $this->value_result !== null ? (float) $this->value_result : null,
+            // Pencapaian mentah untuk tampilan (bisa > 1.0, mis. 6.0 = 600%); skor tetap memakai value_result (maks 1.0).
+            'raw_result' => (float) $this->raw_result,
+            'exceeds_target' => (bool) $this->exceeds_target,
             'subtasks' => $this->subtasks,
             'is_extra_task' => (bool) $this->is_extra_task,
             'start' => $this->start,

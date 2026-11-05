@@ -131,7 +131,7 @@
                     <li><strong>NON</strong>: selesai = 1 (100%), belum selesai = 0 (0%).</li>
                     <li><strong>RESULT Positif</strong>: result = actual / plan.</li>
                     <li><strong>RESULT Negatif</strong>: result = plan / actual (actual minimum dihitung 1).</li>
-                    <li><strong>Batas 100%</strong>: result satu indikator maksimal 100%. Melebihi plan tetap dihitung 100%, jadi kelebihan di satu indikator tidak menutupi indikator lain yang belum tercapai.</li>
+                    <li><strong>Batas 100% pada skor</strong>: angka Result boleh tampil di atas 100% (mis. 600%) sebagai penghargaan melampaui target, tetapi pada skor dihitung maksimal 100%, jadi kelebihan di satu indikator tidak menutupi indikator lain yang belum tercapai.</li>
                     <li><strong>Total Score</strong>: tiap kategori menyumbang Category Percentage &times; rata-rata Result indikatornya. Contoh GIF 3: MAIN JOB 60% &times; rata-rata (100% + 80% + 75%) = 51, ditambah ADMINISTRATION 20 dan REPORTING 20, sehingga Total Score <strong>91.00</strong>.</li>
                 </ul>
             </div>
@@ -185,7 +185,7 @@
                         </tr>
                         <tr class="bg-white dark:bg-gray-900/30">
                             <td class="px-4 py-3">Result</td>
-                            <td class="px-4 py-3">Hasil perhitungan otomatis sistem berdasarkan type, plan, dan actual, maksimal 100%. Label hijau berarti target tercapai (100%), kuning berarti belum.</td>
+                            <td class="px-4 py-3">Hasil perhitungan otomatis sistem berdasarkan type, plan, dan actual. Angka bisa di atas 100% bila melampaui target, tetapi skor memakai maksimal 100%. Label hijau berarti target tercapai (100% ke atas), kuning berarti belum.</td>
                         </tr>
                         <tr class="bg-white dark:bg-gray-900/30">
                             <td class="px-4 py-3">Action</td>
