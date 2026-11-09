@@ -26,9 +26,14 @@ class UserPositionGuideTest extends TestCase
         $guideAction = collect($actions)->first(fn ($action) => $action instanceof Action && $action->getName() === 'panduan_ubah_posisi');
 
         $this->assertNotNull($guideAction, 'panduan_ubah_posisi action should exist in header actions.');
-        $this->assertSame('Panduan Ubah Posisi', $guideAction->getLabel());
+        $this->assertSame('Panduan Ubah Posisi dan Area', $guideAction->getLabel());
         $this->assertTrue($guideAction->isModalSlideOver());
-        $this->assertSame('Panduan Merubah Posisi Karyawan Secara Massal', $guideAction->getModalHeading());
+        $this->assertSame('Panduan Merubah Posisi dan Area Karyawan Secara Massal', $guideAction->getModalHeading());
+
+        $modal = view('filament.pages.panduan-ubah-posisi')->render();
+        $this->assertStringContainsString('Cara Ubah Posisi Banyak Karyawan Sekaligus', $modal);
+        $this->assertStringContainsString('Cara Ubah Area Banyak Karyawan Sekaligus', $modal);
+        $this->assertStringContainsString('Ubah Area Massal', $modal);
     }
 
     public function test_tim_saya_has_no_panduan_ubah_posisi_header_action(): void
@@ -45,10 +50,10 @@ class UserPositionGuideTest extends TestCase
     public function test_user_position_guide_sidebar_page_is_configured_properly(): void
     {
         $page = new UserPositionGuide;
-        $this->assertSame('Panduan Ubah Posisi', UserPositionGuide::getNavigationLabel());
+        $this->assertSame('Panduan Ubah Posisi dan Area', UserPositionGuide::getNavigationLabel());
         $this->assertSame('Panduan', UserPositionGuide::getNavigationGroup());
         $this->assertSame('panduan-ubah-posisi', UserPositionGuide::getSlug());
-        $this->assertSame('Panduan Ubah Posisi Massal', $page->getTitle());
+        $this->assertSame('Panduan Ubah Posisi dan Area Massal', $page->getTitle());
     }
 
     public function test_user_position_guide_page_renders_successfully(): void
@@ -71,9 +76,12 @@ class UserPositionGuideTest extends TestCase
 
         Livewire::test(UserPositionGuide::class)
             ->assertSuccessful()
-            ->assertSee('Panduan Ubah Posisi Karyawan')
+            ->assertSee('Panduan Ubah Posisi dan Area Karyawan')
             ->assertSee('Cara Mengubah Posisi Banyak Karyawan Sekaligus')
-            ->assertSee('Cara Mengubah Posisi Satu Karyawan');
+            ->assertSee('Cara Mengubah Area Banyak Karyawan Sekaligus')
+            ->assertSee('Ubah Area Massal')
+            ->assertSee('Divisi tidak berubah.')
+            ->assertSee('Cara Mengubah Posisi atau Area Satu Karyawan');
     }
 
     public function test_user_position_guide_renders_every_animated_gif(): void

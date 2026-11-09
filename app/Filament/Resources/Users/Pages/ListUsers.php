@@ -32,12 +32,12 @@ class ListUsers extends ListRecords
         return [
             CreateAction::make(),
             Action::make('panduan_ubah_posisi')
-                ->label('Panduan Ubah Posisi')
+                ->label('Panduan Ubah Posisi dan Area')
                 ->icon('heroicon-o-book-open')
                 ->color('info')
                 ->slideOver()
                 ->modalWidth('lg')
-                ->modalHeading('Panduan Merubah Posisi Karyawan Secara Massal')
+                ->modalHeading('Panduan Merubah Posisi dan Area Karyawan Secara Massal')
                 ->modalContent(view('filament.pages.panduan-ubah-posisi'))
                 ->modalSubmitAction(false)
                 ->modalCancelActionLabel('Tutup Panduan'),

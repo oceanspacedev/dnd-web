@@ -2,9 +2,9 @@
     <div class="w-full space-y-6">
         {{-- Section 1: Ringkasan --}}
         <x-filament::section>
-            <x-slot name="heading">Panduan Ubah Posisi Karyawan</x-slot>
+            <x-slot name="heading">Panduan Ubah Posisi dan Area Karyawan</x-slot>
             <x-slot name="description">
-                Panduan operasional bagi Atasan dan Admin untuk pemindahan posisi jabatan karyawan, baik perorangan maupun secara massal (bulk update), sesuai cakupan akses masing-masing.
+                Panduan operasional bagi Atasan dan Admin untuk pemindahan posisi jabatan dan area (badan usaha) karyawan, baik perorangan maupun secara massal (bulk update), sesuai cakupan akses masing-masing.
             </x-slot>
 
             <div class="grid gap-4 md:grid-cols-3">
@@ -78,10 +78,48 @@
             </div>
         </x-filament::section>
 
+        {{-- Section 2c: Ubah area massal --}}
+        <x-filament::section>
+            <x-slot name="heading">SOP - Cara Mengubah Area Banyak Karyawan Sekaligus</x-slot>
+            <x-slot name="description">Langkah yang sama dengan ubah posisi massal, untuk memindahkan karyawan ke area (badan usaha) lain.</x-slot>
+
+            <ol class="list-decimal space-y-3 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                <li>
+                    Buka menu <strong>Karyawan</strong> (Admin) atau <strong>Tim Saya</strong> (Atasan), lalu temukan karyawan yang akan dipindahkan dengan kolom <strong>Pencarian</strong> atau menu <strong>Filter</strong>.
+                </li>
+                <li>
+                    <strong>Centang kotak seleksi</strong> di samping nama-nama karyawan yang akan dipindahkan ke area baru.
+                </li>
+                <li>
+                    Klik tombol menu <strong>Tindakan</strong> di atas tabel, lalu pilih opsi <strong>Ubah Area Massal</strong>.
+                </li>
+                <li>
+                    Pada panel samping (<em>slide-over</em>), pilih <strong>Area Baru</strong> yang dituju dari dropdown pencarian.
+                </li>
+                <li>
+                    Klik tombol <strong>Terapkan Area Baru</strong>. Notifikasi menampilkan jumlah karyawan yang dipindahkan, yang sudah berada di area tersebut, dan yang dilewati karena area tujuan di luar cakupan akses Anda.
+                </li>
+            </ol>
+
+            <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-100">
+                <p class="font-semibold flex items-center gap-2">
+                    <x-filament::icon icon="heroicon-m-information-circle" class="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                    Yang perlu diketahui saat pindah area:
+                </p>
+                <ul class="mt-2 list-disc space-y-1 pl-5">
+                    <li><strong>Divisi tidak berubah.</strong> Karyawan tetap di divisinya semula; ubah divisi lewat form karyawan bila diperlukan.</li>
+                    <li><strong>Approval Line tidak berubah otomatis.</strong> Bila aturan matriks approval berbeda per area, Admin dapat menjalankan <strong>Sinkronkan Sesuai Matriks Aturan</strong> atau <strong>Ubah Approval Line Massal</strong> setelah pindah area.</li>
+                    <li><strong>Admin Area Tertentu</strong> hanya dapat memilih area dalam cakupannya dari menu <strong>Karyawan</strong>. Dari menu <strong>Tim Saya</strong>, anggota tim boleh dipindah ke area mana pun.</li>
+                    <li><strong>Laporan per area</strong> (leaderboard, export) langsung mengikuti area baru, termasuk untuk periode sebelumnya.</li>
+                    <li>Area baru tidak dapat dibuat dari panel ini; tambahkan melalui <strong>Settings &gt; Area</strong> (khusus Admin).</li>
+                </ul>
+            </div>
+        </x-filament::section>
+
         {{-- Section 2b: Ubah posisi satu karyawan --}}
         <x-filament::section>
-            <x-slot name="heading">SOP - Cara Mengubah Posisi Satu Karyawan</x-slot>
-            <x-slot name="description">Gunakan cara ini bila hanya satu karyawan yang pindah posisi.</x-slot>
+            <x-slot name="heading">SOP - Cara Mengubah Posisi atau Area Satu Karyawan</x-slot>
+            <x-slot name="description">Gunakan cara ini bila hanya satu karyawan yang pindah posisi atau area.</x-slot>
 
             <ol class="list-decimal space-y-3 pl-5 text-sm text-gray-700 dark:text-gray-300">
                 <li>
@@ -91,10 +129,10 @@
                     Klik tombol <strong>Ubah</strong> di ujung kanan baris karyawan tersebut (geser tabel ke kanan bila tombolnya belum terlihat).
                 </li>
                 <li>
-                    Pada form karyawan, pilih posisi yang baru di kolom <strong>Posisi</strong>.
+                    Pada form karyawan, pilih posisi yang baru di kolom <strong>Posisi</strong> dan/atau area yang baru di kolom <strong>Area</strong>.
                 </li>
                 <li>
-                    Klik <strong>Simpan</strong>. Notifikasi <strong>Data berhasil disimpan</strong> menandakan posisi karyawan sudah diperbarui.
+                    Klik <strong>Simpan</strong>. Notifikasi <strong>Data berhasil disimpan</strong> menandakan data karyawan sudah diperbarui.
                 </li>
             </ol>
 
@@ -111,7 +149,7 @@
         {{-- Section 3: Tips Pencarian & Ketentuan Akses --}}
         <x-filament::section>
             <x-slot name="heading">Panduan Pencarian & Ketentuan Hak Akses</x-slot>
-            <x-slot name="description">Penjelasan fitur pencarian serta wewenang mutasi posisi di sistem.</x-slot>
+            <x-slot name="description">Penjelasan fitur pencarian serta wewenang mutasi posisi dan area di sistem.</x-slot>
 
             <div class="grid gap-4 md:grid-cols-2">
                 <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-white/10 dark:bg-gray-900/30">
@@ -132,10 +170,10 @@
                         Wewenang Atasan
                     </h3>
                     <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
-                        <li><strong>Hirarki Bawahan</strong>: Atasan (Team Leader, Koordinator, Manager, Chief, BOD) berwenang memindahkan posisi karyawan yang berada di bawah struktur timnya.</li>
-                        <li><strong>Keamanan Sistem</strong>: Atasan tidak dapat mengutak-atik posisi karyawan di luar struktur bawahannya atau atasan lainnya.</li>
+                        <li><strong>Hirarki Bawahan</strong>: Atasan (Team Leader, Koordinator, Manager, Chief, BOD) berwenang memindahkan posisi dan area karyawan yang berada di bawah struktur timnya.</li>
+                        <li><strong>Keamanan Sistem</strong>: Atasan tidak dapat mengutak-atik posisi maupun area karyawan di luar struktur bawahannya atau atasan lainnya.</li>
                         <li><strong>Admin Semua Area</strong>: Memiliki hak mutasi untuk seluruh karyawan di semua area melalui menu <strong>Karyawan</strong>.</li>
-                        <li><strong>Admin Area Tertentu</strong>: Menu <strong>Karyawan</strong> hanya berisi karyawan pada area yang diberikan kepadanya. Anggota timnya sendiri tetap dapat dikelola melalui menu <strong>Tim Saya</strong>.</li>
+                        <li><strong>Admin Area Tertentu</strong>: Menu <strong>Karyawan</strong> hanya berisi karyawan pada area yang diberikan kepadanya. Anggota timnya sendiri tetap dapat dikelola melalui menu <strong>Tim Saya</strong>. Saat mengubah area dari menu Karyawan, hanya area dalam cakupannya yang dapat dipilih; dari menu Tim Saya, anggota tim boleh dipindah ke area mana pun.</li>
                     </ul>
                 </div>
             </div>

@@ -302,7 +302,7 @@
                         Yang dapat dikelola atasan
                     </h3>
                     <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-gray-700 dark:text-gray-300">
-                        <li>Melihat dan mengubah profil serta posisi anggota tim, termasuk <strong>Ubah Posisi Massal</strong>.</li>
+                        <li>Melihat dan mengubah profil serta posisi anggota tim, termasuk <strong>Ubah Posisi Massal</strong> dan <strong>Ubah Area Massal</strong>.</li>
                         <li>Menghapus anggota tim (<strong>Hapus</strong>). Karyawan yang dihapus hilang dari Tim Saya dan hanya bisa dipulihkan dari tab <strong>Arsip</strong> di menu Karyawan, oleh super admin atau admin yang area-nya mencakup karyawan tersebut.</li>
                         <li>Mengelola <strong>KPI</strong>, <strong>Kehadiran</strong>, dan <strong>Penilaian</strong> bawahan langsung dan satu level di bawahnya (sesuai Approval Line), termasuk akun ADMIN yang menjadi bawahan walaupun tidak tampil di Tim Saya. Bagi admin area tertentu, data akun ADMIN hanya bisa dilihat.</li>
                         <li>Melihat <strong>Jurnal Harian</strong> anggota tim (tidak dapat mengubah atau menghapusnya).</li>
@@ -463,7 +463,7 @@
                 @endif
                 @if ($positionGuideUrl)
                     <x-filament::button tag="a" :href="$positionGuideUrl" color="gray" icon="heroicon-m-book-open">
-                        Panduan Ubah Posisi
+                        Panduan Ubah Posisi dan Area
                     </x-filament::button>
                 @endif
             </div>

@@ -7,6 +7,7 @@ use App\Filament\Resources\Users\Pages\EditUser;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Jobs\SendKpiReminderEmailJob;
 use App\Jobs\SendKpiReminderWhatsAppJob;
+use App\Models\Area;
 use App\Models\Divisi;
 use App\Models\KpiReminderSetting;
 use App\Models\Position;
@@ -1334,6 +1335,98 @@ class UserResource extends Resource
     }
 
     /**
+     * Opsi Area Baru untuk aksi massal: mengikuti scopeAreaOptions tanpa pengecualian badan usaha lama
+     * (menu Karyawan: badan usaha yang diizinkan admin; Tim Saya: semua badan usaha).
+     *
+     * @return array<int, string>
+     */
+    public static function bulkAreaOptions(): array
+    {
+        return static::scopeAreaOptions(Area::query(), null)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Pindahkan badan usaha karyawan terpilih. Karyawan yang sudah berada di badan usaha tujuan tidak disentuh;
+     * perpindahan yang ditolak ensureAreaInScope (admin badan usaha tertentu) dilewati tanpa menggagalkan yang lain.
+     *
+     * @param  Collection<int, User>  $records
+     * @return array{updated: int, unchanged: int, skipped_scope: int}
+     */
+    public static function assignArea(Collection $records, int $targetAreaId): array
+    {
+        $actor = static::actor();
+
+        $result = DB::transaction(function () use ($records, $targetAreaId, $actor): array {
+            $updated = 0;
+            $unchanged = 0;
+            $skippedScope = 0;
+
+            foreach ($records as $record) {
+                if ((int) $record->area_id === $targetAreaId) {
+                    $unchanged++;
+
+                    continue;
+                }
+
+                try {
+                    static::ensureAreaInScope($actor, ['area_id' => $targetAreaId], $record);
+                } catch (ValidationException) {
+                    $skippedScope++;
+
+                    continue;
+                }
+
+                $record->update(['area_id' => $targetAreaId]);
+                $updated++;
+            }
+
+            return [
+                'updated' => $updated,
+                'unchanged' => $unchanged,
+                'skipped_scope' => $skippedScope,
+            ];
+        });
+
+        DataAccessService::clearMemo();
+
+        return $result;
+    }
+
+    /**
+     * @param  array{updated: int, unchanged: int, skipped_scope: int}  $result
+     * @return array{title: string, body: string, status: 'success'|'warning'}
+     */
+    public static function areaAssignmentMessage(array $result, string $areaName): array
+    {
+        $parts = [];
+
+        if ($result['updated'] > 0) {
+            $parts[] = "{$result['updated']} karyawan berhasil dipindahkan ke area {$areaName}.";
+        }
+
+        if ($result['unchanged'] > 0) {
+            $parts[] = "{$result['unchanged']} karyawan sudah berada di area {$areaName}.";
+        }
+
+        if ($result['skipped_scope'] > 0) {
+            $parts[] = "{$result['skipped_scope']} karyawan dilewati karena area tujuan berada di luar cakupan akses data Anda.";
+        }
+
+        if ($parts === []) {
+            $parts[] = 'Tidak ada karyawan yang diubah.';
+        }
+
+        return [
+            'title' => $result['updated'] > 0 ? 'Area Berhasil Diperbarui' : 'Area Tidak Diubah',
+            'body' => implode(' ', $parts),
+            'status' => $result['updated'] > 0 ? 'success' : 'warning',
+        ];
+    }
+
+    /**
      * @param  Collection<int, User>  $records
      * @return array{updated: int, unchanged: int, skipped_cycles: int, skipped_self: int, skipped_scope: int, unresolved: int}
      */
@@ -1818,6 +1911,34 @@ class UserResource extends Resource
                                 ->body("{$count} karyawan berhasil dipindahkan ke posisi {$positionName}.")
                                 ->success()
                                 ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('update_area')
+                        ->label('Ubah Area Massal')
+                        ->icon('heroicon-o-building-office-2')
+                        ->color('primary')
+                        ->slideOver()
+                        ->modalWidth('md')
+                        ->modalHeading('Ubah Area Karyawan Terpilih')
+                        ->modalDescription('Pilih area baru yang akan diterapkan ke seluruh karyawan yang telah dicentang.')
+                        ->modalSubmitActionLabel('Terapkan Area Baru')
+                        ->authorizeIndividualRecords('update')
+                        ->form([
+                            Select::make('area_id')
+                                ->label('Area Baru')
+                                ->options(fn (): array => static::bulkAreaOptions())
+                                ->searchable()
+                                ->preload()
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            $targetAreaId = (int) $data['area_id'];
+                            $area = Area::find($targetAreaId);
+                            $areaName = $area?->name ?? 'area baru';
+
+                            static::sendResultNotification(
+                                static::areaAssignmentMessage(static::assignArea($records, $targetAreaId), $areaName),
+                            );
                         })
                         ->deselectRecordsAfterCompletion(),
                     BulkAction::make('update_approval_line')

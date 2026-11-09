@@ -11,7 +11,7 @@ class ListTeamMembers extends ListUsers
     protected static string $resource = TeamMemberResource::class;
 
     /**
-     * Tim Saya tidak menampilkan tombol Panduan Ubah Posisi; panduannya tetap ada di menu Panduan.
+     * Tim Saya tidak menampilkan tombol Panduan Ubah Posisi dan Area; panduannya tetap ada di menu Panduan.
      */
     protected function getHeaderActions(): array
     {
