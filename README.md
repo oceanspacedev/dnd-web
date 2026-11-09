@@ -105,7 +105,7 @@ Role awal dari seeder adalah `ADMIN`, `STAFF`, `TEAM LEADER`, `COORDINATOR`, `MA
 | Aktor | Akses utama |
 |---|---|
 | `ADMIN` | Super admin (akses seluruh badan usaha): seluruh data, master, konfigurasi, jurnal, mutasi lintas divisi, dan seluruh user. Admin badan usaha: data karyawan di badan usaha yang diizinkan beserta timnya (lihat `/admin/panduan-akses-data`) |
-| Atasan (`TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`, atau user dengan bawahan) | KPI, kehadiran, penilaian, jurnal tim, serta melihat/mengedit profil dan posisi karyawan dalam scope approval (termasuk aksi massal *Ubah Posisi Massal*) |
+| Atasan (`TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`, atau user dengan bawahan) | KPI, kehadiran, penilaian, jurnal tim, serta melihat/mengedit profil dan posisi karyawan dalam scope approval (termasuk aksi massal *Ubah Posisi Massal* dan *Ubah Area Massal*) |
 | Semua user panel | Melihat leaderboard; widget Checklist KPI menawarkan KPI sendiri serta KPI user dalam approval scope jika ada |
 | Pemilik jurnal | CRUD jurnal sendiri pada panel web |
 | User yang memiliki bawahan | Dapat melihat jurnal tim sesuai scope |
@@ -153,10 +153,11 @@ Baik panel maupun endpoint API memproses JSON langsung dari upload sementara tan
 - **Pencarian instan**: Kolom nama lengkap, ID karyawan, kontak, posisi, divisi, area, jabatan, dan approval dapat dicari langsung dari kotak pencarian utama (*global search* tabel).
 - **Filter dropdown searchable**: Filter Area, Divisi, Jabatan, Posisi, dan Approval pada tabel dilengkapi kotak pencarian teks langsung di dalam dropdown tanpa perlu menggulir manual.
 - **Ubah Posisi Massal (*Bulk Action*)**: Admin dan Atasan dapat mencentang beberapa karyawan sekaligus di tabel, lalu memilih menu **"Ubah Posisi Massal"** untuk memindahkan posisi mereka secara serentak melalui panel slide-over samping (`md`).
+- **Ubah Area Massal (*Bulk Action*)**: Admin dan Atasan dapat mencentang beberapa karyawan sekaligus, lalu memilih menu **"Ubah Area Massal"** untuk memindahkan badan usaha (area) mereka secara serentak. Di menu Karyawan, admin badan usaha tertentu hanya dapat memilih area dalam cakupannya; di menu Tim Saya, anggota tim boleh dipindah ke area mana pun.
 - **Ubah Approval Line Massal (*Bulk Action*)**: Admin dapat mencentang beberapa karyawan sekaligus dan memindahkan Approval Line / Atasan mereka ke atasan baru secara serentak.
 - **Sinkronisasi Matriks Aturan (*Bulk Action*)**: Admin dapat mengevaluasi dan menyinkronkan kembali atasan karyawan terpilih secara otomatis berdasarkan aturan pada matriks approval dan Kepala Divisi.
 - **Izin Atasan Berdasarkan Scope**: Atasan di setiap posisi/level (memiliki bawahan tercatat via `approval_id` / `ApprovalScopeService` atau ber-role `TEAM LEADER`, `COORDINATOR`, `MANAGER`, `CHIEF`, `BOD`) memiliki izin untuk melihat dan mengedit profil serta posisi karyawan bawahannya di menu *"Tim Saya"*.
-- **Panduan interaktif web**: Panduan operasional dapat dibaca langsung melalui menu sidebar kiri di `/admin/panduan-ubah-posisi` maupun melalui tombol slide-over panduan di header tabel Karyawan.
+- **Panduan interaktif web**: Panduan operasional ubah posisi dan ubah area dapat dibaca langsung melalui menu sidebar kiri di `/admin/panduan-ubah-posisi` maupun melalui tombol slide-over panduan di header tabel Karyawan.
 
 ### 2. Siklus KPI
 
