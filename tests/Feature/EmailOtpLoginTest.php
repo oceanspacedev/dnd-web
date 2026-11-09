@@ -357,6 +357,16 @@ class EmailOtpLoginTest extends TestCase
         $this->assertStringContainsString('482913', $html);
         $this->assertStringContainsString('http://dnd.test/email-login/link/'.str_repeat('a', 64), $html);
         $this->assertStringContainsString('10 menit', $html);
+
+        // Tampilan seperti kartu halaman login Mekaya: ikon DnD, ikon dan judul, kotak kode, tombol primary, footer berbahasa Indonesia.
+        $this->assertStringContainsString(asset('images/mail/logo.png'), $html);
+        $this->assertStringContainsString(asset('images/mail/envelope.png'), $html);
+        $this->assertStringContainsString('Masuk ke '.config('app.name'), $html);
+        $this->assertStringContainsString('class="code-box"', $html);
+        $this->assertStringContainsString('background-color: #9810fa', $html);
+        $this->assertStringContainsString('Hak cipta dilindungi.', $html);
+        $this->assertFileExists(public_path('images/mail/logo.png'));
+        $this->assertFileExists(public_path('images/mail/envelope.png'));
     }
 
     private function requestCode(string $email): EmailLoginMail

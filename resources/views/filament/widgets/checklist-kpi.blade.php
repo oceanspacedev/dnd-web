@@ -179,9 +179,11 @@
                                                             {{ $kpiDetail->value_result == 1 ? '100%' : number_format($kpiDetail->value_result * 100, 2) . '%' }}
                                                         </span>
                                                     @elseif($kpiDetail->count_type === 'RESULT')
+                                                        {{-- Tampilan memakai pencapaian mentah (bisa > 100%); skor tetap memakai value_result yang dibatasi 100%. --}}
                                                         <span
-                                                            class="px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-2xs sm:text-xs {{ $kpiDetail->value_result >= 1 ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400' }}">
-                                                            {{ number_format($kpiDetail->value_result * 100, 2) }}%
+                                                            class="px-1.5 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-2xs sm:text-xs {{ $kpiDetail->raw_result >= 1 ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400' }}"
+                                                            @if ($kpiDetail->exceeds_target) title="Melebihi target. Pada skor dihitung 100%." @endif>
+                                                            {{ number_format($kpiDetail->raw_result * 100, 2) }}%
                                                         </span>
                                                     @endif
                                                 </td>
@@ -272,7 +274,8 @@
                 @if (isset($this->kpiDetail))
                     @php
                         $isNegative = $this->kpiDetail->kpi_description?->is_negative ?? false;
-                        $currentResult = $this->kpiDetail->value_result;
+                        // Modal menampilkan pencapaian mentah (bisa > 100%); skor tetap memakai value_result yang dibatasi 100%.
+                        $currentResult = $this->kpiDetail->value_result !== null ? $this->kpiDetail->raw_result : null;
                     @endphp
 
                     <div class="rounded-lg border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 overflow-hidden">

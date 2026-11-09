@@ -101,6 +101,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | Tema "dnd" (resources/views/vendor/mail/html/themes/dnd.css dan komponen
+    | di resources/views/vendor/mail) membuat email tampil seperti kartu halaman
+    | login panel (tema Filament Mekaya).
+    |
+    */
+
+    'markdown' => [
+        'theme' => 'dnd',
+
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Global "From" Address
     |--------------------------------------------------------------------------
     |

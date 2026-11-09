@@ -7,6 +7,7 @@ use App\Models\Divisi;
 use App\Models\Kpi;
 use App\Models\KpiCategory;
 use App\Models\KpiDescription;
+use App\Models\KpiDetail;
 use App\Models\KpiReminderLog;
 use App\Models\KpiType;
 use App\Models\Position;
@@ -15,6 +16,7 @@ use App\Models\TaskCategory;
 use App\Models\TaskStatus;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
+use App\Services\KpiScoringService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Date;
@@ -276,6 +278,63 @@ class ApiCrudCompletenessTest extends TestCase
         ])->assertOk();
 
         $this->deleteJson('/api/v1/kpis/'.$kpi['id'])->assertOk();
+    }
+
+    public function test_kpi_detail_result_is_capped_at_100_percent_so_overachievement_cannot_hide_a_missed_target(): void
+    {
+        $negativeDescription = KpiDescription::query()->create([
+            'description' => 'Indikator negatif CRUD',
+            'kpi_category_id' => $this->kpiCategory->id,
+            'is_negative' => true,
+        ]);
+
+        $kpi = $this->postJson('/api/v1/kpis', [
+            'user_id' => $this->staff->id,
+            'kpi_category_id' => $this->kpiCategory->id,
+            'kpi_type_id' => $this->kpiType->id,
+            'date' => Date::now()->toDateString(),
+            'percentage' => 100,
+            'details' => [
+                // Positif 600% mentah => 100%.
+                ['kpi_description_id' => $this->kpiDescription->id, 'count_type' => 'RESULT', 'value_plan' => 2, 'value_actual' => 12],
+                // Negatif plan 3 / max(actual 0, 1) = 300% mentah => 100%.
+                ['kpi_description_id' => $negativeDescription->id, 'count_type' => 'RESULT', 'value_plan' => 3, 'value_actual' => 0],
+                // Belum tercapai: 50%, tidak boleh tertutup kelebihan di atas.
+                ['kpi_description_id' => $this->kpiDescription->id, 'count_type' => 'RESULT', 'value_plan' => 6, 'value_actual' => 3],
+            ],
+        ])->assertCreated()->json('data');
+
+        // Urutan detail di respons tidak dijamin sama dengan urutan input: bandingkan per plan.
+        $resultsByPlan = collect($kpi['details'])
+            ->mapWithKeys(fn (array $detail) => [(int) $detail['value_plan'] => (float) $detail['value_result']])
+            ->sortKeys()
+            ->all();
+        $this->assertEqualsWithDelta([2 => 1.0, 3 => 1.0, 6 => 0.5], $resultsByPlan, 1e-9);
+
+        // Tampilan tetap mendapat pencapaian mentah (600%, 300%, 50%) dan penanda melampaui target.
+        $rawByPlan = collect($kpi['details'])
+            ->mapWithKeys(fn (array $detail) => [(int) $detail['value_plan'] => (float) $detail['raw_result']])
+            ->sortKeys()
+            ->all();
+        $this->assertEqualsWithDelta([2 => 6.0, 3 => 3.0, 6 => 0.5], $rawByPlan, 1e-9);
+        $exceedsByPlan = collect($kpi['details'])
+            ->mapWithKeys(fn (array $detail) => [(int) $detail['value_plan'] => $detail['exceeds_target']])
+            ->sortKeys()
+            ->all();
+        $this->assertSame([2 => true, 3 => true, 6 => false], $exceedsByPlan);
+
+        $model = Kpi::query()->with('kpi_detail')->findOrFail($kpi['id']);
+        $this->assertEqualsWithDelta((1.0 + 1.0 + 0.5) / 3, KpiScoringService::calculateKpiScore($model)['score'], 1e-9);
+
+        // Menaikkan actual jauh di atas plan lewat endpoint update tetap 100%.
+        $positiveId = collect($kpi['details'])->firstWhere('value_plan', 2)['id'];
+        $updated = $this->putJson('/api/v1/kpi-details/'.$positiveId, ['value_actual' => 1000])
+            ->assertOk()
+            ->json('data');
+        $this->assertEqualsWithDelta(1.0, (float) $updated['value_result'], 1e-9);
+        $this->assertEqualsWithDelta(500.0, (float) $updated['raw_result'], 1e-9);
+        $this->assertTrue($updated['exceeds_target']);
+        $this->assertEqualsWithDelta(1.0, (float) KpiDetail::query()->findOrFail($positiveId)->value_result, 1e-9);
     }
 
     public function test_daily_weekly_monthly_activities_and_daily_logs(): void
