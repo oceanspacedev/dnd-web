@@ -10,7 +10,7 @@ class UserPositionGuide extends Page
 {
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-book-open';
 
-    protected static ?string $navigationLabel = 'Panduan Ubah Posisi';
+    protected static ?string $navigationLabel = 'Panduan Ubah Posisi dan Area';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Panduan';
 
@@ -18,7 +18,7 @@ class UserPositionGuide extends Page
 
     protected static ?string $slug = 'panduan-ubah-posisi';
 
-    protected static ?string $title = 'Panduan Ubah Posisi Massal';
+    protected static ?string $title = 'Panduan Ubah Posisi dan Area Massal';
 
     protected string $view = 'filament.pages.user-position-guide';
 
