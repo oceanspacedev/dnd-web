@@ -11,6 +11,7 @@ use App\Models\Kpi;
 use App\Models\KpiDescription;
 use App\Models\KpiDetail;
 use App\Models\KpiReminderSetting;
+use App\Models\Position;
 use App\Models\User;
 use App\Services\ApprovalScopeService;
 use App\Services\DataAccessService;
@@ -41,6 +42,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
@@ -602,7 +604,67 @@ class KpiResource extends Resource
             ->deferLoading()
             ->paginationPageOptions([10, 25, 50, 100])
             ->defaultPaginationPageOption(25)
-            ->filters([])
+            // Opsi filter hanya dari KPI yang tampil di daftar aktor, agar salah penetapan KPI
+            // (per posisi / per karyawan) bisa disaring lalu dihapus lewat aksi massal.
+            ->filters([
+                SelectFilter::make('position')
+                    ->label('Posisi')
+                    ->options(fn (): array => static::positionFilterOptions())
+                    ->multiple()
+                    ->searchable()
+                    ->query(function (Builder $query, array $data): Builder {
+                        $positionIds = array_filter((array) ($data['values'] ?? []));
+
+                        return $positionIds === []
+                            ? $query
+                            : $query->whereHas('user', fn (Builder $users): Builder => $users->whereIn('position_id', $positionIds));
+                    }),
+                SelectFilter::make('user')
+                    ->label('Karyawan')
+                    ->relationship('user', 'nama_lengkap', fn (Builder $query): Builder => $query
+                        ->whereIn('users.id', static::listedKpiQuery()->select('kpis.user_id')))
+                    ->multiple()
+                    ->searchable()
+                    ->preload(),
+                // Seluruh bawahan seorang atasan di approval line (semua tingkat), tanpa atasan itu sendiri.
+                SelectFilter::make('supervisor')
+                    ->label('Atasan (seluruh bawahan)')
+                    ->options(fn (): array => static::supervisorFilterOptions())
+                    ->searchable()
+                    ->query(function (Builder $query, array $data): Builder {
+                        $supervisorId = (int) ($data['value'] ?? 0);
+
+                        return $supervisorId > 0
+                            ? $query->whereIn('kpis.user_id', ApprovalScopeService::getAllSubordinateIds($supervisorId))
+                            : $query;
+                    }),
+                SelectFilter::make('kpi_category')
+                    ->label('Kategori')
+                    ->relationship('kpi_category', 'name')
+                    ->searchable()
+                    ->preload(),
+                SelectFilter::make('kpi_type')
+                    ->label('Type')
+                    ->relationship('kpi_type', 'name')
+                    ->searchable()
+                    ->preload(),
+                SelectFilter::make('period')
+                    ->label('Periode')
+                    ->options(fn (): array => static::periodFilterOptions())
+                    ->searchable()
+                    ->query(function (Builder $query, array $data): Builder {
+                        $period = (string) ($data['value'] ?? '');
+
+                        if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period) !== 1) {
+                            return $query;
+                        }
+
+                        $start = Date::createFromFormat('!Y-m', $period);
+
+                        return $query->whereBetween('kpis.date', [$start, $start->copy()->endOfMonth()]);
+                    }),
+            ])
+            ->filtersFormColumns(2)
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
@@ -754,6 +816,74 @@ class KpiResource extends Resource
                         ->authorizeIndividualRecords(),
                 ]),
             ]);
+    }
+
+    /**
+     * KPI yang tampil di daftar aktor (cakupan sama dengan tabel), tanpa eager load: dasar opsi filter.
+     *
+     * @return Builder<Kpi>
+     */
+    protected static function listedKpiQuery(): Builder
+    {
+        return static::getEloquentQuery()->setEagerLoads([]);
+    }
+
+    /**
+     * Posisi dari pemilik KPI yang tampil di daftar aktor.
+     *
+     * @return array<int, string>
+     */
+    protected static function positionFilterOptions(): array
+    {
+        return Position::query()
+            ->whereIn('id', User::query()
+                ->whereIn('users.id', static::listedKpiQuery()->select('kpis.user_id'))
+                ->select('position_id'))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Atasan (semua tingkat di approval line) dari pemilik KPI yang tampil di daftar aktor.
+     *
+     * @return array<int, string>
+     */
+    protected static function supervisorFilterOptions(): array
+    {
+        $ownerIds = static::listedKpiQuery()
+            ->toBase()
+            ->distinct()
+            ->pluck('kpis.user_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        return User::query()
+            ->withTrashed()
+            ->whereKey(ApprovalScopeService::getAllSupervisorIds($ownerIds))
+            ->orderBy('nama_lengkap')
+            ->pluck('nama_lengkap', 'id')
+            ->all();
+    }
+
+    /**
+     * Periode (bulan) yang punya KPI di daftar aktor, terbaru dulu. Key: Y-m.
+     *
+     * @return array<string, string>
+     */
+    protected static function periodFilterOptions(): array
+    {
+        return static::listedKpiQuery()
+            ->toBase()
+            ->distinct()
+            ->orderByDesc('kpis.date')
+            ->pluck('kpis.date')
+            ->mapWithKeys(function ($date): array {
+                $month = Date::parse($date);
+
+                return [$month->format('Y-m') => $month->translatedFormat('F Y')];
+            })
+            ->all();
     }
 
     /**
