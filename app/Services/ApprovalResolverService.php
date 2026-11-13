@@ -5,9 +5,32 @@ namespace App\Services;
 use App\Models\ApprovalRule;
 use App\Models\Divisi;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 
+/**
+ * Aturan aktif (beserta atasannya) dan divisi yang sudah dibaca dimemo per request lewat scoped binding (aman
+ * untuk Octane): form Karyawan menghitung saran atasan beberapa kali per render, dan sinkronisasi massal
+ * menghitungnya per karyawan. Memo dibuang saat aturan, divisi, atau karyawan disimpan/dihapus
+ * (AppServiceProvider), jadi saran selalu dihitung dari data terbaru.
+ */
 class ApprovalResolverService
 {
+    /** @var Collection<int, ApprovalRule>|null */
+    private ?Collection $activeRules = null;
+
+    /** @var array<int, Divisi|null> */
+    private array $divisions = [];
+
+    /**
+     * Kosongkan memo per request (tes, atau setelah aturan/divisi/karyawan berubah).
+     */
+    public static function clearMemo(): void
+    {
+        $instance = resolve(self::class);
+        $instance->activeRules = null;
+        $instance->divisions = [];
+    }
+
     /**
      * Resolve the recommended approver (User) based on organizational rules or division manager.
      */
@@ -94,16 +117,8 @@ class ApprovalResolverService
         ?int $positionId,
         ?int $excludeUserId,
     ): array {
-        $rules = ApprovalRule::query()
-            ->with(['approver.role', 'approver.divisi', 'divisi'])
-            ->where('is_active', true)
-            ->where(function ($query): void {
-                $query->whereNotNull('area_id')
-                    ->orWhereNotNull('divisi_id')
-                    ->orWhereNotNull('position_id')
-                    ->orWhereNotNull('role_id');
-            })
-            ->get();
+        $memo = resolve(self::class);
+        $rules = $memo->loadedActiveRules();
 
         $matches = [];
 
@@ -166,7 +181,7 @@ class ApprovalResolverService
             );
         }
 
-        $divisi = $divisiId ? Divisi::with('manager.role')->find($divisiId) : null;
+        $divisi = $divisiId ? $memo->loadedDivisi($divisiId) : null;
         $manager = $divisi?->manager;
 
         if ($divisi instanceof Divisi && $manager instanceof User) {
@@ -185,6 +200,32 @@ class ApprovalResolverService
         }
 
         return static::emptyOutcome($sawCycle, $sawSelf && ! $sawCycle);
+    }
+
+    /**
+     * @return Collection<int, ApprovalRule>
+     */
+    private function loadedActiveRules(): Collection
+    {
+        return $this->activeRules ??= ApprovalRule::query()
+            ->with(['approver.role', 'approver.divisi', 'divisi'])
+            ->where('is_active', true)
+            ->where(function ($query): void {
+                $query->whereNotNull('area_id')
+                    ->orWhereNotNull('divisi_id')
+                    ->orWhereNotNull('position_id')
+                    ->orWhereNotNull('role_id');
+            })
+            ->get();
+    }
+
+    private function loadedDivisi(int $divisiId): ?Divisi
+    {
+        if (! array_key_exists($divisiId, $this->divisions)) {
+            $this->divisions[$divisiId] = Divisi::with('manager.role')->find($divisiId);
+        }
+
+        return $this->divisions[$divisiId];
     }
 
     private static function isExcludedSelf(?int $excludeUserId, int $approverId): bool

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\AttendanceComponents;
 
 use App\Filament\Resources\AttendanceComponents\Pages\ManageAttendanceComponents;
 use App\Models\AttendanceComponent;
+use App\Policies\AttendanceComponentPolicy;
 use App\Services\ScoringRuleService;
 use Closure;
 use Filament\Actions\Action;
@@ -22,6 +23,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Gate;
@@ -127,6 +129,13 @@ class AttendanceComponentResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            // Tombol hapus tiap baris bergantung pada pemakaian komponen di data kehadiran: hitung sekaligus untuk
+            // semua baris yang dimuat (satu query), bukan satu query per baris.
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->afterQuery(function (mixed $records): void {
+                if (is_iterable($records)) {
+                    AttendanceComponentPolicy::primeAttendanceUsage($records);
+                }
+            }))
             ->columns([
                 TextColumn::make('sort_order')
                     ->label('Urutan')

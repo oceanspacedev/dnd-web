@@ -45,6 +45,9 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 
@@ -416,8 +419,7 @@ class KpiResource extends Resource
                                 ->limit(50)
                                 ->pluck('nama_lengkap', 'id')
                             )
-                            ->getOptionLabelUsing(fn ($value): ?string => static::visibleUsersQuery()->find($value)?->nama_lengkap
-                            )
+                            ->getOptionLabelUsing(fn ($value, ?Model $record): ?string => static::ownerLabel($value, $record))
                             ->required()
                             ->disabled(),
                         DatePicker::make('date')
@@ -443,7 +445,15 @@ class KpiResource extends Resource
                             ->placeholder('Enter Percentage'),
 
                         Repeater::make('kpi_detail')
-                            ->relationship('kpi_detail')
+                            // Label deskripsi tiap baris dibaca dari relasi kpi_description: muat sekaligus untuk semua
+                            // baris (tanpa query bila sudah dimuat bersama KPI-nya), juga saat form dirender ulang.
+                            ->relationship('kpi_detail', modifyRecordsUsing: function (Collection $records): Collection {
+                                if ($records instanceof EloquentCollection) {
+                                    $records->loadMissing('kpi_description');
+                                }
+
+                                return $records;
+                            })
                             ->table([
                                 TableColumn::make('Deskripsi')
                                     ->markAsRequired(),
@@ -467,8 +477,7 @@ class KpiResource extends Resource
                                         ->limit(50)
                                         ->pluck('description', 'id')
                                     )
-                                    ->getOptionLabelUsing(fn ($value): ?string => KpiDescription::find($value)?->description
-                                    )
+                                    ->getOptionLabelUsing(fn ($value, ?Model $record): ?string => static::descriptionLabel($value, $record))
                                     ->createOptionForm([
                                         TextInput::make('description')
                                             ->required(),
@@ -819,6 +828,41 @@ class KpiResource extends Resource
     }
 
     /**
+     * Label pemilik KPI di form edit/lihat. Bila relasi user KPI sudah dimuat (render pertama, modal lihat dari
+     * tabel) label diambil dari sana tanpa query; selain itu dicari di cakupan aktor.
+     */
+    protected static function ownerLabel(mixed $value, ?Model $kpi): ?string
+    {
+        if ($kpi instanceof Kpi
+            && (int) $kpi->user_id === (int) $value
+            && $kpi->relationLoaded('user')
+            && $kpi->user instanceof User) {
+            return $kpi->user->nama_lengkap;
+        }
+
+        return static::visibleUsersQuery()->find($value)?->nama_lengkap;
+    }
+
+    /**
+     * Label deskripsi pada baris repeater detail KPI. Baris yang sudah tersimpan memakai relasi
+     * kpi_description yang dimuat sekaligus oleh repeater (tanpa query per baris); baris baru atau deskripsi
+     * yang baru diganti di form dicari satu per satu.
+     */
+    protected static function descriptionLabel(mixed $value, ?Model $detail): ?string
+    {
+        if ($detail instanceof KpiDetail && $detail->relationLoaded('kpi_description')) {
+            $description = $detail->kpi_description;
+
+            // Hanya bila relasi yang dimuat memang deskripsi yang diminta (isian bisa sudah diganti).
+            if ($description instanceof KpiDescription && (int) $description->getKey() === (int) $value) {
+                return $description->description;
+            }
+        }
+
+        return KpiDescription::find($value)?->description;
+    }
+
+    /**
      * KPI yang tampil di daftar aktor (cakupan sama dengan tabel), tanpa eager load: dasar opsi filter.
      *
      * @return Builder<Kpi>
@@ -1035,9 +1079,10 @@ class KpiResource extends Resource
         }
 
         // Admin badan usaha tertentu: KPI karyawan di badan usaha yang diizinkan + tim + diri sendiri.
-        // user.role dimuat agar cek akun ADMIN pada aksi per baris tidak menambah query.
+        // user.role (dan trashedUser.role untuk pemilik yang sudah dihapus) dimuat agar cek cakupan & akun
+        // ADMIN pada aksi per baris tidak menambah query.
         if (DataAccessService::isAreaScopedAdmin($user)) {
-            return DataAccessService::scopeOwnedRecords($query->with('user.role'), $user, 'kpis.user_id');
+            return DataAccessService::scopeOwnedRecords($query->with(['user.role', 'trashedUser.role']), $user, 'kpis.user_id');
         }
 
         $managedUserIds = ApprovalScopeService::getManagedUserIdsOneLevelDown((int) Auth::id());

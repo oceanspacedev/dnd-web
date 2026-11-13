@@ -19,6 +19,7 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Schemas\Schema;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Livewire\Attributes\Locked;
@@ -44,6 +45,17 @@ class LeaderboardKPI extends Widget implements HasForms
 
     /** @var list<int>|null */
     protected ?array $selectableAreaIdsMemo = null;
+
+    /**
+     * Opsi filter Area dan Divisi (per area terpilih), dimemo per request: Filament mengevaluasi opsi select
+     * lebih dari sekali per render. Properti protected tidak ikut state Livewire.
+     *
+     * @var EloquentCollection<int, Area>|null
+     */
+    protected ?EloquentCollection $areasMemo = null;
+
+    /** @var array<string, EloquentCollection<int, Divisi>> */
+    protected array $divisionsMemo = [];
 
     public function mount($user_id = null, $month = null): void
     {
@@ -90,15 +102,19 @@ class LeaderboardKPI extends Widget implements HasForms
 
     protected function getAreas()
     {
+        if ($this->areasMemo !== null) {
+            return $this->areasMemo;
+        }
+
         $scope = $this->viewerScope();
 
         if ($scope === null) {
-            return Area::all();
+            return $this->areasMemo = Area::all();
         }
 
         // Admin per badan usaha hanya bisa memilih badan usaha yang diizinkan
         // ditambah badan usaha tempat tim/dirinya berada.
-        return Area::query()->whereIn('id', $this->selectableAreaIds($scope))->get();
+        return $this->areasMemo = Area::query()->whereIn('id', $this->selectableAreaIds($scope))->get();
     }
 
     /**
@@ -123,12 +139,24 @@ class LeaderboardKPI extends Widget implements HasForms
         $scope = $this->viewerScope();
 
         if ($scope !== null) {
+            // Area di luar cakupan dikosongkan dulu, baru dipakai sebagai kunci memo.
             $this->enforceFilterScope();
-
-            return $this->scopedDivisionsQuery($scope)->get();
         }
 
         $area = is_scalar($this->area) ? (string) $this->area : '';
+
+        return $this->divisionsMemo[$area] ??= $this->loadDivisions($scope, $area);
+    }
+
+    /**
+     * @param  array{area_ids: list<int>, user_ids: list<int>}|null  $scope
+     * @return EloquentCollection<int, Divisi>
+     */
+    protected function loadDivisions(?array $scope, string $area): EloquentCollection
+    {
+        if ($scope !== null) {
+            return $this->scopedDivisionsQuery($scope)->get();
+        }
 
         if ($area !== '' && ctype_digit($area)) {
             // Divisi yang dipakai karyawan di badan usaha terpilih (users.area_id, bukan divisis.area_id).

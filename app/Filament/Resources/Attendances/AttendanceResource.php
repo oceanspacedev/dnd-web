@@ -599,9 +599,9 @@ class AttendanceResource extends Resource
         $query = AttendancePolicy::scopeVisible(parent::getEloquentQuery(), $user);
 
         // Hak edit/hapus admin per badan usaha dicek per baris dari badan usaha & role pemilik:
-        // muat sekaligus agar tidak ada query per baris.
+        // muat sekaligus (trashedUser untuk pemilik yang sudah dihapus) agar tidak ada query per baris.
         if (DataAccessService::isAreaScopedAdmin($user)) {
-            $query->with('user.role');
+            $query->with(['user.role', 'trashedUser.role']);
         }
 
         return $query;

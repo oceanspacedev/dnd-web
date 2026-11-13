@@ -6,6 +6,7 @@ use App\Models\Area;
 use App\Models\Divisi;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\ApprovalResolverService;
 use App\Services\ApprovalScopeService;
 use App\Services\DataAccessService;
 use App\Services\ScoringRuleService;
@@ -25,6 +26,7 @@ trait CreatesDataAccessFixtures
 
     protected function resetAccessMemos(): void
     {
+        ApprovalResolverService::clearMemo();
         ApprovalScopeService::clearMemo();
         DataAccessService::clearMemo();
         ScoringRuleService::clearMemo();
