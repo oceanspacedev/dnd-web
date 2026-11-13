@@ -9,12 +9,17 @@ class ApprovalScopeService
     /** @var array<int, array<int>> */
     private array $memo = [];
 
+    /** @var array<int, int|null>|null id karyawan => id atasan, dimuat sekali per request */
+    private ?array $parentMap = null;
+
     /**
      * Clear the per-request memo (useful for testing).
      */
     public static function clearMemo(): void
     {
-        resolve(self::class)->memo = [];
+        $instance = resolve(self::class);
+        $instance->memo = [];
+        $instance->parentMap = null;
     }
 
     /**
@@ -98,11 +103,14 @@ class ApprovalScopeService
     }
 
     /**
+     * Dimemo per request (sama seperti daftar bawahan): filter Atasan di tabel KPI membacanya untuk opsi dan
+     * untuk menyaring, jadi cukup satu query.
+     *
      * @return array<int, int|null> id karyawan => id atasan (approval line), termasuk karyawan soft-deleted
      */
     private static function approvalParentMap(): array
     {
-        return User::query()
+        return resolve(self::class)->parentMap ??= User::query()
             ->withTrashed()
             ->toBase()
             ->pluck('approval_id', 'id')

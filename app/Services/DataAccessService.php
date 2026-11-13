@@ -208,6 +208,15 @@ class DataAccessService
     }
 
     /**
+     * Akun ber-role ADMIN (termasuk yang sudah dihapus). Model User memakai relasi role-nya; untuk id hasilnya
+     * dimemo per request, jadi cek berulang pada pemilik yang sama tidak menambah query.
+     */
+    public static function isAdminAccount(User|int|string $target): bool
+    {
+        return resolve(self::class)->userIsAdmin($target);
+    }
+
+    /**
      * Seluruh anggota tim approval target (bawahan langsung + satu level) terlihat oleh actor.
      * Bila tidak, akun target menjangkau karyawan di luar cakupan actor, jadi actor tidak boleh
      * mengambil alih akun tersebut (mis. mengubah data login-nya).

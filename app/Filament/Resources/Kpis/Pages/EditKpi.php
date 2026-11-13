@@ -22,8 +22,9 @@ class EditKpi extends EditRecord
 
     protected function resolveRecord($key): Model
     {
+        // KpiResource::getEloquentQuery() sudah memuat relasi ini; loadMissing agar tidak dimuat dua kali.
         return parent::resolveRecord($key)
-            ->load([
+            ->loadMissing([
                 'kpi_detail.kpi_description',
                 'user.position',
                 'kpi_category',

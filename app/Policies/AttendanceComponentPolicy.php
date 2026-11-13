@@ -11,6 +11,9 @@ use App\Services\ScoringRuleService;
 use App\Support\Periode;
 use App\Support\Scoring\ScoringRuleData;
 use Illuminate\Auth\Access\Response;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
+use WeakMap;
 
 /**
  * Master komponen kehadiran berlaku untuk seluruh badan usaha: hanya super admin (ADMIN dengan akses
@@ -26,6 +29,13 @@ use Illuminate\Auth\Access\Response;
  */
 class AttendanceComponentPolicy
 {
+    /**
+     * Jawaban "sudah dipakai data kehadiran" yang sudah dihitung sekaligus oleh primeAttendanceUsage().
+     *
+     * @var WeakMap<AttendanceComponent, bool>|null
+     */
+    private static ?WeakMap $attendanceUsage = null;
+
     /**
      * Determine whether the user can view any models.
      */
@@ -174,12 +184,75 @@ class AttendanceComponentPolicy
     }
 
     /**
+     * Hitung sekaligus (satu query) komponen mana yang sudah dipakai data kehadiran, untuk daftar komponen.
+     * Tanpa ini usageResponse() memindai attendances.component_counts satu query per baris. Hasil menempel
+     * pada instance record (WeakMap), jadi umurnya sama dengan record yang baru dimuat itu.
+     *
+     * @param  iterable<mixed>  $components
+     */
+    public static function primeAttendanceUsage(iterable $components): void
+    {
+        self::$attendanceUsage ??= new WeakMap;
+        $pending = [];
+
+        foreach ($components as $component) {
+            if (! $component instanceof AttendanceComponent || isset(self::$attendanceUsage[$component])) {
+                continue;
+            }
+
+            $code = (string) $component->getOriginal('code');
+
+            // Hanya komponen yang jawabannya memang bergantung pada data kehadiran.
+            if (self::usageDeniedWithoutQuery($component, $code) === null && self::isScannableCode($code)) {
+                $pending[$code][] = $component;
+            }
+        }
+
+        if ($pending === []) {
+            return;
+        }
+
+        $query = DB::query();
+        $codes = array_keys($pending);
+
+        foreach ($codes as $index => $code) {
+            $query->selectSub(self::attendanceUsageQuery((string) $code)->selectRaw('1')->limit(1), "c{$index}");
+        }
+
+        $row = (array) $query->first();
+
+        foreach ($codes as $index => $code) {
+            foreach ($pending[$code] as $component) {
+                self::$attendanceUsage[$component] = ($row["c{$index}"] ?? null) !== null;
+            }
+        }
+    }
+
+    /**
      * Alasan komponen tidak bisa dihapus (pesan yang sama dengan penjaga model), atau allow bila belum dipakai.
      */
     private function usageResponse(AttendanceComponent $component): Response
     {
         $code = (string) $component->getOriginal('code');
+        $denied = self::usageDeniedWithoutQuery($component, $code);
 
+        if ($denied !== null) {
+            return $denied;
+        }
+
+        if (self::isUsedByAttendance($component, $code)) {
+            return Response::deny('Komponen sudah dipakai data kehadiran sehingga tidak dapat dihapus. Nonaktifkan saja.');
+        }
+
+        return Response::allow();
+    }
+
+    /**
+     * Penolakan yang bisa diputuskan tanpa query (komponen bawaan, atau sudah dipakai versi aturan dari cache);
+     * null bila jawabannya masih bergantung pada data kehadiran.
+     */
+    private static function usageDeniedWithoutQuery(AttendanceComponent $component, string $code): ?Response
+    {
         if ($component->getOriginal('legacy_column') !== null) {
             return Response::deny('Komponen bawaan kolom kehadiran tidak dapat dihapus. Nonaktifkan saja.');
         }
@@ -191,13 +264,33 @@ class AttendanceComponentPolicy
             return Response::deny('Komponen sudah dipakai aturan penilaian ('.$rules->pluck('name')->implode(', ').') sehingga tidak dapat dihapus. Nonaktifkan saja.');
         }
 
-        // Kode tervalidasi pola [a-z0-9_], aman dipakai sebagai path JSON.
-        if (preg_match(AttendanceComponent::CODE_PATTERN, $code) === 1
-            && Attendance::withTrashed()->whereNotNull("component_counts->{$code}")->exists()) {
-            return Response::deny('Komponen sudah dipakai data kehadiran sehingga tidak dapat dihapus. Nonaktifkan saja.');
+        return null;
+    }
+
+    private static function isUsedByAttendance(AttendanceComponent $component, string $code): bool
+    {
+        if (! self::isScannableCode($code)) {
+            return false;
         }
 
-        return Response::allow();
+        if (isset(self::$attendanceUsage[$component])) {
+            return self::$attendanceUsage[$component];
+        }
+
+        return self::attendanceUsageQuery($code)->exists();
+    }
+
+    /**
+     * Kode tervalidasi pola [a-z0-9_], aman dipakai sebagai path JSON.
+     */
+    private static function isScannableCode(string $code): bool
+    {
+        return preg_match(AttendanceComponent::CODE_PATTERN, $code) === 1;
+    }
+
+    private static function attendanceUsageQuery(string $code): QueryBuilder
+    {
+        return Attendance::withTrashed()->whereNotNull("component_counts->{$code}")->toBase();
     }
 
     private static function scores(ScoringRuleData $rule, string $code): bool
