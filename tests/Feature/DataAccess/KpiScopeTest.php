@@ -846,6 +846,74 @@ class KpiScopeTest extends TestCase
         ]);
     }
 
+    public function test_table_filters_narrow_wrongly_assigned_kpis_for_bulk_delete(): void
+    {
+        $cashier = Position::query()->create(['name' => 'CASHIER']);
+        $this->cooStaff->update(['position_id' => $cashier->id]);
+        $oldPeriod = now()->subMonthsNoOverflow(2)->startOfMonth()->addDays(2);
+        $oldUlsKpi = $this->makeKpi($this->ulsStaff, $oldPeriod->toDateString());
+
+        $this->actingAs($this->superAdmin);
+        Livewire::actingAs($this->superAdmin);
+
+        // Per posisi: semua KPI pemegang posisi SALES, lintas periode.
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('position', [$this->sharedPosition->id])
+            ->assertCanSeeTableRecords([$this->ulsKpi, $oldUlsKpi, $this->gmdKpi, $this->cooTeamKpi])
+            ->assertCanNotSeeTableRecords([$this->cooStaffKpi, $this->ownKpi, $this->managerTeamKpi]);
+
+        // Per karyawan (boleh lebih dari satu).
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('user', [$this->ulsStaff->id, $this->cooStaff->id])
+            ->assertCanSeeTableRecords([$this->ulsKpi, $oldUlsKpi, $this->cooStaffKpi])
+            ->assertCanNotSeeTableRecords([$this->gmdKpi, $this->cooTeamKpi]);
+
+        // Posisi + periode, lalu hapus massal hanya yang tersaring.
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('position', [$this->sharedPosition->id])
+            ->filterTable('period', $oldPeriod->format('Y-m'))
+            ->assertCanSeeTableRecords([$oldUlsKpi])
+            ->assertCanNotSeeTableRecords([$this->ulsKpi, $this->gmdKpi, $this->cooTeamKpi])
+            ->callTableBulkAction('delete', [$oldUlsKpi]);
+
+        $this->assertSoftDeleted($oldUlsKpi);
+        $this->assertNotSoftDeleted($this->ulsKpi);
+    }
+
+    public function test_table_filter_options_only_cover_kpis_listed_for_the_actor(): void
+    {
+        $cashier = Position::query()->create(['name' => 'CASHIER']);
+        $this->cooStaff->update(['position_id' => $cashier->id]);
+        $oldPeriod = now()->subMonthsNoOverflow(2)->startOfMonth()->addDays(2);
+        $this->makeKpi($this->gmdStaff, $oldPeriod->toDateString());
+        $current = now()->format('Y-m');
+
+        $this->actingAs($this->superAdmin);
+        $this->assertSame(
+            [$cashier->id => 'CASHIER', $this->sharedPosition->id => 'SALES'],
+            $this->invokeResource('positionFilterOptions'),
+        );
+        $this->assertSame([$current, $oldPeriod->format('Y-m')], array_keys($this->invokeResource('periodFilterOptions')));
+
+        // Admin badan usaha tertentu: posisi/periode/karyawan di luar cakupannya tidak muncul sebagai opsi.
+        $this->actingAs($this->scopedAdmin);
+        Livewire::actingAs($this->scopedAdmin);
+        $this->assertSame([$this->sharedPosition->id => 'SALES'], $this->invokeResource('positionFilterOptions'));
+        $this->assertSame([$current], array_keys($this->invokeResource('periodFilterOptions')));
+
+        // Nilai filter di luar cakupan tidak membuka KPI di luar cakupan.
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('position', [$cashier->id])
+            ->assertCanNotSeeTableRecords([$this->cooStaffKpi])
+            ->removeTableFilters()
+            ->filterTable('user', [$this->gmdStaff->id])
+            ->assertCanNotSeeTableRecords([$this->gmdKpi]);
+    }
+
     private function invokeListKpis(string $method): mixed
     {
         return (new ReflectionMethod(ListKpis::class, $method))->invoke(null);
