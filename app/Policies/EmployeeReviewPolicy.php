@@ -148,31 +148,19 @@ class EmployeeReviewPolicy
             return false;
         }
 
-        if ($owner instanceof User) {
-            return ! $owner->isAdmin();
-        }
-
-        return ! User::withTrashed()
-            ->whereKey($owner)
-            ->whereHas('role', fn (Builder $role) => $role->where('name', User::ROLE_ADMIN))
-            ->exists();
+        // Untuk id (pemilik tanpa relasi yang dimuat) hasilnya dimemo per request, termasuk akun yang dihapus.
+        return $owner !== null && ! DataAccessService::isAdminAccount($owner);
     }
 
     /**
-     * Pemilik record untuk cek cakupan. Pakai relasi user yang sudah dimuat (tabel memuatnya) agar tidak
-     * ada query per baris; selain itu user_id (relasi user tanpa withTrashed: pemilik yang dihapus = null).
+     * Pemilik record untuk cek cakupan: model User dari relasi yang sudah dimuat (user, atau trashedUser untuk
+     * pemilik yang dihapus; daftar memuat keduanya) agar tidak ada query per baris; selain itu user_id.
      */
     private static function ownerOf(EmployeeReview $employeeReview): User|int|null
     {
-        if (
-            $employeeReview->relationLoaded('user')
-            && $employeeReview->user instanceof User
-            && (int) $employeeReview->user->getKey() === (int) $employeeReview->user_id
-        ) {
-            return $employeeReview->user;
-        }
+        $owner = $employeeReview->ownerForAccessCheck();
 
-        return $employeeReview->user_id === null ? null : (int) $employeeReview->user_id;
+        return $owner instanceof User || $owner === null ? $owner : (int) $owner;
     }
 
     /**

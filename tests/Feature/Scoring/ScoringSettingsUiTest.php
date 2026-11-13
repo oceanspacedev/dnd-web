@@ -772,7 +772,7 @@ class ScoringSettingsUiTest extends TestCase
         $this->assertContains('Telat ≤ 30 menit: 1 poin/kejadian, kurangi rumus dasar', ScoringRulePresenter::componentSummaries(ScoringRuleService::forPeriode('2026-10')));
     }
 
-    public function test_component_table_checks_attendance_usage_once_per_row(): void
+    public function test_component_table_checks_attendance_usage_with_one_query_for_all_rows(): void
     {
         Livewire::actingAs($this->superAdmin);
 
@@ -792,11 +792,12 @@ class ScoringSettingsUiTest extends TestCase
             ->assertActionEnabled(TestAction::make('delete')->table($this->componentByCode('komp_a')));
         $initial = $scans;
 
-        // Satu pemindaian per komponen yang belum dipakai versi aturan (tampil, nonaktif, tooltip memakai hasil yang sama).
+        // Satu pemindaian untuk semua komponen yang belum dipakai versi aturan, bukan satu per baris (tampil,
+        // nonaktif, tooltip memakai hasil yang sama).
         $scans = 0;
         $page->call('$refresh');
-        $this->assertSame(3, $scans);
-        $this->assertLessThanOrEqual(6, $initial);
+        $this->assertSame(1, $scans);
+        $this->assertLessThanOrEqual(2, $initial);
     }
 
     public function test_only_unused_components_can_be_deleted(): void

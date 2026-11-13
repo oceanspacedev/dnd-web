@@ -4,13 +4,17 @@ namespace App\Providers;
 
 use App\Filament\Auth\Pages\EmailLogin;
 use App\Filament\Auth\Pages\PhoneLogin;
+use App\Models\ApprovalRule;
 use App\Models\AttendanceComponent;
+use App\Models\Divisi;
 use App\Models\KpiCategory;
 use App\Models\KpiDescription;
 use App\Models\ScoringRule;
+use App\Models\User;
 use App\Observers\KpiCategoryObserver;
 use App\Observers\KpiDescriptionObserver;
 use App\Observers\ScoringRuleCacheObserver;
+use App\Services\ApprovalResolverService;
 use App\Services\ApprovalScopeService;
 use App\Services\DataAccessService;
 use App\Services\ScoringRuleService;
@@ -31,6 +35,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         // Octane resets scoped bindings between requests and queue jobs.
+        $this->app->scoped(ApprovalResolverService::class);
         $this->app->scoped(ApprovalScopeService::class);
         $this->app->scoped(DataAccessService::class);
         $this->app->scoped(ScoringRuleService::class);
@@ -50,6 +55,14 @@ class AppServiceProvider extends ServiceProvider
         KpiCategory::observe(KpiCategoryObserver::class);
         ScoringRule::observe(ScoringRuleCacheObserver::class);
         AttendanceComponent::observe(ScoringRuleCacheObserver::class);
+
+        // Memo ApprovalResolverService (aturan aktif, atasan, dan kepala divisinya) hanya berlaku selama
+        // datanya tidak berubah di request yang sama.
+        foreach ([ApprovalRule::class, Divisi::class, User::class] as $model) {
+            $model::saved(static fn () => ApprovalResolverService::clearMemo());
+            $model::deleted(static fn () => ApprovalResolverService::clearMemo());
+        }
+        User::restored(static fn () => ApprovalResolverService::clearMemo());
 
         // Configure the application's Filament layout defaults.
         Table::configureUsing(fn (Table $table) => $table

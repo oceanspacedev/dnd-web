@@ -167,31 +167,19 @@ class AttendancePolicy
             return false;
         }
 
-        if ($owner instanceof User) {
-            return ! $owner->isAdmin();
-        }
-
-        return ! User::withTrashed()
-            ->whereKey($owner)
-            ->whereHas('role', fn (Builder $role) => $role->where('name', User::ROLE_ADMIN))
-            ->exists();
+        // Untuk id (pemilik tanpa relasi yang dimuat) hasilnya dimemo per request, termasuk akun yang dihapus.
+        return $owner !== null && ! DataAccessService::isAdminAccount($owner);
     }
 
     /**
-     * Pemilik record untuk cek cakupan. Pakai relasi user yang sudah dimuat (tabel memuatnya) agar tidak
-     * ada query per baris; selain itu user_id (relasi user tanpa withTrashed: pemilik yang dihapus = null).
+     * Pemilik record untuk cek cakupan: model User dari relasi yang sudah dimuat (user, atau trashedUser untuk
+     * pemilik yang dihapus; daftar memuat keduanya) agar tidak ada query per baris; selain itu user_id.
      */
     private static function ownerOf(Attendance $attendance): User|int|null
     {
-        if (
-            $attendance->relationLoaded('user')
-            && $attendance->user instanceof User
-            && (int) $attendance->user->getKey() === (int) $attendance->user_id
-        ) {
-            return $attendance->user;
-        }
+        $owner = $attendance->ownerForAccessCheck();
 
-        return $attendance->user_id === null ? null : (int) $attendance->user_id;
+        return $owner instanceof User || $owner === null ? $owner : (int) $owner;
     }
 
     /**

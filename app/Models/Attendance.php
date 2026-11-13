@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasOwnerForAccessCheck;
 use App\Services\ScoringRuleService;
 use App\Support\Scoring\AttendanceComponentData;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Attendance extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, HasOwnerForAccessCheck, SoftDeletes;
 
     /**
      * Kolom yang wajib ikut di-select bila skor kehadiran dihitung dari baris ini (countFor / scoringWorkDays,
