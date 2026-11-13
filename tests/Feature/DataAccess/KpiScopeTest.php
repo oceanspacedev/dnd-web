@@ -914,6 +914,45 @@ class KpiScopeTest extends TestCase
             ->assertCanNotSeeTableRecords([$this->gmdKpi]);
     }
 
+    public function test_supervisor_filter_covers_all_levels_below_the_supervisor(): void
+    {
+        // gmd_manager -> gmd_manager_team -> gmd_staff -> uls_staff (tiga tingkat di bawah manager).
+        $this->gmdStaff->update(['approval_id' => $this->managerTeam->id]);
+        $this->ulsStaff->update(['approval_id' => $this->gmdStaff->id]);
+        // Approval line melingkar tidak membuat penelusuran berulang tanpa henti.
+        $this->manager->update(['approval_id' => $this->ulsStaff->id]);
+        $managerKpi = $this->makeKpi($this->manager);
+        $this->resetAccessMemos();
+
+        $this->actingAs($this->superAdmin);
+        Livewire::actingAs($this->superAdmin);
+
+        $options = $this->invokeResource('supervisorFilterOptions');
+        $this->assertArrayHasKey($this->manager->id, $options);
+        $this->assertArrayHasKey($this->scopedAdmin->id, $options);
+        $this->assertArrayNotHasKey($this->cooStaff->id, $options);
+
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('supervisor', $this->manager->id)
+            ->assertCanSeeTableRecords([$this->managerTeamKpi, $this->gmdKpi, $this->ulsKpi])
+            ->assertCanNotSeeTableRecords([$managerKpi, $this->cooTeamKpi, $this->cooStaffKpi, $this->ownKpi])
+            ->removeTableFilters()
+            ->filterTable('supervisor', $this->gmdStaff->id)
+            ->assertCanSeeTableRecords([$this->ulsKpi, $managerKpi, $this->managerTeamKpi])
+            ->assertCanNotSeeTableRecords([$this->gmdKpi, $this->cooTeamKpi]);
+
+        // Admin badan usaha tertentu: filter atasan tidak membuka KPI di luar cakupannya.
+        $this->actingAs($this->scopedAdmin);
+        Livewire::actingAs($this->scopedAdmin);
+
+        Livewire::test(ListKpis::class)
+            ->loadTable()
+            ->filterTable('supervisor', $this->manager->id)
+            ->assertCanSeeTableRecords([$this->ulsKpi])
+            ->assertCanNotSeeTableRecords([$this->managerTeamKpi, $this->gmdKpi]);
+    }
+
     private function invokeListKpis(string $method): mixed
     {
         return (new ReflectionMethod(ListKpis::class, $method))->invoke(null);

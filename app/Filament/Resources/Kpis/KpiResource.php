@@ -626,6 +626,18 @@ class KpiResource extends Resource
                     ->multiple()
                     ->searchable()
                     ->preload(),
+                // Seluruh bawahan seorang atasan di approval line (semua tingkat), tanpa atasan itu sendiri.
+                SelectFilter::make('supervisor')
+                    ->label('Atasan (seluruh bawahan)')
+                    ->options(fn (): array => static::supervisorFilterOptions())
+                    ->searchable()
+                    ->query(function (Builder $query, array $data): Builder {
+                        $supervisorId = (int) ($data['value'] ?? 0);
+
+                        return $supervisorId > 0
+                            ? $query->whereIn('kpis.user_id', ApprovalScopeService::getAllSubordinateIds($supervisorId))
+                            : $query;
+                    }),
                 SelectFilter::make('kpi_category')
                     ->label('Kategori')
                     ->relationship('kpi_category', 'name')
@@ -829,6 +841,28 @@ class KpiResource extends Resource
                 ->select('position_id'))
             ->orderBy('name')
             ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Atasan (semua tingkat di approval line) dari pemilik KPI yang tampil di daftar aktor.
+     *
+     * @return array<int, string>
+     */
+    protected static function supervisorFilterOptions(): array
+    {
+        $ownerIds = static::listedKpiQuery()
+            ->toBase()
+            ->distinct()
+            ->pluck('kpis.user_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        return User::query()
+            ->withTrashed()
+            ->whereKey(ApprovalScopeService::getAllSupervisorIds($ownerIds))
+            ->orderBy('nama_lengkap')
+            ->pluck('nama_lengkap', 'id')
             ->all();
     }
 

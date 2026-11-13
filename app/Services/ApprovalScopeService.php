@@ -32,6 +32,85 @@ class ApprovalScopeService
     }
 
     /**
+     * Seluruh bawahan di approval line seorang atasan, semua tingkat ke bawah (tanpa dirinya sendiri).
+     * Karyawan soft-deleted ikut, karena datanya (mis. KPI) masih tampil dan perlu bisa disaring.
+     * Hanya untuk menyaring tampilan; bukan dasar hak akses.
+     *
+     * @return array<int>
+     */
+    public static function getAllSubordinateIds(int $supervisorId): array
+    {
+        $childrenOf = [];
+        foreach (self::approvalParentMap() as $userId => $approvalId) {
+            if ($approvalId !== null) {
+                $childrenOf[$approvalId][] = $userId;
+            }
+        }
+
+        $seen = [$supervisorId => true];
+        $queue = [$supervisorId];
+        $result = [];
+
+        while ($queue !== []) {
+            foreach ($childrenOf[array_shift($queue)] ?? [] as $childId) {
+                if (isset($seen[$childId])) {
+                    continue;
+                }
+
+                $seen[$childId] = true;
+                $result[] = $childId;
+                $queue[] = $childId;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Seluruh atasan (semua tingkat ke atas) dari kumpulan karyawan, tanpa duplikat.
+     *
+     * @param  array<int>  $userIds
+     * @return array<int>
+     */
+    public static function getAllSupervisorIds(array $userIds): array
+    {
+        $parentOf = self::approvalParentMap();
+        $supervisors = [];
+
+        foreach ($userIds as $userId) {
+            $seen = [(int) $userId => true];
+            $current = $parentOf[(int) $userId] ?? null;
+
+            // Berhenti di atasan yang sudah ditelusuri (rantainya sudah tercatat) atau saat approval line melingkar.
+            while ($current !== null && ! isset($seen[$current])) {
+                $seen[$current] = true;
+
+                if (isset($supervisors[$current])) {
+                    break;
+                }
+
+                $supervisors[$current] = true;
+                $current = $parentOf[$current] ?? null;
+            }
+        }
+
+        return array_keys($supervisors);
+    }
+
+    /**
+     * @return array<int, int|null> id karyawan => id atasan (approval line), termasuk karyawan soft-deleted
+     */
+    private static function approvalParentMap(): array
+    {
+        return User::query()
+            ->withTrashed()
+            ->toBase()
+            ->pluck('approval_id', 'id')
+            ->map(static fn ($approvalId): ?int => $approvalId === null ? null : (int) $approvalId)
+            ->all();
+    }
+
+    /**
      * @return array<int>
      */
     private function managedUserIdsOneLevelDown(int $supervisorId): array
